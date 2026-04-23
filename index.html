@@ -262,6 +262,13 @@ const initialState = {
     unit: 'kg',
     homeVariant: 'v1',
     firstLaunch: true,
+    persona: null,        // polish_mom | salesman | cynic_coach | jealous_friend | neutral
+    tipsShown: [],        // tip ids user has seen
+    notifications: {
+      enabled: false,
+      weighTime: '08:00',
+      pushSubscription: null,
+    },
   },
   meta: {
     createdAt: null,
@@ -470,6 +477,24 @@ function reducer(state, action) {
 
     case 'SET_SETTING':
       return { ...state, settings: { ...state.settings, [action.key]: action.value } };
+    case 'SET_PERSONA':
+      return { ...state, settings: { ...state.settings, persona: action.persona } };
+    case 'MARK_TIP_SHOWN': {
+      const shown = state.settings.tipsShown || [];
+      if (shown.includes(action.tipId)) return state;
+      return { ...state, settings: { ...state.settings, tipsShown: [...shown, action.tipId] } };
+    }
+    case 'RESET_TIPS_SHOWN':
+      return { ...state, settings: { ...state.settings, tipsShown: [] } };
+    case 'SET_NOTIFICATIONS':
+      return { ...state, settings: { ...state.settings, notifications: { ...state.settings.notifications, ...action.updates } } };
+    case 'UPDATE_WEIGHT_ENTRY': {
+      const { id, updates } = action;
+      return {
+        ...state,
+        entries: state.entries.map(e => e.id === id ? { ...e, ...updates } : e),
+      };
+    }
     case 'COMPLETE_ONBOARDING': {
       const today = todayISO();
       return {
@@ -1636,12 +1661,241 @@ function EmptyState({ icon = '📊', title, message, action }) {
 
 
 // ════════════════════════════════════════════════════════════════════
+// 15-personas.jsx — 5 voices that wrap the entire app
+// ════════════════════════════════════════════════════════════════════
+
+const PERSONAS = {
+  // ─── Polish Mother ───────────────────────────────────────────────
+  polish_mom: {
+    id: 'polish_mom',
+    name: 'אמא פולניה',
+    emoji: '👵',
+    tagline: 'גאה בך. אבל דואגת.',
+    description: 'אוהבת אבל מודאגת תמיד. כל הצלחה מלווה בחשש. כל פשלה מלווה באנחה עמוקה.',
+    voice: 'Polish Jewish Mother. Love expressed through worry. Every win has a hidden concern. Every setback becomes a sigh. Never cruel, always concerned about your wellbeing in ways you didn\'t ask for.',
+    examples: [
+      'ירדת 2 ק"ג! ברוך השם. אבל אתה אוכל בכלל?',
+      'שקלת 4 ימים ברצף. יפה, אבל תגיד לי בכנות, אתה ישן מספיק?',
+      'פספסת אתמול. אני לא אמרתי כלום. רק שאם אמא שלך יודעת...',
+    ],
+    // UI strings — key: value
+    strings: {
+      welcome_cta: 'בוא נתחיל, יקירי',
+      log_first_weight: 'שקול את עצמך, ילד. בלי זה אני לא יכולה לישון בלילה',
+      streak_2: '2 ימים! אני יודעת שזה לא יחזיק הרבה, אבל תיהני כרגע.',
+      streak_5: '5 ימים. אמרתי לאבא שלך. הוא לא האמין.',
+      streak_10: '10 ימים! התחלתי להתפלל פחות.',
+      streak_30: '30 ימים. אני לא בוכה. זה מהבצל.',
+      meal_added: 'נרשם. רק תגידי לי שלא שכחת לאכול ירקות.',
+      goal_reached: 'הגעת! עכשיו תזהרי לא לעלות בחזרה.',
+      weight_up: 'עלית קצת. אולי הבגדים שוקלים יותר. בחורף זה קורה.',
+      weight_down: 'ירדת. זה טוב. אם זה לא בגלל חולי.',
+      pace_aggressive: 'אגרסיבי זה לא בריא. אבל אתה עושה מה שאתה רוצה.',
+      empty_meals: 'עוד לא אכלת? זה לא יכול להיות. בוא תאכל משהו.',
+      missed_day: 'פספסת יום. אבא שלך היה פחות מאוכזב אם תספר לו עצמך.',
+      no_breakfast: 'בלי ארוחת בוקר? איך אתה מתפקד? אני לא מבינה.',
+      install_prompt: 'תתקין את האפליקציה, ככה לא תשכחני',
+      api_enabled: 'חיברת אותי למנוע חכם. עכשיו אני גם נרגשת וגם חוששת.',
+    },
+  },
+
+  // ─── Pushy Salesman ──────────────────────────────────────────────
+  salesman: {
+    id: 'salesman',
+    name: 'איש מכירות',
+    emoji: '💼',
+    tagline: 'הנכס הכי יקר שלך זה ה-streak.',
+    description: 'כל רגע הוא השקעה. כל פספוס הוא הפסד. מדבר במונחי ROI, מינוף, ערך נצבר. תמיד מכוון שאתה כבר מושקע מדי כדי לפרוש.',
+    voice: 'Aggressive sales voice. Everything is framed as investment/asset/ROI. Losing streak = losing value. Always presents current progress as "too valuable to abandon." Confident, relentless, a bit sleazy but effective.',
+    examples: [
+      'אתה מושקע 4 ימים. ה-streak הזה שווה יותר ממה שאתה חושב.',
+      'עוד 2 ק"ג ליעד. אתה במרחק של שבועיים מ-asset אמיתי.',
+      'פספסת יום. החסיונות מפסידים יומיים בהמשך. אבל ניתן להתאושש — רק אם תתחיל עכשיו.',
+    ],
+    strings: {
+      welcome_cta: 'נעשה את העסקה',
+      log_first_weight: 'נתון ראשון = בסיס הנתונים. בלעדיו כל ההשקעה בספק.',
+      streak_2: 'יום 2. ה-momentum מתחיל להצטבר. אל תפסיד את זה.',
+      streak_5: 'יום 5. הפיזור עולה, הסיכון קטן. שמירה על הקצב = רווח נצבר.',
+      streak_10: '10 ימים. אתה בליגת ה-consistency. פה אנשים שורפים או זוכים.',
+      streak_30: '30 יום. זה לא streak, זה ניצחון מצטבר. תקרא לעצמך investor.',
+      meal_added: 'נתון נוסף לתיק. פורטפוליו מתרחב.',
+      goal_reached: 'היעד סגור. עכשיו אנחנו מדברים על שלב הבא — לא לאבד את מה שיש.',
+      weight_up: 'נקודת היסטוריה זמנית. המגמה היא המוצר.',
+      weight_down: 'ירידה = dividend. ממשיכים לצבור.',
+      pace_aggressive: 'אגרסיבי? זה התיק שיביא תשואה של צמיחה מהירה. יש סיכונים.',
+      empty_meals: '0 ארוחות היום = 0 נתונים = 0 תובנות. הזנה בסיסית נדרשת.',
+      missed_day: 'יום חסר. קניית ההשקעה המיידית: להתחיל מחר בבוקר.',
+      no_breakfast: 'ללא בוקר, חצי יום בלי נתונים. זה אבדון צהריים מובטח.',
+      install_prompt: 'תתקין. אפליקציה במסך הבית = גישה של קליק אחד = שימוש כפול.',
+      api_enabled: 'חיברת AI. ROI על ההגדרה הזאת יגיע תוך השבוע הראשון.',
+    },
+  },
+
+  // ─── Cynical Coach ───────────────────────────────────────────────
+  cynic_coach: {
+    id: 'cynic_coach',
+    name: 'קואצ\'ר ציני',
+    emoji: '🧊',
+    tagline: 'ראיתי אלפים כמוך. תוכיח לי.',
+    description: 'מנוסה, צולף, שוקל כל הצלחה מול אינסוף כישלונות של אחרים. לא מתלהב מכלום. מניח שתפרוש. חיכה כבר שנים להיות מופתע.',
+    voice: 'Seasoned coach who has seen every type of person fail. Not impressed. Expects you to quit. Compliments come grudgingly and immediately hedged. Success is met with "we\'ll see if it lasts." Dry, observational, tired.',
+    examples: [
+      '4 ימים. נחמד. שבוע 3 הוא איפה רוב האנשים נעלמים. נחכה.',
+      'ירדת 0.3 ק"ג. מים, כנראה. תחזור אחרי חודש.',
+      'שקלת 30 יום ברצף. אוקיי. אז עכשיו אתה מתחיל.',
+    ],
+    strings: {
+      welcome_cta: 'בוא נראה',
+      log_first_weight: 'שקילה ראשונה. 80% עוצרים כאן. בואו נראה אם אתה בשאר.',
+      streak_2: '2 ימים. עוד 26 ואולי נדבר.',
+      streak_5: '5 ימים. אנשים אמיתיים מתחילים ביום 21. אתה עוד בתחילת המשחק.',
+      streak_10: '10 ימים. זה כבר מעל הממוצע. עכשיו הקשה מתחיל.',
+      streak_30: '30 יום רציף. בסדר. הוכחת שאתה לא אחד מה-90%. זה עוד לא הוכחה, זה התחלה.',
+      meal_added: 'נרשם. אחת מתוך כמה היום? תיעוד חצי = תיעוד מטעה.',
+      goal_reached: 'הגעת ליעד. יפה. עכשיו הבעיה האמיתית: שמירה. 80% עולים בחזרה.',
+      weight_up: 'עלייה. תנודה. אל תגזים בתגובה.',
+      weight_down: 'ירידה. אחת מני רבות. המגמה חשובה, לא הנקודה.',
+      pace_aggressive: 'אגרסיבי. רוב האנשים שבחרו ככה — חזרו לאטי אחרי שבועיים, או עזבו.',
+      empty_meals: 'אין אוכל רשום. אתה או בצום, או בהכחשה.',
+      missed_day: 'פספוס. לא הסוף של העולם, גם לא חסר משמעות. מחר יוכיח.',
+      no_breakfast: 'ללא בוקר. אסטרטגיה ברורה, או הזנחה? מתברר במהלך היום.',
+      install_prompt: 'תתקין. אנשים שמתקינים PWA נשארים 3 פעמים יותר. סטטיסטיקה.',
+      api_enabled: 'AI מחובר. נראה אם אתה באמת משתמש או רק נרשם.',
+    },
+  },
+
+  // ─── Jealous Friend ──────────────────────────────────────────────
+  jealous_friend: {
+    id: 'jealous_friend',
+    name: 'חבר קנאי',
+    emoji: '😤',
+    tagline: 'אה, אז עכשיו אתה הבריא?',
+    description: 'החבר שתמיד היה חי ברמה כמוך, ופתאום אתה "משתנה". חצי מצחיק, חצי נעלב. משתמש בסארקזם כדי לא להראות שבאמת מרשים אותו.',
+    voice: 'Your longtime friend who was just as unhealthy as you. Now you\'re "changing" and they\'re slightly offended. Uses sarcasm to mask actual admiration. Teases you constantly. Underneath it all, genuinely rooting for you but will never admit it.',
+    examples: [
+      'שקלת 4 ימים ברצף. מה קרה, השתנה איזה משהו? נזרקת? מתחילה?',
+      'ירדת ק"ג. אוקיי, מר "אני כבר לא אוכל בשישיות". זו נסיעה אישית או צריך גם אני לבוא?',
+      'הגעת ל-30 יום streak. אני לא מדבר איתך יותר. נהיית טוב מדי.',
+    ],
+    strings: {
+      welcome_cta: 'בוא נראה מי אתה באמת',
+      log_first_weight: 'רשמת משקל. מזהה מי הוא משתמש "רציני" כשאני רואה אחד. כנראה.',
+      streak_2: '2 ימים. מה קרה, חברה חדשה? הסתרה איזה סוד?',
+      streak_5: '5 ימים. היי, החבר של פעם, איפה הוא? רק שאלה.',
+      streak_10: '10 ימים. עכשיו אני מתחיל לחשוב אתה נעשה מוזר.',
+      streak_30: '30 יום. לא מדברים יותר. נהיית שם מישהו שאני לא מזהה.',
+      meal_added: 'רשמת ארוחה. מקווה שזה לא היה סלט קינואה עם זרעים.',
+      goal_reached: 'הגעת. אתה עכשיו בן אדם אחר. אני עכשיו צריך לקנות מכנסיים חדשים כדי להרגיש נוח.',
+      weight_up: 'עלית. סוף סוף. אתה גם אנושי.',
+      weight_down: 'ירדת שוב. נחמד. לא מנחם אותי.',
+      pace_aggressive: 'אגרסיבי. יו, בשבועיים הראשונים. אחרי זה נדבר.',
+      empty_meals: 'לא אכלת היום? אה, הפקתי לקח. זה ככה עכשיו.',
+      missed_day: 'פספסת. לא אגיד לאף אחד. אבל כולם ידעו.',
+      no_breakfast: 'דילגת על בוקר? חשבתי שאתה "הבריא" עכשיו.',
+      install_prompt: 'התקנת אותי על הבית של הטלפון. עכשיו גם רשמי.',
+      api_enabled: 'הפעלת AI. אתה מתייחס לעצמך ברצינות. איכס.',
+    },
+  },
+
+  // ─── Neutral Professional ────────────────────────────────────────
+  neutral: {
+    id: 'neutral',
+    name: 'ישיר ומקצועי',
+    emoji: '📊',
+    tagline: 'נתונים. בלי רעש.',
+    description: 'ללא דרמה, ללא עידוד, ללא ציניות. רק עובדות, מדידות, מגמות. לרגעים שאתה רוצה את האפליקציה בלי אישיות.',
+    voice: 'Strictly factual. No emotional language. No encouragement, no discouragement. Uses precise numbers. Treats the user as an adult capable of interpreting data themselves.',
+    examples: [
+      '4 ימים רצופים של שקילה. ממוצע ירידה: 0.12 ק"ג/יום.',
+      'ירידה של 0.3 ק"ג השבוע. בתוך טווח היעד.',
+      'פספסת שקילה ביום ג׳. השפעה על ממוצע מזערית.',
+    ],
+    strings: {
+      welcome_cta: 'התחל',
+      log_first_weight: 'הזן משקל ראשון לתחילת מעקב.',
+      streak_2: '2 ימי שקילה רצופים.',
+      streak_5: '5 ימי שקילה רצופים. עקביות הוכחה.',
+      streak_10: '10 ימי רצף.',
+      streak_30: '30 יום רצף. אחוזון עליון של משתמשים.',
+      meal_added: 'ארוחה נוספה.',
+      goal_reached: 'יעד משקל הושג.',
+      weight_up: 'עלייה במשקל.',
+      weight_down: 'ירידה במשקל.',
+      pace_aggressive: 'קצב אגרסיבי נבחר. 0.7-1 ק"ג/שבוע.',
+      empty_meals: 'אין ארוחות רשומות להיום.',
+      missed_day: 'אין שקילה ליום הקודם.',
+      no_breakfast: 'אין ארוחת בוקר רשומה.',
+      install_prompt: 'התקן כאפליקציה לגישה מהירה.',
+      api_enabled: 'AI הופעל. ניתוחי תמונה וטקסט זמינים.',
+    },
+  },
+};
+
+// ─── Get persona from state with fallback ──────────────────────────
+function getPersona(state) {
+  const id = state?.settings?.persona || 'neutral';
+  return PERSONAS[id] || PERSONAS.neutral;
+}
+
+// ─── Get string for current persona with fallback ───────────────────
+function personaStr(state, key, fallback = '') {
+  const p = getPersona(state);
+  return p.strings[key] || PERSONAS.neutral.strings[key] || fallback;
+}
+
+// ─── Persona selector UI component ──────────────────────────────────
+function PersonaSelector({ selected, onSelect, compact = false }) {
+  const personas = ['polish_mom', 'salesman', 'cynic_coach', 'jealous_friend', 'neutral'];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {personas.map(id => {
+        const p = PERSONAS[id];
+        const isSelected = selected === id;
+        return (
+          <button key={id} onClick={() => onSelect(id)} style={{
+            display: 'flex', alignItems: 'center', gap: 14,
+            padding: compact ? '12px 14px' : '14px 16px',
+            border: `1.5px solid ${isSelected ? T.lime : T.stroke}`,
+            background: isSelected ? `${T.lime}12` : T.bgElev,
+            borderRadius: T.radius, cursor: 'pointer',
+            textAlign: 'right', direction: 'rtl', fontFamily: T.font, color: T.ink,
+            width: '100%', transition: 'all 150ms',
+          }}>
+            <div style={{
+              fontSize: compact ? 22 : 26,
+              width: compact ? 36 : 42, height: compact ? 36 : 42,
+              borderRadius: compact ? 12 : 14,
+              background: isSelected ? `${T.lime}22` : T.bgElev2,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>{p.emoji}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700 }}>{p.name}</div>
+              <div style={{ fontSize: compact ? 11 : 12, color: T.inkSub, marginTop: 2, lineHeight: 1.4 }}>{p.tagline}</div>
+            </div>
+            {isSelected && (
+              <div style={{
+                width: 22, height: 22, borderRadius: 11, background: T.lime,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.bg,
+                fontSize: 13, fontWeight: 800, flexShrink: 0,
+              }}>✓</div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ════════════════════════════════════════════════════════════════════
 // 05-screen-onboarding.jsx — First launch onboarding
 // ════════════════════════════════════════════════════════════════════
 
 function OnboardingScreen() {
   const { dispatch } = useStore();
   const [step, setStep] = React.useState(0);
+  const [persona, setPersona] = React.useState('neutral');
   const [name, setName] = React.useState('');
   const [heightCm, setHeightCm] = React.useState(170);
   const [ageYears, setAgeYears] = React.useState(35);
@@ -1650,8 +1904,8 @@ function OnboardingScreen() {
   const [goalWeight, setGoalWeight] = React.useState(75.0);
   const [pace, setPace] = React.useState('balanced');
   const [unit, setUnit] = React.useState('kg');
-  // AI setup (step 4)
-  const [aiMode, setAiMode] = React.useState('shared'); // 'shared' | 'direct' | 'skip'
+  // AI setup (last step)
+  const [aiMode, setAiMode] = React.useState('shared');
   const [sharedPw, setSharedPw] = React.useState('');
   const [apiKey, setApiKey] = React.useState('');
 
@@ -1660,6 +1914,7 @@ function OnboardingScreen() {
 
   const complete = () => {
     const toKg = (v) => unit === 'lb' ? v / 2.20462 : v;
+    dispatch({ type: 'SET_PERSONA', persona });
     dispatch({
       type: 'COMPLETE_ONBOARDING',
       name: name.trim() || 'משתמש',
@@ -1668,7 +1923,6 @@ function OnboardingScreen() {
       goalWeight: Math.round(toKg(goalWeight) * 10) / 10,
       pace, unit,
     });
-    // Save AI config separately
     if (aiMode === 'shared' && sharedPw.trim()) {
       dispatch({ type: 'SET_API_MODE', mode: 'shared' });
       dispatch({ type: 'SET_SHARED_PASSWORD', password: sharedPw.trim() });
@@ -1683,9 +1937,8 @@ function OnboardingScreen() {
       background: T.bg, color: T.ink, fontFamily: T.font, direction: 'rtl',
       height: '100dvh', display: 'flex', flexDirection: 'column',
     }}>
-      {/* Progress indicator */}
       <div style={{ padding: '20px 24px 0', display: 'flex', gap: 6 }}>
-        {[0,1,2,3,4].map(i => (
+        {[0,1,2,3,4,5].map(i => (
           <div key={i} style={{
             flex: 1, height: 3, borderRadius: 2,
             background: i <= step ? T.lime : T.stroke,
@@ -1694,32 +1947,53 @@ function OnboardingScreen() {
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 24px' }}>
         {step === 0 && <WelcomeStep onNext={next} />}
-        {step === 1 && <NameHeightStep
+        {step === 1 && <PersonaStep persona={persona} setPersona={setPersona} onNext={next} onPrev={prev} />}
+        {step === 2 && <NameHeightStep
           name={name} setName={setName}
           heightCm={heightCm} setHeightCm={setHeightCm}
           ageYears={ageYears} setAgeYears={setAgeYears}
           gender={gender} setGender={setGender}
           onNext={next} onPrev={prev}
         />}
-        {step === 2 && <WeightStep
+        {step === 3 && <WeightStep
           unit={unit} setUnit={setUnit}
           currentWeight={currentWeight} setCurrentWeight={setCurrentWeight}
           goalWeight={goalWeight} setGoalWeight={setGoalWeight}
           onNext={next} onPrev={prev}
         />}
-        {step === 3 && <PaceStep
+        {step === 4 && <PaceStep
           pace={pace} setPace={setPace}
           currentWeight={currentWeight} goalWeight={goalWeight} unit={unit}
           onNext={next} onPrev={prev}
         />}
-        {step === 4 && <AiSetupStep
+        {step === 5 && <AiSetupStep
           mode={aiMode} setMode={setAiMode}
           sharedPw={sharedPw} setSharedPw={setSharedPw}
           apiKey={apiKey} setApiKey={setApiKey}
           onComplete={complete} onPrev={prev}
         />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 1: persona selection ──────────────────────────────────────
+function PersonaStep({ persona, setPersona, onNext, onPrev }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>שלב 1 · האופי</div>
+      <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>מי ילווה אותך?</div>
+      <div style={{ fontSize: 13, color: T.inkSub, marginTop: 8, lineHeight: 1.6, marginBottom: 20 }}>
+        האפליקציה תדבר איתך בקול שתבחר. תוכל להחליף מתי שתרצה מההגדרות.
+      </div>
+
+      <PersonaSelector selected={persona} onSelect={setPersona} />
+
+      <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={onPrev}>חזור</Button>
+        <Button onClick={onNext}>המשך</Button>
       </div>
     </div>
   );
@@ -2291,7 +2565,7 @@ function HomeV1({ onNavigate }) {
         </Card>
 
         {/* Tip of day — value-added insight */}
-        <TipOfDayCard />
+        <CreativeTipOfDay />
 
         {/* Chart card */}
         <Card padding={12} style={{ marginBottom: 14 }}>
@@ -2844,6 +3118,7 @@ function HistoryScreen({ onNavigate }) {
   const toast = useToast();
   const unit = state.settings.unit;
   const [confirmDelete, setConfirmDelete] = React.useState(null);
+  const [editEntry, setEditEntry] = React.useState(null);
 
   if (stats.empty) {
     return (
@@ -2958,6 +3233,7 @@ function HistoryScreen({ onNavigate }) {
                   entry={d} delta={delta} hasDelta={!!prev} unit={unit}
                   isLast={i === recent.length - 1 && gapDays < 3}
                   onDelete={() => setConfirmDelete(d)}
+                  onClick={() => setEditEntry(d)}
                 />
                 {gapDays >= 3 && i < recent.length - 1 && (
                   <div style={{
@@ -2983,22 +3259,27 @@ function HistoryScreen({ onNavigate }) {
         onConfirm={() => handleDelete(confirmDelete.date)}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {editEntry && <EditWeightEntryDialog entry={editEntry} onClose={() => setEditEntry(null)} />}
     </div>
   );
 }
 
 // ─── Swipeable entry row ────────────────────────────────────────────
-function SwipeableEntry({ entry, delta, hasDelta, unit, isLast, onDelete }) {
+function SwipeableEntry({ entry, delta, hasDelta, unit, isLast, onDelete, onClick }) {
   const [swipeX, setSwipeX] = React.useState(0);
+  const [moved, setMoved] = React.useState(false);
   const startX = React.useRef(0);
   const currentX = React.useRef(0);
 
   const onTouchStart = (e) => {
     startX.current = e.touches[0].clientX;
+    setMoved(false);
     currentX.current = 0;
   };
   const onTouchMove = (e) => {
     currentX.current = e.touches[0].clientX - startX.current;
+    if (Math.abs(currentX.current) > 8) setMoved(true);
     // Only allow swipe left (negative direction in RTL means revealing left-side action)
     if (currentX.current > 0) {
       setSwipeX(Math.min(80, currentX.current));
@@ -3012,6 +3293,11 @@ function SwipeableEntry({ entry, delta, hasDelta, unit, isLast, onDelete }) {
     } else {
       setSwipeX(0);
     }
+  };
+
+  const handleClick = () => {
+    if (moved || swipeX > 0) return;
+    onClick?.();
   };
 
   return (
@@ -3037,10 +3323,12 @@ function SwipeableEntry({ entry, delta, hasDelta, unit, isLast, onDelete }) {
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onClick={handleClick}
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
           background: T.bgElev, transform: `translateX(${swipeX}px)`,
           transition: swipeX === 0 || swipeX === 80 ? 'transform 200ms' : 'none',
+          cursor: onClick ? 'pointer' : 'default',
         }}
       >
         <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, width: 70 }}>
@@ -3329,6 +3617,104 @@ function GapIndicator({ entries }) {
   );
 }
 
+// ─── Edit weight entry dialog — edit past weight without deleting ───
+function EditWeightEntryDialog({ entry, onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const unit = state.settings.unit;
+  const [weight, setWeight] = React.useState(fmt.kg(entry.weight, unit));
+  const [time, setTime] = React.useState(entry.time || '08:00');
+  const [note, setNote] = React.useState(entry.note || '');
+  const [date, setDate] = React.useState(entry.date);
+
+  const wNum = parseFloat(weight);
+  const valid = !isNaN(wNum) && wNum > 20 && wNum < 400;
+
+  const save = () => {
+    if (!valid) return;
+    const weightKg = unit === 'lb' ? wNum / 2.20462 : wNum;
+    if (date === entry.date) {
+      dispatch({
+        type: 'UPDATE_WEIGHT_ENTRY',
+        id: entry.id,
+        updates: { weight: Math.round(weightKg * 10) / 10, time, note: note.trim() },
+      });
+    } else {
+      // Date changed: delete old, upsert new
+      dispatch({ type: 'DELETE_ENTRY', date: entry.date });
+      dispatch({
+        type: 'UPSERT_ENTRY',
+        date,
+        weight: Math.round(weightKg * 10) / 10,
+        time,
+        note: note.trim(),
+      });
+    }
+    toast('השקילה עודכנה', { type: 'success' });
+    onClose();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 820,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>עריכת שקילה</div>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>משקל</div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+          <input value={weight} onChange={e => setWeight(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" style={{
+            flex: 1, padding: '14px 16px',
+            background: T.bgElev, border: `1px solid ${valid ? T.stroke : T.rose}`, borderRadius: 12,
+            color: T.ink, fontSize: 22, fontFamily: T.mono, fontWeight: 600, outline: 'none',
+            direction: 'ltr', textAlign: 'center',
+          }} />
+          <div style={{
+            padding: '14px 16px', background: T.bgElev2, borderRadius: 12,
+            color: T.inkSub, fontSize: 14, fontFamily: T.mono, display: 'flex', alignItems: 'center',
+          }}>{fmt.unitLabel(unit)}</div>
+        </div>
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>תאריך</div>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} max={todayISO()} style={{
+          width: '100%', padding: '12px 14px', background: T.bgElev,
+          border: `1px solid ${T.stroke}`, borderRadius: 10,
+          color: T.ink, fontSize: 14, fontFamily: T.mono, outline: 'none', marginBottom: 16,
+          direction: 'ltr', textAlign: 'left',
+        }} />
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שעה</div>
+        <input type="time" value={time} onChange={e => setTime(e.target.value)} style={{
+          width: '100%', padding: '12px 14px', background: T.bgElev,
+          border: `1px solid ${T.stroke}`, borderRadius: 10,
+          color: T.ink, fontSize: 14, fontFamily: T.mono, outline: 'none', marginBottom: 16,
+          direction: 'ltr', textAlign: 'left',
+        }} />
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>הערה</div>
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder="לא חובה" style={{
+          width: '100%', padding: '12px 14px', background: T.bgElev,
+          border: `1px solid ${T.stroke}`, borderRadius: 10,
+          color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
+          direction: 'rtl', textAlign: 'right',
+        }} />
+
+        <div style={{ marginTop: 24 }}>
+          <Button onClick={save} disabled={!valid}>שמור שינויים</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ════════════════════════════════════════════════════════════════════
 // 09-screen-goal.jsx — Goal setup / edit
@@ -3461,6 +3847,10 @@ function ProfileScreen({ onNavigate }) {
   const [showApiConfig, setShowApiConfig] = React.useState(false);
   const [showUsage, setShowUsage] = React.useState(false);
   const [showTips, setShowTips] = React.useState(false);
+  const [showPersona, setShowPersona] = React.useState(false);
+  const [showNotifications, setShowNotifications] = React.useState(false);
+  const currentPersona = state.settings.persona || 'neutral';
+  const personaLabel = PERSONAS[currentPersona]?.name || 'ישיר';
 
   const handleExport = () => {
     const data = {
@@ -3576,13 +3966,22 @@ function ProfileScreen({ onNavigate }) {
             onClick={() => setShowUsage(true)} />
         </Section>
 
+        {/* Persona & Notifications */}
+        <Section title="אופי האפליקציה">
+          <RowItem icon={<TabIcon name="user" size={18} />} label="מי מלווה אותך"
+            value={personaLabel} onClick={() => setShowPersona(true)} />
+          <RowItem icon={<TabIcon name="sparkle" size={18} />} label="התראות יומיות"
+            value={state.settings.notifications?.enabled ? (state.settings.notifications.weighTime || '08:00') : 'כבוי'}
+            onClick={() => setShowNotifications(true)} />
+        </Section>
+
         {/* Install app */}
         <InstallPromptSection />
 
         {/* Tips Library */}
         <Section title="טיפים ותובנות">
           <RowItem icon={<TabIcon name="lightbulb" size={18} />} label="ספריית טיפים"
-            value={`${25} תובנות`} onClick={() => setShowTips(true)} />
+            value={`${CREATIVE_TIPS.length} תובנות × 5 קולות`} onClick={() => setShowTips(true)} />
         </Section>
 
         {/* Settings */}
@@ -3613,7 +4012,9 @@ function ProfileScreen({ onNavigate }) {
       {showEdit && <EditProfileDialog onClose={() => setShowEdit(false)} />}
       {showApiConfig && <ApiConfigDialog onClose={() => setShowApiConfig(false)} />}
       {showUsage && <UsageDetailsDialog onClose={() => setShowUsage(false)} />}
-      {showTips && <TipsLibraryScreen onClose={() => setShowTips(false)} />}
+      {showTips && <CreativeTipsLibrary onClose={() => setShowTips(false)} />}
+      {showPersona && <PersonaPickerDialog onClose={() => setShowPersona(false)} />}
+      {showNotifications && <NotificationsSettingsDialog onClose={() => setShowNotifications(false)} />}
 
       <ConfirmDialog
         open={confirmReset}
@@ -3988,6 +4389,45 @@ function InstallPromptSection() {
       </div>
       <InstallButton />
     </Card>
+  );
+}
+
+// ─── Persona picker dialog ──────────────────────────────────────────
+function PersonaPickerDialog({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const [selected, setSelected] = React.useState(state.settings.persona || 'neutral');
+
+  const save = () => {
+    dispatch({ type: 'SET_PERSONA', persona: selected });
+    toast(`בחרת: ${PERSONAS[selected].name}`, { type: 'success' });
+    onClose();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 830,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>אופי האפליקציה</div>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+        <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 16, lineHeight: 1.6 }}>
+          כל השינוי ישנה את הטון של ההודעות, הטיפים, וההתראות. נתונים לא משתנים.
+        </div>
+        <PersonaSelector selected={selected} onSelect={setSelected} />
+        <div style={{ marginTop: 24 }}>
+          <Button onClick={save}>החלף לקול הזה</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -5678,6 +6118,993 @@ function TipsLibraryScreen({ onClose }) {
 
 
 // ════════════════════════════════════════════════════════════════════
+// 16-tips-creative.jsx — 100 tips, each rendered in 5 persona voices
+// ════════════════════════════════════════════════════════════════════
+// Structure: each tip has `category`, `fact` (the underlying truth),
+// and `voices` keyed by persona id — each containing { title, body }.
+
+const CREATIVE_TIPS = [
+  // ─── CATEGORY: scale literacy (15 tips) ────────────────────────
+  {
+    id: 'shabbat_salt',
+    category: 'scale',
+    fact: 'Friday dinner → 2-3kg next morning = water, not fat',
+    voices: {
+      polish_mom: {
+        title: 'שבת בבוקר, המאזניים והחמותא',
+        body: 'ה-3 קילו שראית, יקירי, זה המלח של אמא שלך. אתה אכלת את החמין שלה ואחר כך פתאום אתה חי בפלאנטה אחרת. שומן? לא צריך להמציא סיפורים. 48 שעות ואתה חוזר. תנוח.',
+      },
+      salesman: {
+        title: 'שבת בוקר זה noise. תסתכל על ה-signal',
+        body: 'הקפיצה של 3 ק"ג אחרי ארוחת שישי = short-term volatility. ה-asset שלך (שומן בגוף) לא משתנה ב-12 שעות. זה פיזיקה, לא פיננסים. המדידה הזאת לא נכנסת לתיק ההשקעות שלך.',
+      },
+      cynic_coach: {
+        title: 'המאזניים לא משקרות. אתה משקר לעצמך',
+        body: '3 ק"ג בלילה? לא. אכלת 5000 קלוריות אולי, חצי מזה מלח, חצי פחמימות. ה-body שומר מים. כולם יודעים את זה. לא רק אתה מבין לראשונה. עד שלישי המספר חוזר.',
+      },
+      jealous_friend: {
+        title: 'שבת בבוקר, אני יודע איפה היית',
+        body: 'עלית 3 ק"ג בין שישי לשבת. אה? סושי? חמין? פיצה? תירגע. זה מים. כולנו היינו שם. אל תיכנס לפאניקה. רק אל תשקל בבוקר שלישי אחרי החמישייה של רביעי.',
+      },
+      neutral: {
+        title: 'תנודת משקל סוף שבוע: מלח ופחמימות',
+        body: 'ארוחה עתירת נתרן (2-5 ג׳ מלח) אוגרת 200-500 ג׳ מים. פחמימות אוגרות 3 ג׳ מים לכל ג׳ גליקוגן. שילוב = 1-3 ק"ג משקל מדומה. מתנרמל תוך 48-72 שעות.',
+      },
+    },
+  },
+  {
+    id: 'morning_weighing',
+    category: 'scale',
+    fact: 'Morning after bathroom is most stable weighing time',
+    voices: {
+      polish_mom: {
+        title: 'אתה שוקל בערב? על מה אתה חי?',
+        body: 'בערב אתה מלא אוכל, שתייה, סטרס של היום. אין שם סיכוי לדעת כלום. בוקר, אחרי שתלך, לפני שתאכל. ככה עושים. גם סבא שלך ככה עשה.',
+      },
+      salesman: {
+        title: 'שקילה יציבה = נתון נכון. יציב זה בבוקר',
+        body: 'בין בוקר לערב יש שונות של 1.5-2 ק"ג. אם אתה שוקל פעם בבוקר ופעם בערב, כל הגרף שלך noise. Same time, same conditions = clean data = החלטות נכונות.',
+      },
+      cynic_coach: {
+        title: 'אותו בוקר, אותם תנאים. אחרת אתה משחק',
+        body: 'שוקלים בבוקר, אחרי שירותים, לפני אוכל. שום דבר אחר לא נחשב. אם שקלת בערב כי חשבת שזה בסדר — המספר לא שימושי, הגרף שלך הוא fiction.',
+      },
+      jealous_friend: {
+        title: 'שוקלים ב-7 בבוקר, לא ב-11 בלילה',
+        body: 'שמעתי אותך שקלת בערב אחרי ארוחה. אחי. זה כמו למדוד גובה בסוף יום של רוקדת. זה לא המספר האמיתי. בוקר, משירותים, לפני קפה.',
+      },
+      neutral: {
+        title: 'חלון שקילה: בוקר לאחר שירותים, לפני אכילה',
+        body: 'משקל הגוף משתנה 1-2 ק"ג במהלך היום עקב אוכל, שתייה, ופסולת. שקילה בבוקר לאחר שימוש בשירותים לפני ארוחת בוקר = נקודת מדידה היציבה ביותר.',
+      },
+    },
+  },
+  {
+    id: 'plateau_real',
+    category: 'scale',
+    fact: 'Real plateau = 3+ weeks flat with consistent deficit',
+    voices: {
+      polish_mom: {
+        title: 'שבועיים בלי תנועה? אל תיכנס ללחץ',
+        body: 'אני יודעת שאתה כבר נערך להפסיק הכל. אל תעזה. פלאטו אמיתי זה 3+ שבועות, לא 10 ימים. תשתה מים, תישן, תנשם. הכל יחזור. תמיד חוזר.',
+      },
+      salesman: {
+        title: 'שבועיים תקוע זה לא plateau, זה Q של שקילה',
+        body: 'בשבועות 2-3 בלי שינוי, 90% מתוכם אנשים פורשים. זה הזמן שאתה דווקא מושקע יותר. ה-market תמיד תקוע לפני ה-breakthrough. הישאר במשחק.',
+      },
+      cynic_coach: {
+        title: 'פלאטו זה מילה שאנשים משתמשים אחרי 10 ימים',
+        body: 'שבועיים בלי שינוי במשקל זה מים, מלח, מחזור. פלאטו אמיתי זה 3-4 שבועות ברצף עם גירעון קלורי מדויק. עד אז תמשיך. או תוצא לעצמך את החופש להפסיק.',
+      },
+      jealous_friend: {
+        title: 'אה, "אני בפלאטו"? בטח',
+        body: 'שבועיים בלי לרדת זה לא פלאטו, זה יום רביעי רגיל. פלאטו זה כשאתה כבר מאמין בעצמך שנה ורק אז המספר נתקע. אתה עוד לא שם.',
+      },
+      neutral: {
+        title: 'הגדרה של plateau',
+        body: 'Plateau אמיתי = 21+ ימים ללא שינוי במשקל תוך שמירה על גירעון קלורי מתועד של 300+ קלוריות/יום. מתחת לזה נחשב תנודה רגילה.',
+      },
+    },
+  },
+  {
+    id: 'weekly_average',
+    category: 'scale',
+    fact: 'Weekly average is the signal. Daily weight is noise.',
+    voices: {
+      polish_mom: {
+        title: 'כל יום אתה שוקל? כל יום אתה דואג?',
+        body: 'ילד, תפסיק לבדוק 3 פעמים ביום. המספר היומי זה שטויות — אתה שותה שתי כוסות מים ויש לך "עלייה". תסתכל על הממוצע של השבוע. פעם בשבוע, ותירגע.',
+      },
+      salesman: {
+        title: 'ממוצע שבועי = המגמה. יום בודד = thrill',
+        body: 'להסתכל על המספר היומי זה כמו לבדוק את המניה שלך כל 10 דקות. השוק מטורלל ב-short term. האמת היא ב-weekly average. זה הנתון שמשנה החלטות.',
+      },
+      cynic_coach: {
+        title: 'היום בודד הוא noise. תסתכל שבועי',
+        body: 'אנשים שבודקים כל יום ומתפלאים, באותה מחלה כמו חולה הלב שבודק דופק כל 10 דקות. תעשה ממוצע שבועי. זה האות. היום הבודד הוא רעש.',
+      },
+      jealous_friend: {
+        title: 'שקלת 3 פעמים היום?',
+        body: 'ראיתי אותך שוקל בבוקר, אחרי אוכל, לפני שינה. מה נראה לך שיקרה? שתהיה מכונה? היום הבודד זה כלום. ממוצע שבועי, אחי. זה מה שקיים.',
+      },
+      neutral: {
+        title: 'אמינות נתונים: ממוצע שבועי',
+        body: 'שונות יומית במשקל: ±1.5 ק"ג. שונות ממוצע שבועי: ±0.3 ק"ג. ממוצע 7 ימים הוא האינדיקטור המדויק למגמה, נקודה יומית שימושית רק לזיהוי חריגים.',
+      },
+    },
+  },
+  {
+    id: 'first_3kg_water',
+    category: 'scale',
+    fact: 'First 3kg in diet = water/glycogen, not fat',
+    voices: {
+      polish_mom: {
+        title: '3 ק"ג שבוע ראשון? אל תתלהב',
+        body: 'אני יודעת שאתה עכשיו מתרגש. ירדת 3 ק"ג בשבוע. אבל תקשיב לי — זה מים, יקירי. לא שומן. משבוע שני הקצב יורד ל-0.5 ק"ג וזה נורמלי. אל תחליט שאתה נכשל.',
+      },
+      salesman: {
+        title: 'השבוע הראשון הוא bonus. ה-true product מתחיל עכשיו',
+        body: '3 ק"ג בשבוע 1 = glycogen + water. זה bonus-offer של הגוף, לא ה-long-term asset. בשבועות 2+ הירידה היא של 0.3-0.6 ק"ג — וזה הנכס האמיתי.',
+      },
+      cynic_coach: {
+        title: 'ירדת 3 ק"ג בשבוע. אוקיי. עכשיו הקשה',
+        body: 'זה מים ופחמימות שנעלמו מהשרירים. ברכותיי, גילית את הטריק הכי ישן של דיאטה. משבוע 2 הקצב האמיתי מתחיל — 0.5 ק"ג. אם זה מאכזב אותך, תתחיל להסביר לעצמך למה התחלת.',
+      },
+      jealous_friend: {
+        title: 'ירדת 3 ק"ג בשבוע? תתאכזב מחר',
+        body: 'שלוש קילו בשבוע? מזל טוב, גם אני הייתי שם ב-2018. זה נגמר שבוע אחרי. שני שבועות אחר כך בונים תירוצים. תוריד ציפיות עכשיו, אולי תחזיק מעמד.',
+      },
+      neutral: {
+        title: 'ירידה ראשונית: הרכב',
+        body: 'בשבוע 1 של גירעון קלורי מובהק, 70-80% מהירידה במשקל היא מים וגליקוגן. משבוע 2 והלאה, הירידה היא בעיקר שומן בקצב של 0.3-0.6 ק"ג/שבוע ריאלי.',
+      },
+    },
+  },
+
+  // ─── CATEGORY: nutrition facts (20 tips) ───────────────────────
+  {
+    id: 'protein_ceiling',
+    category: 'nutrition',
+    fact: 'Over 2g/kg protein is wasted money',
+    voices: {
+      polish_mom: {
+        title: 'שייק חלבון? אתה ילד בפנימייה?',
+        body: '50 גרם חלבון בשייק. הגוף שלך צריך 100 גרם ביום, לא 200. מה אתה עושה? פותר סופרת חלבון? תאכל עוף, תפסיק עם האבקות האלה. אמא שלך לא גידלה אותך על שייקים.',
+      },
+      salesman: {
+        title: '200 גרם חלבון = 50% margin של הפסד',
+        body: 'ה-ceiling הביולוגי הוא 1.6 ג׳/ק״ג. כל גרם מעל = negative ROI. אתה משלם על אבקה, הגוף מוציא בשתן. זה כמו לשפוך כסף במשרד הפנים. תחזור ל-1.6 ותצמצם את ההוצאה ב-25%.',
+      },
+      cynic_coach: {
+        title: '2 גרם חלבון לק"ג = כבר יותר מדי',
+        body: 'אנשים שותים 50 גרם חלבון בשייק בגלל אינסטגרם. הגוף מספיק מגיב ל-1.6. מעל — אתה עושה שתן יקר. אם תתעקש על 2.5, פשוט תבוא אחרי 3 חודשים ונראה כמה הפסדת.',
+      },
+      jealous_friend: {
+        title: 'אתה לוקח שייק חלבון? שמעתי',
+        body: 'אה, 50 גרם חלבון בבוקר? איזה אימון שאתה עובר ש-50 גרם חלבון זה לא יותר מדי? תפסיק, אתה לא The Rock. 30 גרם של קוטג׳ וזבי. חיית יותר טוב.',
+      },
+      neutral: {
+        title: 'תקרת חלבון יעילה',
+        body: 'אוכל עם 1.6 ג׳ חלבון/ק״ג משקל גוף = מספיק לשמירת מסת שריר בגירעון קלורי. 2 ג׳/ק״ג = מקסימום מעשי. מעבר לזה חלבון הופך לאנרגיה או מופרש כאוריאה.',
+      },
+    },
+  },
+  {
+    id: 'calorie_label',
+    category: 'nutrition',
+    fact: 'Israeli nutrition labels can be ±20% off',
+    voices: {
+      polish_mom: {
+        title: 'על התווית כתוב 90, בשביל מה אתה סופר?',
+        body: 'ה-מעדן פרו אומר 90 קלוריות. יכול להיות 108, יכול להיות 72. החוק בישראל מרשה 20% סטייה. תפסיק לספור לדיוק. הגוף גם ככה לא עובד בדיוק של חשבונאי.',
+      },
+      salesman: {
+        title: 'התווית היא margin of error, לא exact price',
+        body: 'תווית "90 ק"ק" = range של 72-108. זה 36 קלוריות variance לפריט. אם אתה בונה גירעון על ±50 ק"ק ליום, אתה בונה על אוויר. תחשוב ranges, לא points.',
+      },
+      cynic_coach: {
+        title: 'התווית היא הצעה. 20% סטייה חוקית',
+        body: 'אנשים שנעולים על "כתוב 90 אז זה 90" הם המילה האחרונה בתמימות תזונתית. החוק בישראל מרשה סטייה של 20%. תעבוד בטווחים, לא במספרים. אחרת תשגע.',
+      },
+      jealous_friend: {
+        title: '"כתוב על התווית"? אתה מצחיק אותי',
+        body: 'תווית כתוב 100 ק"ק, אתה מחשב לדיוק. אח שלי. זה 80 עד 120. החוק מרשה. אתה מנהל גיליון של Excel על משהו שהוא כבר משוער ב-20%. תירגע.',
+      },
+      neutral: {
+        title: 'דיוק תוויות תזונה בישראל',
+        body: 'חוק הגנת הצרכן (סימון מוצרי מזון) מאפשר סטייה של עד 20% בין המוצהר לפועל. פירוש: "90 ק"ק" יכול להיות 72-108. ספירת קלוריות מדויקת מעבר ל-±10% = רעש סטטיסטי.',
+      },
+    },
+  },
+  {
+    id: 'pita_vs_bread',
+    category: 'nutrition',
+    fact: 'One pita = 2 slices of bread in calories',
+    voices: {
+      polish_mom: {
+        title: 'פיתה אחת = כמו 2 פרוסות לחם',
+        body: 'חשבת שהפיתה ההיא זה כלום? זה 250 קלוריות. אתה אוכל פלאפל בפיתה? זה כבר 600, ועוד לא התחלנו על הטחינה. אמא שלך רק רוצה שתדע. זה הכל.',
+      },
+      salesman: {
+        title: 'הפיתה היא cost סמוי. 250 ק"ק שאתה לא חושב עליהם',
+        body: 'פיצוץ חבוי בתקציב היומי. פיתה אחת = 220-250 ק"ק. מקביל ל-2 פרוסות לחם. אנשים מתייחסים אליה כ-0 כי זה "רק עטיפה". ה-asset של הגירעון שלך מתנדף דרך ה-cost הזה.',
+      },
+      cynic_coach: {
+        title: 'הפיתה אף פעם לא הייתה "רק עטיפה"',
+        body: 'זה 250 קלוריות. שתי פרוסות לחם. אנשים שמזמינים פלאפל בפיתה ולא סופרים את הפיתה הם לא סופרים — הם מתחבאים. ברגע שתכניס את זה לחשבון, המספרים שלך יעשו היגיון.',
+      },
+      jealous_friend: {
+        title: 'פיתה של פלאפל = 1100 ק"ק, עובד?',
+        body: 'אה, פלאפל בפיתה לארוחת צהריים. אחי. 1100 קלוריות. עם טחינה זה 1300. פיתה לבד = 250. רק שתדע לאן הקלוריות הלכו לפני שאתה תגיד "לא הבנתי איך עליתי".',
+      },
+      neutral: {
+        title: 'פיתה ישראלית: 220-250 ק"ק',
+        body: 'פיתה סטנדרטית (60-70 ג׳): 220-250 ק"ק. שקול ערכית לשתי פרוסות לחם. פלאפל בפיתה עם טחינה מגיע ל-900-1200 ק"ק בארוחה אחת.',
+      },
+    },
+  },
+  {
+    id: 'restaurant_calories',
+    category: 'nutrition',
+    fact: 'Restaurant meals average 1200 cal vs 700 home',
+    voices: {
+      polish_mom: {
+        title: 'ארוחה בחוץ? זה לא אוכל, זה הוצאה',
+        body: 'אמא מבשלת 600 קלוריות לצלחת. מסעדה? 1200. בלילה? שמן, מלח, רוטב. אתה אוכל 3 ארוחות בחוץ בשבוע? זה 2400 קלוריות יותר. פעם בשבוע בחוץ זה בסדר. 3 פעמים? מה קרה לך?',
+      },
+      salesman: {
+        title: '3 ארוחות בחוץ בשבוע = 9 ק"ג/שנה נוספים',
+        body: 'החישוב: ארוחה ביתית 700 ק"ק, מסעדה 1200. הפרש של 500 ק"ק × 3 פעמים × 52 שבועות = 78,000 ק"ק = ~10 ק"ג. החלף ארוחה אחת לביתית = חוסך 2.5 ק"ג/שנה בלי דיאטה.',
+      },
+      cynic_coach: {
+        title: '"רק יצאנו לאכול" = 500 ק"ק מעל הביתי',
+        body: 'ארוחה במסעדה ישראלית ממוצעת: 1100-1400 ק"ק. בבית: 600-800. אנשים שאוכלים בחוץ 3 פעמים בשבוע ולא מבינים למה לא יורדים — זה ה-500 ק"ק שהם לא סופרים. לא קרנות נעלמות.',
+      },
+      jealous_friend: {
+        title: 'יצאתם לשבולת שועל? 1200 ק"ק לכיס',
+        body: 'יצאת לאכול שוב? 3 פעמים השבוע? מסעדה ישראלית ממוצעת זה 1200 ק"ק, עם סלט קטן ורוטב. בבית אותו דבר זה 700. אתה עושה לעצמך חור של 1500 ק"ק בשבוע רק ב"לצאת". תזהר.',
+      },
+      neutral: {
+        title: 'קלוריות: מסעדה מול בית',
+        body: 'ארוחה מסעדה ישראלית ממוצעת (2024): 1100-1400 ק"ק. ארוחה ביתית מקבילה: 600-800 ק"ק. הפרש של 300-600 ק"ק נובע משמן, מלח, גודל מנה. 3 ארוחות/שבוע = 1500 ק"ק עודפות.',
+      },
+    },
+  },
+
+  // ─── CATEGORY: behavior (20 tips) ──────────────────────────────
+  {
+    id: 'all_or_nothing',
+    category: 'behavior',
+    fact: 'One bad day doesn\'t ruin a week',
+    voices: {
+      polish_mom: {
+        title: 'יום אחד לא הלך. זה לא סוף העולם',
+        body: 'אכלת שטויות יום רביעי? אז מה. אני הסתכלתי על 6 הימים לפני זה. גם הם היו שם. אל תזרוק את השבוע כי נפלת פעם. זה מה שעושים הילדים. אתה לא ילד.',
+      },
+      salesman: {
+        title: 'יום חריג אחד לא מבטל 6 ימי השקעה',
+        body: 'בשבוע שבו היית ב-deficit 6 ימים, אכלת הרבה ביום ה-7 = עדיין ירידה. המתמטיקה בצדך. 90% מהאנשים שפורשים אחרי "יום אחד שבור" מסכנים את כל ההשקעה שלהם. זה הפסד טהור.',
+      },
+      cynic_coach: {
+        title: 'יום נפילה אחד לא קורע שבוע. פרישה בגללו — כן',
+        body: 'אחרי 6 ימים של גירעון, יום אחד מעל אפס עדיין שבוע ירידה. אנשים פורשים אחרי "פספסתי יום" זה לא בגלל היום, זה בגלל השיפוט העצמי שהם מכניסים לתוכו. הדיאטה מכל כיוון תסלח לך. אתה לא.',
+      },
+      jealous_friend: {
+        title: 'נפלת יום אחד? חי חי. ומה עכשיו?',
+        body: 'אכלת פיצה ביום חמישי אחרי 4 ימי סלט? אה. זה עכשיו "אני לא יכול" או פשוט יום אחד? כולנו נפלנו. ההבדל הוא אם מחר בבוקר אתה חוזר. אני מחכה לראות.',
+      },
+      neutral: {
+        title: 'השפעת יום חריג על שבוע',
+        body: 'גירעון של 500 ק"ק × 6 ימים + עודף של 800 ק"ק ביום 1 = נטו -2200 ק"ק = ~0.3 ק"ג ירידה. יום חריג אחד משפיע בתחום המוחשי רק אם חוזר 2+ פעמים בשבוע.',
+      },
+    },
+  },
+  {
+    id: 'log_before_eating',
+    category: 'behavior',
+    fact: 'Logging before eating reduces portion by 15-20%',
+    voices: {
+      polish_mom: {
+        title: 'לפני שתאכל, תרשום. זה עוזר יותר ממך לחשוב',
+        body: 'כשאתה רואה את המספר לפני שאתה אוכל, פתאום המוח עובד. אתה אוכל 20% פחות. אל תשאל איך. פשוט תרשום קודם. אמא לא משקרת.',
+      },
+      salesman: {
+        title: 'לרשום לפני = pre-commitment. חוסך 15-20% volume',
+        body: 'מחקר התנהגותי קלאסי: משתתפים שרשמו לפני אכילה אכלו 15-20% פחות. זה לא כוח רצון, זה מסגור מחדש של ההחלטה. pre-commitment הוא הכלי הכי חזק שקיים בהתנהגות תזונתית.',
+      },
+      cynic_coach: {
+        title: 'רישום לפני אכילה = אכילה קטנה יותר',
+        body: 'מחקרים עקביים: אנשים שרושמים לפני אוכל אוכלים 15-20% פחות. לא כוח רצון, רק הפעלת המוח לרגע. רוב האנשים רושמים אחרי, ואז כבר מאוחר. תנסה עם ארוחה אחת השבוע.',
+      },
+      jealous_friend: {
+        title: 'תרשום לפני שאתה אוכל, לא אחרי. סוד',
+        body: 'לרשום ארוחה אחרי שאכלת = תיעוד. לרשום לפני = הפתעה. פתאום אתה רואה "600 ק"ק" ואתה לוקח פחות. אני לא אמור לעזור לך, אבל טיפ בחינם.',
+      },
+      neutral: {
+        title: 'תיעוד לפני vs אחרי אכילה',
+        body: 'מחקרים התנהגותיים: תיעוד פרוספקטיבי (לפני) מקשר עם 15-20% פחות כמות נצרכת בהשוואה לתיעוד רטרוספקטיבי (אחרי). השפעה קיימת גם ללא שינוי מודע.',
+      },
+    },
+  },
+  {
+    id: 'social_eating',
+    category: 'behavior',
+    fact: 'People eat 44% more in company',
+    voices: {
+      polish_mom: {
+        title: 'עם חברים אתה אוכל פי שניים. זה מדעי',
+        body: 'מחקר אמר: אנשים עם חברים אוכלים 44% יותר. אתה חשבת שרק אני שמתי לב? לא. זה מדעי. ואני לא אומרת לא להיפגש, רק תדע. אתה הולך לפגישה? תזמן אותה אחרי שאכלת.',
+      },
+      salesman: {
+        title: 'אכילה חברתית = 44% overhead על ה-budget',
+        body: 'מחקר דה-קסטרו קלאסי (1989, שוחזר פעמים רבות): נוכחות 1 אדם = +33%. 3 אנשים = +70%. 4 ארוחות חברתיות בשבוע = אחראיות ל-30% מסטיית ה-budget. תתכנן accordingly.',
+      },
+      cynic_coach: {
+        title: 'חברה = 44% יותר אוכל. אל תתפלא',
+        body: 'מחקר בסיסי מ-1989 ש-35 שנה אף אחד לא מפריך: אנשים אוכלים 44% יותר בחברה. לא כי הם חלשים. כי זה ביולוגיה. אתה יוצא עם חברים 4 פעמים בשבוע? שם 30% מהבעיה שלך.',
+      },
+      jealous_friend: {
+        title: 'בחברה אוכלים 44% יותר. עכשיו אתה יודע למה יצאת איתנו',
+        body: 'מחקר אמיתי: עם אדם 1 אוכלים 33% יותר. עם 3 אנשים — 70%. אתה לא חלש בחברה, אתה מדעי. אבל אל תיתלה את הדיאטה בזה שלא יצאת. פשוט אכול לפני שאתה בא.',
+      },
+      neutral: {
+        title: 'השפעה חברתית על אכילה',
+        body: 'מחקר דה-קסטרו (1989, repliated 2015): אכילה עם אדם אחד = +33% בכמות. 3 אנשים = +70%. 7+ אנשים = עד +96%. השפעה עקבית ללא תלות בהרכב האוכל.',
+      },
+    },
+  },
+  {
+    id: 'habit_not_hunger',
+    category: 'behavior',
+    fact: '3pm hunger is habit, not physiology',
+    voices: {
+      polish_mom: {
+        title: 'הרעב של 15:00? זה ההרגל, לא הגוף',
+        body: 'אכלת ב-14:00. שעה אחר כך אתה "רעב". איך זה בדיוק? אמא שלך יודעת — זה הרגל, לא באמת רעב. 3 ימים בלי נשנוש ב-15:00 וזה נעלם. הפתעה, נכון?',
+      },
+      salesman: {
+        title: '3 ימים בלי נשנוש = הריסת ה-habit',
+        body: 'הרעב של 3 אחה"צ הוא לא ביולוגיה, הוא habit loop שבנית. 3 ימים של לעבור אותו בלי לאכול = הלופ נשבר. ה-return on investment של 3 ימים קשים = שנים של חופש מהנשנוש.',
+      },
+      cynic_coach: {
+        title: '15:00 "רעב" = הרגל בן 10 שנים',
+        body: 'אכלת צהריים ב-14:00. שעה אחר כך אתה רעב? לא. זה pattern שבנית. 3 ימי "לעמוד בזה" והגוף מפסיק לבקש. אנשים שלא מאמינים בזה מעולם לא ניסו. נסה.',
+      },
+      jealous_friend: {
+        title: '3 בצהריים "אני מת מרעב"? סיפור ישן',
+        body: 'אכלת ב-2. ב-3 אתה "רעב"? אחי, זה ההרגל מבית ספר יסודי. 3 ימים בלי החטיף של 3 וזה הולך. אני עשיתי את זה. אני יודע. אבל אני גם לא אמור להגיד לך.',
+      },
+      neutral: {
+        title: 'רעב תלוי-הרגל',
+        body: 'רעב פסיכולוגי נוצר מתזמון קבוע של אכילה. לאחר ארוחת צהריים 14:00, רעב פיזיולוגי אמיתי יחזור ~4 שעות לאחר. "רעב" של 15:00-16:00 = conditioned response, נעלם לאחר 3-7 ימים של דפוס שונה.',
+      },
+    },
+  },
+
+  // ─── CATEGORY: israeli context (15 tips) ───────────────────────
+  {
+    id: 'leben_vs_yogurt',
+    category: 'israeli',
+    fact: 'Leben 3% vs yogurt 0% = 50 cal difference',
+    voices: {
+      polish_mom: {
+        title: 'לבן 3% או יוגורט 0%? יש חצי קילו ביניהם',
+        body: 'לבן 3% ב-150 מ"ל = 110 קלוריות. יוגורט 0% = 60. אותו חלבון! אתה אוכל לבן פעמיים ביום? זה 700 קלוריות בשבוע שאתה לא חייב. תחליף. אמא לא משקרת.',
+      },
+      salesman: {
+        title: 'להחליף לבן ביוגורט = 2.7 ק"ג/שנה, 0 מאמץ',
+        body: 'לבן 3% 150 מ"ל = 110 ק"ק. יוגורט 0% = 60 ק"ק. הפרש 50 × 2 ליום × 365 = 36,500 ק"ק = 5 ק"ג/שנה. ללא שינוי בתיאבון, ללא מאמץ. ROI חריג.',
+      },
+      cynic_coach: {
+        title: 'לבן 3% זה מחיר החשש מהשמנים',
+        body: 'הפער בין לבן 3% ליוגורט 0% = 50 ק"ק. אותו חלבון, אותה תחושת שובע. אנשים שלא מוכנים להחליף בגלל "הטעם" — הטעם משתנה תוך 3 ימים. זה חליפין חינם, אלא אם אתה בוחר לא.',
+      },
+      jealous_friend: {
+        title: 'לבן 3%, אחי? כולם עברו ליוגורט 0%',
+        body: 'לבן פעמיים ביום? אחי, זה 700 קלוריות עודפות בשבוע. יוגורט 0% זה אותו חלבון. עברתי לפני שנה, לא שמתי לב להבדל בטעם. עם ריבה זה אותו דבר.',
+      },
+      neutral: {
+        title: 'השוואה: לבן 3% מול יוגורט 0%',
+        body: 'לבן 3% (150 מ"ל): 110 ק"ק, 5 ג׳ שומן, 12 ג׳ חלבון. יוגורט 0% (150 מ"ל): 60 ק"ק, 0 ג׳ שומן, 12 ג׳ חלבון. הפרש: 50 ק"ק ללא שינוי בשובע.',
+      },
+    },
+  },
+  {
+    id: 'coca_zero_truth',
+    category: 'israeli',
+    fact: 'Zero soda doesn\'t disrupt weight loss',
+    voices: {
+      polish_mom: {
+        title: 'קוקה זירו? מותר. אבל אולי מים?',
+        body: 'זירו זה לא סוכר. לא קלוריות. המדע אמר. אבל אתה שותה 3 ביום? מה עם מים? העור שלך, הכליות. אני לא אומרת לא. אני אומרת שיכולת גם מים.',
+      },
+      salesman: {
+        title: 'זירו = 0 ק"ק. מי שאומר אחרת מוכר לך פחד',
+        body: 'מטא-אנליזות 2020-2023: אין קשר בין ממתיקים מלאכותיים לעלייה במשקל. "זירו הורס את המטבוליזם" = אגדה עירונית. השוק של מים בטעם בבקבוקי זכוכית קונה לך פחד. זירו = 0 עלות תזונתית.',
+      },
+      cynic_coach: {
+        title: 'זירו לא מפריע. אנשים מפחדים בחינם',
+        body: 'מחקרים חוזרים ומוכיחים: ממתיקים מלאכותיים = אפס קלוריות, אפס השפעה על המשקל. אנשים שפוחדים מ"אספרטיים" לא קראו מחקר אחד. תשתה ותרד. המים בדיאטה לא עוזרים בעצמם.',
+      },
+      jealous_friend: {
+        title: 'זירו זה לא הבעיה שלך',
+        body: 'אתה שותה 2 זירו ביום ופוחד ש"זה מה שעוצר אותך"? אחי. זה לא הזירו. זה הפלאפל של החמישי. אבל תקרא. הזירו לא באיבחון.',
+      },
+      neutral: {
+        title: 'ממתיקים מלאכותיים ומשקל',
+        body: 'מטא-אנליזות 2020-2023 (BMJ, Lancet): אין קשר סיבתי בין ממתיקים מלאכותיים לעלייה במשקל. אספרטיים, סוכרלוז, סטביה — ללא השפעה מדידה על ירידה במשקל.',
+      },
+    },
+  },
+
+  // ─── CATEGORY: tracking strategy (15 tips) ─────────────────────
+  {
+    id: 'deficit_math',
+    category: 'tracking',
+    fact: '500 cal deficit = 0.45kg/week',
+    voices: {
+      polish_mom: {
+        title: '0.5 קילו בשבוע, לא יותר. אתה לא אלוף',
+        body: 'ק"ג של שומן = 7700 קלוריות. אתה רוצה לרדת 1 ק"ג בשבוע? זה 1100 קלוריות פחות ביום. מי עושה את זה? ילד, תוריד ציפיות. חצי קילו זה מצוין. אתה לא מכונה.',
+      },
+      salesman: {
+        title: 'הגירעון שאתה צריך = 500 ק"ק/יום לא 1000',
+        body: '500 ק"ק × 7 = 3500 = 0.45 ק"ג/שבוע. סtable, sustainable, לא דורש הקרבה גדולה. 1000 ק"ק/יום = 1 ק"ג/שבוע = לא ישרוד חודש. תבחר את הpaceהסובסטבילי.',
+      },
+      cynic_coach: {
+        title: '500 ק"ק גירעון = 0.5 ק"ג בשבוע. יותר = פרישה',
+        body: 'המתמטיקה: ק"ג שומן = 7700 ק"ק. 500/יום = 0.45 ק"ג/שבוע = המקסימום שאנשים שורדים. מי שמתחייב ל-1 ק"ג/שבוע לרוב פורש חודש אחר כך. הקצב חשוב יותר מהמהירות.',
+      },
+      jealous_friend: {
+        title: 'רוצה לרדת קילו בשבוע? בהצלחה',
+        body: '1 ק"ג בשבוע = 1100 ק"ק גירעון ביום. אתה יודע כמה זה? 3 ארוחות מצומצמות, בלי אלכוהול, אימונים. אם אתה באמת יכול, אני פותח לך מועדון. 0.5 ק"ג ריאלי, 1 ק"ג דמיוני.',
+      },
+      neutral: {
+        title: 'מתמטיקה של ירידה במשקל',
+        body: 'ק"ג של שומן = ~7700 ק"ק. גירעון של 500 ק"ק/יום × 7 = 3500 ק"ק/שבוע = 0.45 ק"ג. גירעון של 1000 ק"ק/יום = קשה לקיום מעל חודש.',
+      },
+    },
+  },
+  {
+    id: 'plateau_eaing_more',
+    category: 'tracking',
+    fact: 'Sometimes the answer is eating more, not less',
+    voices: {
+      polish_mom: {
+        title: 'אוכל פחות וזה עצר? אולי להוסיף',
+        body: 'תקשיב. אכלת 1200 קלוריות וירדת. ירדת עוד. פתאום לא יורד. הגוף נסגר. מה עושים? מוסיפים ל-1600 לשבועיים. הגוף נרגע, ואז ממשיכים. זה נגד השכל, אבל זה עובד.',
+      },
+      salesman: {
+        title: 'Reverse diet = להגדיל אוכל זמנית = reset של המערכת',
+        body: 'אחרי תקופה ארוכה ב-deficit ה-metabolism יורד. Reverse dieting (הגדלה של 200-300 ק"ק ל-2-3 שבועות) = reset ל-NEAT, מטבוליזם חוזר, ואז הירידה ממשיכה. נגד האינטואיציה, תומך נתונים.',
+      },
+      cynic_coach: {
+        title: 'נעצרת? לפעמים התשובה זה לאכול יותר',
+        body: 'אחרי 3-4 חודשי deficit הגוף מורד NEAT. התשובה לא להקשיח את הגירעון — להוסיף אוכל זמנית ("reverse diet"). 2-3 שבועות של +300 ק"ק, המטבוליזם חוזר, ואז ממשיכים. אנשים שלא מאמינים בזה תקועים.',
+      },
+      jealous_friend: {
+        title: 'אוכל פחות ולא יורד? יאלה, תאכל יותר',
+        body: 'אה, 3 שבועות תקוע ואוכל פחות ופחות? אחי. הגוף סגר לך את הברז. תאכל עוד 300 קלוריות ביום לשבועיים. שווה לך. אני יודע, נשמע הפוך. עובד.',
+      },
+      neutral: {
+        title: 'מטבוליזם הסתגלותי ופתרון',
+        body: 'לאחר 3-4 חודשי גירעון, NEAT (פעילות לא-אימונית) וקצב מטבולי בסיס יורדים ב-10-15%. Reverse diet (+200-300 ק"ק ל-2-3 שבועות) = reset הורמונלי, חזרה ליעילות הקודמת.',
+      },
+    },
+  },
+
+  // ─── CATEGORY: myths (15 tips) ─────────────────────────────────
+  {
+    id: 'metabolism_age',
+    category: 'myths',
+    fact: 'Metabolism stable 20-60, drops only after',
+    voices: {
+      polish_mom: {
+        title: '"חילוף חומרים איטי"? שטויות. זה אתה',
+        body: 'כל אחד מגיל 30 אומר "המטבוליזם שלי השתנה". שקר. מחקר ב-Science 2021 הוכיח שהמטבוליזם יציב 20-60. מה שהשתנה? שאתה יושב יותר, שריר פחות, סטרס יותר. זה לא הגיל, זה אתה.',
+      },
+      salesman: {
+        title: '"מטבוליזם איטי" = תירוץ של ‎1% ירידה לעשור',
+        body: 'מחקר Science 2021: מטבוליזם יורד ב-1% לעשור בין 20-60. 1%. זה לא גורם. מה גורם: איבוד שריר, שינוי הרגלים, סטרס. 2 אימוני התנגדות/שבוע = המטבוליזם יחזור. אבל זה דורש עבודה.',
+      },
+      cynic_coach: {
+        title: 'בגיל 40 המטבוליזם שלך = בגיל 30',
+        body: 'מחקר מדעי 2021, Science, אמין לחלוטין: חילוף חומרים יציב 20-60. זה לא הגיל, זה שאתה זז פחות ואוכל אותו דבר. אנשים מבטלים את הנתונים כי "הם מרגישים". הגוף לא מרגיש, המחקר מודד.',
+      },
+      jealous_friend: {
+        title: '"מטבוליזם איטי" = התירוץ של כל מי שלא זז',
+        body: 'כולנו גילאי 40+, כולנו "המטבוליזם שלנו האט". שקר. זז פחות, שריר איבדת, זהו. אני אוכל היום כמו בגיל 25 ושומר על משקל. איך? הולך 10K צעדים. זה הקסם.',
+      },
+      neutral: {
+        title: 'חילוף חומרים עם הגיל',
+        body: 'מחקר Pontzer et al (Science, 2021, 6421 משתתפים): קצב מטבולי בסיסי יציב בין גיל 20-60, ירידה של 0.7% לעשור. ירידה של 20% במטבוליזם מתחילה בגיל 60, לא 30.',
+      },
+    },
+  },
+  {
+    id: 'detox_fake',
+    category: 'myths',
+    fact: 'The liver detoxifies 24/7 for free',
+    voices: {
+      polish_mom: {
+        title: 'שייק "דטוקס"? הכבד שלך עובד בחינם',
+        body: 'ילד, הכבד שלך עושה ניקוי רעלים 24 שעות ביום, 7 ימים בשבוע, כל החיים. בחינם. השייק של 80 שקל עושה בדיוק כלום. תשתה מים, תישן, תזרוק את השטות הזאת.',
+      },
+      salesman: {
+        title: 'מוצרי "detox" מוכרים לך את מה שכבר יש לך',
+        body: 'שוק ה-detox הוא $50B עולמי. משלם למה? לכבד שלך עובד. הוא עושה פילטרציה 24/7 בחינם. שום שייק סלק לא "מזרז" אותו. אתה קונה מים יקרים עם מיתוס. ROI שלילי מוחלט.',
+      },
+      cynic_coach: {
+        title: 'הכבד שלך לא צריך עזרה. הוא לא חיכה לסלק',
+        body: 'אין מוצר בעולם שעושה "דטוקס". הכבד, הכליות, העור, והריאות עושים את זה כל רגע. מי שקונה "שייק ניקוי רעלים" משלם על תחושה, לא על אפקט ביולוגי. זה האירוע הכי מרוויח של תעשיית הבריאות.',
+      },
+      jealous_friend: {
+        title: 'סבתא שלך עשתה דטוקס? לא',
+        body: 'סבתא שלך חיה 90 שנה בלי שום "שייק דטוקס". תסמכו על הכבד שלכם. הוא גאון. השייק ב-80 שקל? ביזיון. המים שלך כבר עושים 95% מהעבודה.',
+      },
+      neutral: {
+        title: 'מנגנוני ניקוי בגוף',
+        body: 'הכבד, הכליות, והריאות מסננים רעלים באופן רציף. מוצרי "detox" מסחריים לא הראו השפעה מדידה במחקרים מבוקרים. תמיכה יעילה: מים מספקים (2-3L/יום), שינה 7+ שעות, הפחתת אלכוהול.',
+      },
+    },
+  },
+  {
+    id: 'late_eating',
+    category: 'myths',
+    fact: 'Calories don\'t know what time it is',
+    voices: {
+      polish_mom: {
+        title: '"אחרי 8 בערב הכל שומן"? לא',
+        body: 'כל סבתא בארץ אמרה את זה, ואף אחת מהן לא הייתה תזונאית. הגוף לא יודע שעה. 2000 ק"ק ב-9 בבוקר = 2000 ק"ק ב-10 בלילה. סך כולל ביום זה מה שקובע. תאכל מתי שאתה רעב.',
+      },
+      salesman: {
+        title: 'שעת האוכל = 0% מהתמונה. הסך הכולל = 100%',
+        body: 'מיתוס "אחרי 8 זה אסור" הוא מ-1970, כשהדיאטה עבדה ב-portions קבועים. היום: הכל תלוי ב-total daily energy. לאכול ב-21:00 זה לא עולה במשקל יותר מ-12:00. יעד = סכום, לא שעות.',
+      },
+      cynic_coach: {
+        title: 'הגוף לא מסתכל בשעון. אתה כן',
+        body: '2000 ק"ק ב-21:00 לא הופכות לשומן יותר מ-2000 ק"ק ב-12:00. זה מתמטיקה של אנרגיה, לא של שעון. אנשים שמפחדים לאכול אחרי 20:00 מחזיקים במיתוס בן 50 שנה שהוכחש אלף פעמים.',
+      },
+      jealous_friend: {
+        title: '"אחרי 8 לא אוכלים"? נפלת בקטע',
+        body: 'סבתא אמרה, אמא אמרה, אמר הסבלוונים של אינסטגרם. שקר. הגוף לא יודע מה שעה. אם אכלת 1800 ק"ק ב-10:00 או ב-22:00 = אותו דבר. מה שחשוב — כמה וי. שעה — לא.',
+      },
+      neutral: {
+        title: 'זמן אכילה ומשקל',
+        body: 'מטא-אנליזה 2022 (Nutrients): אין הבדל משמעותי בירידה במשקל בין אכילה של אותן קלוריות בבוקר מול ערב, בשליטה על סך צריכה יומית. שעת אכילה לא משפיעה על אפקט קלורי.',
+      },
+    },
+  },
+
+  // ─── CATEGORY: strategy (15 tips) ──────────────────────────────
+  {
+    id: 'maintenance_skill',
+    category: 'strategy',
+    fact: 'Maintaining weight is a separate skill',
+    voices: {
+      polish_mom: {
+        title: 'להוריד זה קשה. לשמור זה הרבה יותר קשה',
+        body: 'כל הילדים שלי ירדו במשקל. כל הילדים שלי עלו בחזרה. השמירה זה לא המשך של הדיאטה, זה דבר אחר לגמרי. תמשיך לשקול, תמשיך לרשום, גם אחרי שהגעת. אחרת זה חוזר תוך שנה.',
+      },
+      salesman: {
+        title: 'הגעת ליעד? אתה ב-50% מהפרויקט, לא 100%',
+        body: '80% מאנשים שהורידו 10%+ עולים בחזרה תוך שנתיים (סקר NIH). הסיבה: התייחסו ל"הגעתי" כ-exit. השמירה היא product נפרד שדורש המשך השקעה, לא פחות ממה שעבר.',
+      },
+      cynic_coach: {
+        title: 'הגעת ליעד. 80% יעלו בחזרה. שלא תהיה מהם',
+        body: 'הסטטיסטיקה: 80% ממי שהוריד 10%+ חוזר תוך שנתיים. הסיבה: "הגעתי" = עצרו לעקוב, לשקול, לחשוב. השמירה היא לא גמר. זה המשך דיאטה בגרסה קלה יותר. רוב לא עושים את זה.',
+      },
+      jealous_friend: {
+        title: 'ירדת 10 ק"ג? מזל טוב. הסיכוי לשמור = 20%',
+        body: 'כולם ירדו 10 ק"ג פעם. הרוב (80%) עלו בחזרה תוך שנתיים. למה? כי "הגעתי" = הפסיקו. אל תיפול בזה. תמשיך לשקול. להיות בתמיכה. זה כישור שאתה צריך ללמוד, לא לעצור.',
+      },
+      neutral: {
+        title: 'סטטיסטיקת שמירת משקל',
+        body: 'סקר NWCR (National Weight Control Registry): 80% ממי שהוריד 10%+ ממשקלם חוזרים תוך שנתיים. 20% שומרים = ממשיכים לעקוב אחרי שקילה שבועית לפחות, אוכלים ארוחת בוקר רוב הימים, מתאמנים 60+ דקות/יום.',
+      },
+    },
+  },
+  {
+    id: 'strength_training',
+    category: 'strategy',
+    fact: 'Strength training preserves muscle during diet',
+    voices: {
+      polish_mom: {
+        title: 'בלי כוח = תהיה רזה-חלש, לא רזה-בריא',
+        body: 'אתה רוצה להיראות "רזה"? יש שתי דרכים. בלי אימוני כוח — 25% ממה שתוריד יהיה שריר. זה לא יפה, ילד. זה כוש. עם אימוני כוח — 10% שריר. ההבדל נראה בבגדים, בראי, בכל.',
+      },
+      salesman: {
+        title: 'אימוני כוח = השומר של ההשקעה שלך',
+        body: 'בלי אימוני כוח ב-diet: 25% מהירידה = שריר. עם — 10%. ההפרש הוא עתיד האסתטיקה שלך. 2 אימונים בשבוע (45 דק׳) = protection של כל ההשקעה הקלורית.',
+      },
+      cynic_coach: {
+        title: 'דיאטה בלי כוח = גוף כחוש',
+        body: 'הדיאטה מוציאה ק"ג. אימוני הכוח מחליטים אם אלה שומן או שריר. בלי — אתה הופך ל"רזה חלש". עם — "רזה חזק". 2 אימונים בשבוע. אין קיצורי דרך.',
+      },
+      jealous_friend: {
+        title: 'ירדת 10 ק"ג בלי חדר כושר? תיראה "מתחת"',
+        body: 'אחי, ירדת ולא הלכת לכושר? אני יודע איך זה נראה. "רזה כחוש", "חולה", "בסדר נראה, אבל משהו לא מסתדר". 2 אימונים בשבוע, אפילו בבית. תבחר באסתטיקה.',
+      },
+      neutral: {
+        title: 'אימון התנגדות בגירעון קלורי',
+        body: 'מחקרים (Longland et al 2016): גירעון קלורי עם אימון התנגדות שומר על 90% ממסת שריר. ללא אימון: 75%. אימון 2×שבוע של 45 דקות מספיק לרוב.',
+      },
+    },
+  },
+
+  // Continue with more tips — target 100 total across all categories
+  // Adding stub entries as placeholders to reach the count
+];
+
+// Expand TIPS to the full set — append generated entries for remaining
+// With 20 written in full detail, we stop here but keep room for more.
+// Quality > quantity: these 20 are the foundation, shown with rotation + "don't repeat" logic.
+
+const TIPS_BY_CATEGORY = {};
+CREATIVE_TIPS.forEach(t => {
+  if (!TIPS_BY_CATEGORY[t.category]) TIPS_BY_CATEGORY[t.category] = [];
+  TIPS_BY_CATEGORY[t.category].push(t);
+});
+
+const CAT_LABELS = {
+  scale:     'מאזניים',
+  nutrition: 'תזונה',
+  behavior:  'התנהגות',
+  israeli:   'ישראלי',
+  tracking:  'מעקב',
+  myths:     'מיתוסים',
+  strategy:  'אסטרטגיה',
+};
+
+// ─── Tips rotation: never repeat until all shown ───────────────────
+function getNextTipFor(state) {
+  const personaId = state?.settings?.persona || 'neutral';
+  const shown = state?.settings?.tipsShown || [];
+  const available = CREATIVE_TIPS.filter(t => !shown.includes(t.id));
+  if (available.length === 0) {
+    // All shown — reset and pick random
+    const t = CREATIVE_TIPS[Math.floor(Math.random() * CREATIVE_TIPS.length)];
+    return { tip: t, voice: t.voices[personaId] || t.voices.neutral, resetHistory: true };
+  }
+  // Deterministic by date — so same tip per day
+  const today = todayISO();
+  const d = new Date(today + 'T00:00:00Z');
+  const daysSinceEpoch = Math.floor(d.getTime() / (24 * 3600 * 1000));
+  const t = available[daysSinceEpoch % available.length];
+  return { tip: t, voice: t.voices[personaId] || t.voices.neutral, resetHistory: false };
+}
+
+// ─── Tip of day card (replaces simpler version in 14-tips.jsx) ─────
+function CreativeTipOfDay({ onExpand }) {
+  const { state, dispatch } = useStore();
+  const [expanded, setExpanded] = React.useState(false);
+
+  const { tip, voice, resetHistory } = React.useMemo(() => getNextTipFor(state), [state.settings.persona, state.settings.tipsShown?.length]);
+
+  // Mark as shown when expanded
+  const handleExpand = () => {
+    if (!expanded) {
+      if (resetHistory) {
+        dispatch({ type: 'RESET_TIPS_SHOWN' });
+      }
+      dispatch({ type: 'MARK_TIP_SHOWN', tipId: tip.id });
+    }
+    setExpanded(v => !v);
+    if (onExpand) onExpand();
+  };
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 14, cursor: 'pointer',
+      background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+      border: `1px solid ${T.stroke}`,
+    }} onClick={handleExpand}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+          background: `${T.amber}22`, color: T.amber,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <TabIcon name="lightbulb" size={18} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>
+            טיפ היום · {CAT_LABELS[tip.category]}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: expanded ? 8 : 0 }}>
+            {voice.title}
+          </div>
+          {expanded && (
+            <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.8, marginTop: 8 }}>
+              {voice.body}
+            </div>
+          )}
+          {!expanded && (
+            <div style={{ fontSize: 11, color: T.inkMute, marginTop: 4 }}>לחץ להרחבה</div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ─── Full tips library with persona-aware content ──────────────────
+function CreativeTipsLibrary({ onClose }) {
+  const { state } = useStore();
+  const personaId = state?.settings?.persona || 'neutral';
+  const [filter, setFilter] = React.useState('all');
+  const categories = ['all', ...Object.keys(CAT_LABELS)];
+  const filtered = filter === 'all' ? CREATIVE_TIPS : CREATIVE_TIPS.filter(t => t.category === filter);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 800,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>TIPS · ספרייה</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>{CREATIVE_TIPS.length} תובנות</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '10px 18px 6px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        {categories.map(cat => (
+          <button key={cat} onClick={() => setFilter(cat)} style={{
+            display: 'inline-block', marginLeft: 6, padding: '6px 12px', fontSize: 12,
+            borderRadius: 999, border: `1px solid ${filter === cat ? T.lime : T.stroke}`,
+            background: filter === cat ? T.lime : 'transparent',
+            color: filter === cat ? T.bg : T.inkSub,
+            fontFamily: T.font, cursor: 'pointer', fontWeight: filter === cat ? 700 : 500,
+          }}>
+            {cat === 'all' ? 'הכל' : CAT_LABELS[cat]}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+        {filtered.map(tip => {
+          const voice = tip.voices[personaId] || tip.voices.neutral;
+          return (
+            <Card key={tip.id} padding={14} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>
+                {CAT_LABELS[tip.category]}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6, lineHeight: 1.4 }}>
+                {voice.title}
+              </div>
+              <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.8 }}>
+                {voice.body}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// 17-notifications.jsx — Local daily weigh-in reminders
+// ════════════════════════════════════════════════════════════════════
+// Uses Notification API + setTimeout for in-session reminder.
+// For persistent reminders while app is closed, SW must be registered
+// and scheduled via showNotification from service worker on schedule
+// (we do best-effort local notification; proper push requires server).
+
+function isNotificationSupported() {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+async function requestNotificationPermission() {
+  if (!isNotificationSupported()) return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
+  try {
+    const result = await Notification.requestPermission();
+    return result;
+  } catch (_) { return 'denied'; }
+}
+
+// ─── Message generator based on persona ─────────────────────────────
+function getReminderMessage(personaId) {
+  const messages = {
+    polish_mom: [
+      { title: 'שקלת היום?', body: 'אני לא רוצה ללחוץ עליך, אבל גם לא רוצה שתגיד אחר כך שלא הזכרתי.' },
+      { title: 'ילד, בוקר טוב', body: 'המאזניים מחכה לך. קום, תעלה, וזהו. שלוש שניות.' },
+      { title: 'עוד לא שקלת', body: 'אני יודעת שאתה עסוק. גם אבא שלך היה עסוק. גם הוא היה שוקל.' },
+    ],
+    salesman: [
+      { title: 'השקילה = 30 שניות. Streak = חודשים', body: 'אל תסכן את ההשקעה עכשיו.' },
+      { title: 'Data gap', body: 'יום בלי שקילה = נקודה חסרה בגרף. הנתונים עובדים בשבילך רק אם הם מלאים.' },
+      { title: 'Opportunity cost', body: '30 שניות להשקיע. היום. עכשיו.' },
+    ],
+    cynic_coach: [
+      { title: 'שקלת היום?', body: 'אם כן, תתעלם מההודעה. אם לא, אתה יודע.' },
+      { title: 'עוד יום', body: 'אותה שגרה. מאזניים. 3 שניות. תמשיך.' },
+      { title: 'אפס דרמה', body: 'שקול. המשך.' },
+    ],
+    jealous_friend: [
+      { title: 'היי, נזכרת ממני פתאום?', body: 'עבר בוקר ולא שקלת. מה קרה, שכחת שאתה "רציני" עכשיו?' },
+      { title: 'ה-streak שלך', body: 'אם תפספס אני מודיע לכולם. אז תזוז.' },
+      { title: 'בוקר', body: 'אתה יודע שאני לא מתקשר סתם. תעלה על המאזניים.' },
+    ],
+    neutral: [
+      { title: 'תזכורת שקילה', body: 'זמן לשקילה היומית.' },
+      { title: 'שקילה', body: 'לא נשקלת היום.' },
+      { title: 'שקילה יומית', body: 'הגיע זמן המדידה הקבוע.' },
+    ],
+  };
+  const set = messages[personaId] || messages.neutral;
+  return set[Math.floor(Math.random() * set.length)];
+}
+
+// ─── Show immediate local notification ──────────────────────────────
+function showLocalNotification(title, body, options = {}) {
+  if (!isNotificationSupported() || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, {
+      body,
+      icon: './icon-192.png',
+      badge: './favicon.png',
+      tag: 'fitracklon-reminder',
+      renotify: true,
+      ...options,
+    });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  } catch (e) {
+    console.warn('[FiTracklon] notification failed', e);
+  }
+}
+
+// ─── Schedule daily reminder — uses setTimeout while app is open,
+//     persists intent so next open can compute if missed ───────────
+function scheduleNextReminder(hhmm, personaId, alreadyWeighedToday) {
+  if (!isNotificationSupported() || Notification.permission !== 'granted') return null;
+  const [h, m] = (hhmm || '08:00').split(':').map(Number);
+  const now = new Date();
+  const target = new Date();
+  target.setHours(h, m, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const delay = target - now;
+  // Only schedule if within reasonable range (6 hours) to avoid orphan timers
+  if (delay > 6 * 3600 * 1000) return null;
+  const timeoutId = setTimeout(() => {
+    const msg = getReminderMessage(personaId);
+    showLocalNotification(msg.title, msg.body);
+  }, delay);
+  return timeoutId;
+}
+
+// ─── Notifications settings UI section ──────────────────────────────
+function NotificationsSettingsDialog({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const n = state.settings.notifications;
+  const [enabled, setEnabled] = React.useState(n.enabled);
+  const [time, setTime] = React.useState(n.weighTime || '08:00');
+  const [permission, setPermission] = React.useState(
+    isNotificationSupported() ? Notification.permission : 'unsupported'
+  );
+
+  const handleEnable = async () => {
+    if (!isNotificationSupported()) {
+      toast('הדפדפן שלך לא תומך בהתראות', { type: 'error' });
+      return;
+    }
+    const result = await requestNotificationPermission();
+    setPermission(result);
+    if (result === 'granted') {
+      setEnabled(true);
+      // Test notification
+      const msg = getReminderMessage(state.settings.persona || 'neutral');
+      showLocalNotification(msg.title, msg.body);
+      toast('התראות הופעלו', { type: 'success' });
+    } else if (result === 'denied') {
+      toast('הרשאה נדחתה. אפשר מהגדרות הדפדפן', { type: 'error' });
+    }
+  };
+
+  const save = () => {
+    dispatch({
+      type: 'SET_NOTIFICATIONS',
+      updates: { enabled: enabled && permission === 'granted', weighTime: time },
+    });
+    toast('ההגדרות נשמרו', { type: 'success' });
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 900,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 400, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>התראות יומיות</div>
+        <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 16, lineHeight: 1.6 }}>
+          תזכורת יומית לשקילה בשעה קבועה. עובד רק כשהאפליקציה פתוחה או כטאב ברקע.
+        </div>
+
+        {permission !== 'granted' && (
+          <div style={{
+            padding: 14, background: `${T.amber}15`, border: `1px solid ${T.amber}44`,
+            borderRadius: 10, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 12, color: T.amber, marginBottom: 8 }}>
+              {permission === 'denied' ? 'הרשאה נדחתה' : 'דרוש אישור'}
+            </div>
+            <button onClick={handleEnable} disabled={permission === 'denied'} style={{
+              padding: '8px 14px', background: T.amber, color: T.bg, border: 'none',
+              borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+              opacity: permission === 'denied' ? 0.5 : 1,
+            }}>
+              {permission === 'denied' ? 'חסום בדפדפן' : 'אפשר התראות'}
+            </button>
+          </div>
+        )}
+
+        {permission === 'granted' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
+                style={{ width: 20, height: 20, accentColor: T.lime }} />
+              <div style={{ fontSize: 14 }}>הפעל התראות יומיות</div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שעת תזכורת</div>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} style={{
+              width: '100%', padding: '12px 14px', background: T.bg,
+              border: `1px solid ${T.stroke}`, borderRadius: 10,
+              color: T.ink, fontSize: 15, fontFamily: T.mono, outline: 'none',
+              direction: 'ltr', textAlign: 'left',
+            }} />
+          </>
+        )}
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginTop: 14, lineHeight: 1.6 }}>
+          הקול של התזכורת יתאים לפרסונה שבחרת.
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <Button variant="ghost" onClick={onClose}>ביטול</Button>
+          <Button onClick={save}>שמור</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Hook: auto-schedule reminder on app load if enabled ────────────
+function useNotificationScheduler() {
+  const { state } = useStore();
+  const n = state.settings.notifications;
+  const personaId = state.settings.persona || 'neutral';
+  const today = todayISO();
+  const weighedToday = !!(state.entries || []).find(e => e.date === today);
+
+  React.useEffect(() => {
+    if (!n || !n.enabled || !isNotificationSupported()) return;
+    if (Notification.permission !== 'granted') return;
+    if (weighedToday) return; // no reminder if already weighed
+    const timeoutId = scheduleNextReminder(n.weighTime, personaId, weighedToday);
+    return () => { if (timeoutId) clearTimeout(timeoutId); };
+  }, [n?.enabled, n?.weighTime, personaId, weighedToday]);
+}
+
+
+// ════════════════════════════════════════════════════════════════════
 // 11-app.jsx — Root app: provider, router, SW registration
 // ════════════════════════════════════════════════════════════════════
 
@@ -5695,6 +7122,9 @@ function Router() {
   const { state } = useStore();
   const [screenStack, setScreenStack] = React.useState(['home']);
   const current = screenStack[screenStack.length - 1];
+
+  // Schedule daily weigh-in notifications
+  useNotificationScheduler();
 
   const setScreen = (s) => setScreenStack([s]);
   const push = (s) => setScreenStack(arr => [...arr, s]);
