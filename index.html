@@ -223,19 +223,22 @@ const initialState = {
   },
   // entries: { 'YYYY-MM-DD': { weight: kg, time: 'HH:mm', note: string, createdAt: iso } }
   entries: {},
-  // nutrition: goals + meals keyed by date
+  // nutrition: goals + meals + favorites keyed by date
   nutrition: {
     goals: {
-      calories: null,    // daily target
-      protein: null,     // grams
+      calories: null,
+      protein: null,
       carbs: null,
       fat: null,
-      source: 'auto',    // 'auto' | 'manual' — if auto, recalc when weight/goal change
+      source: 'auto',
     },
     // meals: { 'YYYY-MM-DD': [ { id, time, description, calories, protein, carbs, fat, source, thumbnail?, aiNotes?, items?, createdAt } ] }
     meals: {},
+    // favorites: { favoriteId: { description, calories, protein, carbs, fat, useCount, lastUsed, thumbnail? } }
+    // Keyed by normalized description; auto-populated from saved meals
+    favorites: {},
   },
-  // Claude API config — supports both BYO key (direct) and shared password (proxy)
+  // תובנות AI config — supports both BYO key (direct) and shared password (proxy)
   apiConfig: {
     mode: 'direct',        // 'direct' (BYO API key) | 'shared' (proxy + password)
     key: '',               // personal Anthropic API key
@@ -288,6 +291,7 @@ function loadState() {
         ...(parsed.nutrition || {}),
         goals: { ...initialState.nutrition.goals, ...((parsed.nutrition || {}).goals || {}) },
         meals: (parsed.nutrition || {}).meals || {},
+        favorites: (parsed.nutrition || {}).favorites || {},
       },
       apiConfig: { ...initialState.apiConfig, ...(parsed.apiConfig || {}) },
       usage: {
@@ -354,14 +358,35 @@ function reducer(state, action) {
     case 'ADD_MEAL': {
       const { date, meal } = action;
       const existing = state.nutrition.meals[date] || [];
+      const newMeal = { ...meal, id: meal.id || uid(), createdAt: new Date().toISOString() };
+
+      // Track as favorite (normalized description key)
+      const favKey = (meal.description || '').trim().toLowerCase();
+      const favs = { ...state.nutrition.favorites };
+      if (favKey) {
+        const prev = favs[favKey];
+        favs[favKey] = {
+          description: meal.description.trim(),
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fat: meal.fat,
+          thumbnail: meal.thumbnail || prev?.thumbnail || null,
+          useCount: (prev?.useCount || 0) + 1,
+          lastUsed: new Date().toISOString(),
+          firstUsed: prev?.firstUsed || new Date().toISOString(),
+        };
+      }
+
       return {
         ...state,
         nutrition: {
           ...state.nutrition,
           meals: {
             ...state.nutrition.meals,
-            [date]: [...existing, { ...meal, id: meal.id || uid(), createdAt: new Date().toISOString() }],
+            [date]: [...existing, newMeal],
           },
+          favorites: favs,
         },
       };
     }
@@ -374,10 +399,15 @@ function reducer(state, action) {
           ...state.nutrition,
           meals: {
             ...state.nutrition.meals,
-            [date]: existing.map(m => m.id === mealId ? { ...m, ...updates } : m),
+            [date]: existing.map(m => m.id === mealId ? { ...m, ...updates, updatedAt: new Date().toISOString() } : m),
           },
         },
       };
+    }
+    case 'REMOVE_FAVORITE': {
+      const favs = { ...state.nutrition.favorites };
+      delete favs[action.favKey];
+      return { ...state, nutrition: { ...state.nutrition, favorites: favs } };
     }
     case 'DELETE_MEAL': {
       const { date, mealId } = action;
@@ -582,6 +612,32 @@ function bmiInfo(kg, heightCm) {
   return { bmi, category, color };
 }
 
+// ─── Collect recent meals for quick-add (no Claude call needed) ─────
+// Returns most recent unique meals (by description) from the past N days
+function collectRecentMeals(nutritionMeals, maxCount = 12, daysBack = 21) {
+  const today = todayISO();
+  const cutoff = addDaysISO(today, -daysBack);
+  const all = [];
+  for (const [date, meals] of Object.entries(nutritionMeals)) {
+    if (date < cutoff) continue;
+    for (const m of meals) {
+      all.push({ ...m, _sourceDate: date });
+    }
+  }
+  all.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  // Dedupe by description
+  const seen = new Set();
+  const out = [];
+  for (const m of all) {
+    const key = (m.description || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+    if (out.length >= maxCount) break;
+  }
+  return out;
+}
+
 // ─── Pace recommendations ───────────────────────────────────────────
 const PACE_CONFIG = {
   slow:       { label: 'איטי · בריא',    kgPerWeek: 0.3, color: T.cyan },
@@ -648,6 +704,35 @@ function sumMealsForDay(meals) {
     fat:      acc.fat      + (m.fat || 0),
     count:    acc.count    + 1,
   }), { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 });
+}
+
+// ─── Nutrition streak: consecutive days with at least 1 meal logged ──
+function nutritionStreak(mealsByDay) {
+  const today = todayISO();
+  let streak = 0;
+  let cursor = today;
+  while (true) {
+    const meals = mealsByDay[cursor];
+    if (!meals || meals.length === 0) {
+      // Allow today to be empty without breaking streak
+      if (cursor === today) { cursor = addDaysISO(cursor, -1); continue; }
+      break;
+    }
+    streak++;
+    cursor = addDaysISO(cursor, -1);
+    if (streak > 365) break; // sanity
+  }
+  return streak;
+}
+
+// ─── Sorted favorites (most used first, recent wins ties) ───────────
+function sortedFavorites(favoritesMap, limit = 20) {
+  const arr = Object.entries(favoritesMap || {}).map(([key, f]) => ({ key, ...f }));
+  arr.sort((a, b) => {
+    if (b.useCount !== a.useCount) return b.useCount - a.useCount;
+    return (b.lastUsed || '').localeCompare(a.lastUsed || '');
+  });
+  return arr.slice(0, limit);
 }
 
 // ─── Gap-aware weight stats helpers ──────────────────────────────────
@@ -1100,18 +1185,213 @@ function TabBar({ active = 'home', onChange }) {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
+// Tab icons — modern Lucide-style stroke SVGs
+// ════════════════════════════════════════════════════════════════════
+
 function TabIcon({ name, size = 18 }) {
-  const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' };
   switch (name) {
-    case 'home':  return <svg {...p}><path d="M3 10l9-7 9 7v10a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2z"/></svg>;
-    case 'plus':  return <svg {...p} strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>;
-    case 'chart': return <svg {...p}><path d="M3 20h18M6 16l4-6 4 3 5-8"/></svg>;
-    case 'apple': return <svg {...p}><path d="M12 7c0-2 1-4 3-5 0 2-1 4-3 5zM5.5 13c0-4 3-6 6-6 1.5 0 2.5.5 3 1 .5-.5 1.5-1 3-1 3 0 6 2 6 6 0 5-3 9-6 9-1 0-1.5-.5-2.5-.5s-1.5.5-2.5.5c-3 0-6-4-6-9z" transform="translate(-2 0)"/></svg>;
-    case 'user':  return <svg {...p}><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>;
-    case 'settings': return <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;
-    case 'target': return <svg {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>;
+    case 'home':
+      return <svg {...p}>
+        <path d="M3 10.5L12 3l9 7.5"/>
+        <path d="M5 9.5V20a1 1 0 001 1h3.5v-6h5v6H18a1 1 0 001-1V9.5"/>
+      </svg>;
+    case 'plus':
+      return <svg {...p} strokeWidth="2.2"><path d="M12 5v14M5 12h14"/></svg>;
+    case 'chart':
+      return <svg {...p}>
+        <path d="M3 20h18"/>
+        <rect x="5" y="13" width="3" height="7" rx="1"/>
+        <rect x="10.5" y="8" width="3" height="12" rx="1"/>
+        <rect x="16" y="4" width="3" height="16" rx="1"/>
+      </svg>;
+    case 'apple':
+      return <svg {...p}>
+        <path d="M12 6c-1-1-2.5-1.5-4-1C6 5.5 4 7.5 4 11c0 5 3 10 5.5 10 1 0 1.5-0.5 2.5-0.5s1.5 0.5 2.5 0.5c2.5 0 5.5-5 5.5-10 0-3.5-2-5.5-4-6-1.5-0.5-3 0-4 1z"/>
+        <path d="M14 2c1 0 2 1 2 2 0 1-1 2-2 2"/>
+      </svg>;
+    case 'user':
+      return <svg {...p}>
+        <circle cx="12" cy="8" r="3.5"/>
+        <path d="M4.5 21c0-4 3.5-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/>
+      </svg>;
+    case 'settings':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+      </svg>;
+    case 'target':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <circle cx="12" cy="12" r="5"/>
+        <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+      </svg>;
+    case 'download':
+      return <svg {...p}>
+        <path d="M12 3v13M7 11l5 5 5-5M5 21h14"/>
+      </svg>;
+    case 'share':
+      return <svg {...p}>
+        <path d="M12 3v13M8 7l4-4 4 4M5 14v5a2 2 0 002 2h10a2 2 0 002-2v-5"/>
+      </svg>;
+    case 'sparkle':
+      return <svg {...p}>
+        <path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6z"/>
+      </svg>;
     default: return null;
   }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// PWA Install Prompt — singleton capture + React hook
+// ════════════════════════════════════════════════════════════════════
+
+const _installState = {
+  canInstall: false,
+  isInstalled: false,
+  isIOS: false,
+  prompt: null,
+};
+const _installSubs = new Set();
+
+if (typeof window !== 'undefined') {
+  _installState.isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent || '') && !window.MSStream;
+  _installState.isInstalled =
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+    !!window.navigator.standalone;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    _installState.prompt = e;
+    _installState.canInstall = true;
+    _installSubs.forEach(fn => fn({ ..._installState }));
+  });
+
+  window.addEventListener('appinstalled', () => {
+    _installState.isInstalled = true;
+    _installState.canInstall = false;
+    _installState.prompt = null;
+    _installSubs.forEach(fn => fn({ ..._installState }));
+  });
+}
+
+function useInstallPrompt() {
+  const [st, setSt] = React.useState({ ..._installState });
+  React.useEffect(() => {
+    const fn = (s) => setSt(s);
+    _installSubs.add(fn);
+    return () => _installSubs.delete(fn);
+  }, []);
+
+  const install = async () => {
+    if (!st.prompt) return false;
+    try {
+      st.prompt.prompt();
+      const res = await st.prompt.userChoice;
+      if (res.outcome === 'accepted') {
+        _installState.isInstalled = true;
+        _installState.canInstall = false;
+        _installState.prompt = null;
+        _installSubs.forEach(fn => fn({ ..._installState }));
+      }
+      return res.outcome === 'accepted';
+    } catch (_) { return false; }
+  };
+
+  return { ...st, install };
+}
+
+// ─── iOS install instructions dialog ────────────────────────────────
+function IOSInstallDialog({ onClose }) {
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 900,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 360, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 14 }}>התקנה באייפון</div>
+
+        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.8 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 12 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 14, background: `${T.lime}22`,
+              color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700, flexShrink: 0,
+            }}>1</div>
+            <div style={{ flex: 1 }}>לחץ על כפתור השיתוף <span style={{ fontFamily: T.mono, color: T.lime }}>⬆</span> בתחתית הדפדפן (Safari).</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 12 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 14, background: `${T.lime}22`,
+              color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700, flexShrink: 0,
+            }}>2</div>
+            <div style={{ flex: 1 }}>גלול ובחר <strong>"הוסף למסך הבית"</strong> / <strong>Add to Home Screen</strong>.</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 12 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 14, background: `${T.lime}22`,
+              color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700, flexShrink: 0,
+            }}>3</div>
+            <div style={{ flex: 1 }}>אשר "הוסף". האפליקציה תופיע במסך הבית ותיפתח כאפליקציה עצמאית.</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginTop: 14, lineHeight: 1.6, padding: 10, background: T.bg, borderRadius: 8 }}>
+          <strong>חשוב:</strong> רק Safari תומך בהתקנת PWA באייפון. אם אתה ב-Chrome — פתח את הקישור ב-Safari.
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <Button onClick={onClose}>הבנתי</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Install button — shows native prompt or iOS instructions ───────
+function InstallButton({ variant = 'primary', label = 'התקן במסך הבית' }) {
+  const { canInstall, isInstalled, isIOS, install } = useInstallPrompt();
+  const [showIOS, setShowIOS] = React.useState(false);
+
+  if (isInstalled) return null;
+
+  // Show only if installable (Android/Chrome/Edge) OR iOS (show instructions)
+  if (!canInstall && !isIOS) return null;
+
+  const handleClick = async () => {
+    if (isIOS) { setShowIOS(true); return; }
+    await install();
+  };
+
+  const styles = variant === 'ghost' ? {
+    background: 'transparent', color: T.lime,
+    border: `1px solid ${T.lime}55`,
+  } : {
+    background: T.lime, color: T.bg, border: 'none',
+    boxShadow: `0 4px 18px ${T.lime}33`,
+  };
+
+  return (
+    <>
+      <button onClick={handleClick} style={{
+        ...styles,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        padding: '13px 20px', borderRadius: T.radius, cursor: 'pointer',
+        fontSize: 14, fontWeight: 700, fontFamily: T.font, width: '100%',
+      }}>
+        <TabIcon name="download" size={18} />
+        {label}
+      </button>
+      {showIOS && <IOSInstallDialog onClose={() => setShowIOS(false)} />}
+    </>
+  );
 }
 
 function AppTop({ title, subtitle, right, left, style }) {
@@ -1293,24 +1573,32 @@ function OnboardingScreen() {
   const [goalWeight, setGoalWeight] = React.useState(75.0);
   const [pace, setPace] = React.useState('balanced');
   const [unit, setUnit] = React.useState('kg');
+  // AI setup (step 4)
+  const [aiMode, setAiMode] = React.useState('shared'); // 'shared' | 'direct' | 'skip'
+  const [sharedPw, setSharedPw] = React.useState('');
+  const [apiKey, setApiKey] = React.useState('');
 
   const next = () => setStep(s => s + 1);
   const prev = () => setStep(s => Math.max(0, s - 1));
 
   const complete = () => {
-    // Convert to kg for storage (internal format always kg)
     const toKg = (v) => unit === 'lb' ? v / 2.20462 : v;
     dispatch({
       type: 'COMPLETE_ONBOARDING',
       name: name.trim() || 'משתמש',
-      heightCm,
-      ageYears,
-      gender,
+      heightCm, ageYears, gender,
       currentWeight: Math.round(toKg(currentWeight) * 10) / 10,
       goalWeight: Math.round(toKg(goalWeight) * 10) / 10,
-      pace,
-      unit,
+      pace, unit,
     });
+    // Save AI config separately
+    if (aiMode === 'shared' && sharedPw.trim()) {
+      dispatch({ type: 'SET_API_MODE', mode: 'shared' });
+      dispatch({ type: 'SET_SHARED_PASSWORD', password: sharedPw.trim() });
+    } else if (aiMode === 'direct' && apiKey.trim()) {
+      dispatch({ type: 'SET_API_MODE', mode: 'direct' });
+      dispatch({ type: 'SET_API_KEY', key: apiKey.trim() });
+    }
   };
 
   return (
@@ -1320,7 +1608,7 @@ function OnboardingScreen() {
     }}>
       {/* Progress indicator */}
       <div style={{ padding: '20px 24px 0', display: 'flex', gap: 6 }}>
-        {[0,1,2,3].map(i => (
+        {[0,1,2,3,4].map(i => (
           <div key={i} style={{
             flex: 1, height: 3, borderRadius: 2,
             background: i <= step ? T.lime : T.stroke,
@@ -1347,6 +1635,12 @@ function OnboardingScreen() {
         {step === 3 && <PaceStep
           pace={pace} setPace={setPace}
           currentWeight={currentWeight} goalWeight={goalWeight} unit={unit}
+          onNext={next} onPrev={prev}
+        />}
+        {step === 4 && <AiSetupStep
+          mode={aiMode} setMode={setAiMode}
+          sharedPw={sharedPw} setSharedPw={setSharedPw}
+          apiKey={apiKey} setApiKey={setApiKey}
           onComplete={complete} onPrev={prev}
         />}
       </div>
@@ -1362,8 +1656,11 @@ function WelcomeStep({ onNext }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: `0 0 40px ${T.lime}33`,
       }}>
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke={T.lime} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 20h18M6 16l4-6 4 3 5-8"/>
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke={T.lime} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 20h18"/>
+          <rect x="5" y="13" width="3" height="7" rx="1"/>
+          <rect x="10.5" y="8" width="3" height="12" rx="1"/>
+          <rect x="16" y="4" width="3" height="16" rx="1"/>
         </svg>
       </div>
       <div>
@@ -1372,9 +1669,10 @@ function WelcomeStep({ onNext }) {
           משקל, תזונה ותובנות חכמות במקום אחד. הכל נשמר על המכשיר שלך בלבד.
         </div>
       </div>
-      <div style={{ marginTop: 20, fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>4 שאלות · 60 שניות</div>
-      <div style={{ marginTop: 20, width: '100%', maxWidth: 280 }}>
+      <div style={{ marginTop: 20, fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>5 שאלות · 90 שניות</div>
+      <div style={{ marginTop: 20, width: '100%', maxWidth: 300, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Button onClick={onNext}>בוא נתחיל</Button>
+        <InstallButton variant="ghost" label="📱 התקן במסך הבית" />
       </div>
     </div>
   );
@@ -1485,7 +1783,7 @@ function WeightStep({ unit, setUnit, currentWeight, setCurrentWeight, goalWeight
   );
 }
 
-function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, onComplete, onPrev }) {
+function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, onNext, onPrev }) {
   const toKg = (v) => unit === 'lb' ? v / 2.20462 : v;
   const diffDisplay = Math.abs(currentWeight - goalWeight);
   const diffKg = Math.abs(toKg(currentWeight) - toKg(goalWeight));
@@ -1530,7 +1828,7 @@ function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, onComplete, 
 
       <div style={{ marginTop: 28, display: 'flex', gap: 10 }}>
         <Button variant="ghost" onClick={onPrev}>חזור</Button>
-        <Button onClick={onComplete}>סיים והתחל</Button>
+        <Button onClick={onNext}>המשך</Button>
       </div>
     </div>
   );
@@ -1675,6 +1973,124 @@ const btnPlusMinus = {
   cursor: 'pointer',
 };
 
+// ─── Step 5 (index 4): AI setup — access code or personal key ───────
+function AiSetupStep({ mode, setMode, sharedPw, setSharedPw, apiKey, setApiKey, onComplete, onPrev }) {
+  const [showSecret, setShowSecret] = React.useState(false);
+
+  return (
+    <div style={{ paddingTop: 20 }}>
+      <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>אחרון · AI</div>
+      <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>תובנות חכמות</div>
+      <div style={{ fontSize: 13, color: T.inkSub, marginTop: 8, lineHeight: 1.6 }}>
+        הוסף ארוחות מתיאור או תמונה, קבל ניתוחי שבוע אישיים.
+        תוכל להגדיר גם מאוחר יותר מהפרופיל.
+      </div>
+
+      {/* Mode selection */}
+      <div style={{ marginTop: 24, display: 'flex', background: T.bgElev2, borderRadius: 10, padding: 3 }}>
+        {[
+          ['shared', 'קוד גישה'],
+          ['direct', 'API אישי'],
+          ['skip', 'דלג'],
+        ].map(([v, label]) => (
+          <button key={v} onClick={() => setMode(v)} style={{
+            flex: 1, padding: '10px 6px', border: 'none', cursor: 'pointer',
+            background: mode === v ? T.lime : 'transparent',
+            color: mode === v ? T.bg : T.inkSub, borderRadius: 8,
+            fontFamily: T.font, fontSize: 12, fontWeight: 700,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Shared password mode */}
+      {mode === 'shared' && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 12, lineHeight: 1.6 }}>
+            הזן את קוד הגישה שקיבלת. נרשם פעם אחת ונשמר על המכשיר.
+          </div>
+          <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קוד גישה</div>
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showSecret ? 'text' : 'password'}
+              value={sharedPw}
+              onChange={e => setSharedPw(e.target.value)}
+              placeholder="הזן את הקוד"
+              inputMode="numeric"
+              autoFocus
+              style={{
+                width: '100%', padding: '14px 16px', paddingLeft: 40,
+                background: T.bgElev, border: `1px solid ${T.stroke}`, borderRadius: 12,
+                color: T.ink, fontSize: 15, fontFamily: T.mono, outline: 'none',
+                direction: 'ltr', textAlign: 'left',
+              }}
+            />
+            <button onClick={() => setShowSecret(s => !s)} style={{
+              position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+              background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
+              padding: 6, fontSize: 14,
+            }}>{showSecret ? '🙈' : '👁'}</button>
+          </div>
+          <div style={{ fontSize: 11, color: T.inkMute, marginTop: 10, lineHeight: 1.5 }}>
+            אין לך קוד? פנה למי ששיתף איתך את האפליקציה.
+          </div>
+        </div>
+      )}
+
+      {/* Personal API key mode */}
+      {mode === 'direct' && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 12, lineHeight: 1.6 }}>
+            יש לך חשבון Anthropic? הדבק כאן API key משלך.
+            אתה משלם ישירות לאנתרופיק לפי שימוש.
+          </div>
+          <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>API key</div>
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showSecret ? 'text' : 'password'}
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="sk-ant-api03-..."
+              style={{
+                width: '100%', padding: '14px 16px', paddingLeft: 40,
+                background: T.bgElev, border: `1px solid ${T.stroke}`, borderRadius: 12,
+                color: T.ink, fontSize: 13, fontFamily: T.mono, outline: 'none',
+                direction: 'ltr', textAlign: 'left',
+              }}
+            />
+            <button onClick={() => setShowSecret(s => !s)} style={{
+              position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+              background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
+              padding: 6, fontSize: 14,
+            }}>{showSecret ? '🙈' : '👁'}</button>
+          </div>
+          <div style={{ fontSize: 11, color: T.inkMute, marginTop: 10, lineHeight: 1.5 }}>
+            קבל מפתח ב-<span style={{ color: T.lime, fontFamily: T.mono }}>console.anthropic.com</span>.
+          </div>
+        </div>
+      )}
+
+      {/* Skip mode */}
+      {mode === 'skip' && (
+        <div style={{ marginTop: 20, padding: 16, background: T.bgElev, borderRadius: T.radius, border: `1px solid ${T.stroke}` }}>
+          <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7 }}>
+            אין בעיה. ללא AI עדיין יש לך:
+            <br />• מעקב משקל יומי מלא
+            <br />• הזנת ארוחות ידנית
+            <br />• גרפים וסטטיסטיקות
+            <br /><br />
+            בכל רגע תוכל להפעיל מהפרופיל → <span style={{ color: T.lime }}>תובנות AI</span>.
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 28, display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={onPrev}>חזור</Button>
+        <Button onClick={onComplete}>סיים והתחל</Button>
+      </div>
+    </div>
+  );
+}
+
 
 // ════════════════════════════════════════════════════════════════════
 // 06-screen-home.jsx — Home V1/V2/V3 adapted to real data
@@ -1787,6 +2203,9 @@ function HomeV1({ onNavigate }) {
             </div>
           )}
         </Card>
+
+        {/* Tip of day — value-added insight */}
+        <TipOfDayCard />
 
         {/* Chart card */}
         <Card padding={12} style={{ marginBottom: 14 }}>
@@ -2141,7 +2560,7 @@ function NutritionWidget({ onNavigate }) {
           <div style={{ fontSize: 24 }}>🍎</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>הוסף מעקב תזונה</div>
-            <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>Claude מזהה ארוחה מטקסט או תמונה</div>
+            <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>ניתוח חכם מטקסט או תמונה</div>
           </div>
           <span style={{ color: T.lime, fontSize: 18 }}>‹</span>
         </div>
@@ -2393,7 +2812,7 @@ function HistoryScreen({ onNavigate }) {
           <GapIndicator entries={list} />
         </Card>
 
-        {/* Weekly insight — Claude-powered */}
+        {/* Weekly insight */}
         <WeeklyInsightCard />
 
         {/* Plateau detector (shows only if plateau detected) */}
@@ -2591,7 +3010,7 @@ function DowCard({ dowStats, unit }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Weekly insight card (Claude-powered)
+// Weekly insight card
 // ═════════════════════════════════════════════════════════════════════
 function WeeklyInsightCard() {
   const { state, stats, dispatch } = useStore();
@@ -2649,7 +3068,7 @@ function WeeklyInsightCard() {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>תובנה שבועית</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
-            Claude Opus 4.7 · 7 ימים אחרונים
+            ניתוח חכם · 7 ימים אחרונים
           </div>
         </div>
         {cached && !loading && (
@@ -2663,7 +3082,7 @@ function WeeklyInsightCard() {
 
       {loading ? (
         <div style={{ padding: '16px 4px', fontSize: 12, color: T.inkSub }}>
-          Claude מנתח את השבוע שלך...
+          מנתח את השבוע שלך...
         </div>
       ) : cached ? (
         <>
@@ -2681,7 +3100,7 @@ function WeeklyInsightCard() {
       ) : (
         <>
           <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 12 }}>
-            Claude יסתכל על {snapshot.weight_entries_count} שקילות ו-{snapshot.nutrition_days_logged} ימי תזונה מהשבוע ויכתוב לך 3 פסקאות.
+            המנוע יסתכל על {snapshot.weight_entries_count} שקילות ו-{snapshot.nutrition_days_logged} ימי תזונה מהשבוע ויכתוב לך 3 פסקאות.
           </div>
           <button onClick={generate} disabled={!hasKey} style={{
             background: hasKey ? T.lime : T.bgElev2, color: hasKey ? T.bg : T.inkMute,
@@ -2779,7 +3198,7 @@ function PlateauCard({ entries }) {
       </div>
 
       {loading ? (
-        <div style={{ padding: '10px 4px', fontSize: 12, color: T.inkSub }}>Claude בודק...</div>
+        <div style={{ padding: '10px 4px', fontSize: 12, color: T.inkSub }}>בודק...</div>
       ) : cached ? (
         <>
           <div style={{ fontSize: 13, lineHeight: 1.7, color: T.ink, whiteSpace: 'pre-wrap' }}>
@@ -2955,6 +3374,7 @@ function ProfileScreen({ onNavigate }) {
   const [showEdit, setShowEdit] = React.useState(false);
   const [showApiConfig, setShowApiConfig] = React.useState(false);
   const [showUsage, setShowUsage] = React.useState(false);
+  const [showTips, setShowTips] = React.useState(false);
 
   const handleExport = () => {
     const data = {
@@ -3061,13 +3481,22 @@ function ProfileScreen({ onNavigate }) {
           )}
         </Section>
 
-        {/* Claude API */}
-        <Section title="Claude API">
+        {/* AI */}
+        <Section title="תובנות AI">
           <RowItem icon="🔑" label="מפתח / קוד גישה"
             value={apiRowValue} onClick={() => setShowApiConfig(true)} />
           <RowItem icon="💰" label="שימוש החודש"
             value={`$${monthUsage.costUSD.toFixed(3)} · ${monthUsage.requests} בקשות`}
             onClick={() => setShowUsage(true)} />
+        </Section>
+
+        {/* Install app */}
+        <InstallPromptSection />
+
+        {/* Tips Library */}
+        <Section title="טיפים ותובנות">
+          <RowItem icon="💡" label="ספריית טיפים"
+            value={`${25} תובנות`} onClick={() => setShowTips(true)} />
         </Section>
 
         {/* Settings */}
@@ -3091,13 +3520,14 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          FiTracklon · v1.3.0 · Claude-powered
+          FiTracklon · v1.4.0
         </div>
       </div>
 
       {showEdit && <EditProfileDialog onClose={() => setShowEdit(false)} />}
       {showApiConfig && <ApiConfigDialog onClose={() => setShowApiConfig(false)} />}
       {showUsage && <UsageDetailsDialog onClose={() => setShowUsage(false)} />}
+      {showTips && <TipsLibraryScreen onClose={() => setShowTips(false)} />}
 
       <ConfirmDialog
         open={confirmReset}
@@ -3278,7 +3708,7 @@ function ApiConfigDialog({ onClose }) {
         background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
         padding: 22, maxWidth: 400, width: '100%', direction: 'rtl', maxHeight: '85vh', overflowY: 'auto',
       }}>
-        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Claude API</div>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>תובנות AI</div>
         <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 16, lineHeight: 1.6 }}>
           שני מצבים: שימוש במפתח אישי שלך, או שימוש משותף עם קוד גישה.
         </div>
@@ -3393,7 +3823,7 @@ function UsageDetailsDialog({ onClose }) {
         background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
         padding: 22, maxWidth: 380, width: '100%', direction: 'rtl', maxHeight: '80vh', overflowY: 'auto',
       }}>
-        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>שימוש ב-Claude API</div>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>שימוש במנוע</div>
         <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, marginBottom: 16 }}>OPUS 4.7 · $5/$25 per MTok</div>
 
         <Card padding={14} style={{ marginBottom: 12, background: `${T.lime}10`, border: `1px solid ${T.lime}40` }}>
@@ -3444,9 +3874,35 @@ function UsageDetailsDialog({ onClose }) {
   );
 }
 
+// ─── Install prompt section in profile ──────────────────────────────
+function InstallPromptSection() {
+  const { canInstall, isInstalled, isIOS } = useInstallPrompt();
+  if (isInstalled) return null;
+  if (!canInstall && !isIOS) return null;
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 14,
+      background: `linear-gradient(135deg, ${T.lime}15 0%, ${T.bgElev2} 100%)`,
+      border: `1px solid ${T.lime}44`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <div style={{ fontSize: 22 }}>📱</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>התקן כאפליקציה</div>
+          <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>
+            גישה מהירה ממסך הבית · עובד offline
+          </div>
+        </div>
+      </div>
+      <InstallButton />
+    </Card>
+  );
+}
+
 
 // ════════════════════════════════════════════════════════════════════
-// 12-claude-api.jsx — Claude API wrapper, dual-mode (direct/shared)
+// 12-claude-api.jsx — תובנות AI wrapper, dual-mode (direct/shared)
 // ════════════════════════════════════════════════════════════════════
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -3518,7 +3974,7 @@ async function callClaude({ config, model = DEFAULT_MODEL, system, messages, max
     const type = data?.error?.type || '';
     if (type === 'authentication_error') throw new Error(isShared ? 'קוד גישה שגוי.' : 'API key לא תקין.');
     if (type === 'rate_limit_error')     throw new Error('חריגת קצב. נסה שוב בעוד רגע.');
-    if (type === 'overloaded_error')     throw new Error('Claude עמוס כרגע. נסה שוב.');
+    if (type === 'overloaded_error')     throw new Error('השירות עמוס. נסה שוב.');
     if (type === 'cap_exceeded')         throw new Error(msg); // server-provided Hebrew msg
     if (type === 'server_error')         throw new Error(`תקלת שרת: ${msg}`);
     throw new Error(msg);
@@ -3551,7 +4007,7 @@ async function callClaude({ config, model = DEFAULT_MODEL, system, messages, max
 
 // ─── JSON extraction (handles wrapped / bare JSON) ──────────────────
 function extractJSON(text) {
-  if (!text) throw new Error('תשובה ריקה מ-Claude.');
+  if (!text) throw new Error('תשובה ריקה מהמנוע.');
   // Try direct parse first
   try { return JSON.parse(text); } catch (_) {}
   // Try to find JSON block in markdown fence
@@ -3565,7 +4021,7 @@ function extractJSON(text) {
   if (start !== -1 && end > start) {
     try { return JSON.parse(text.slice(start, end + 1)); } catch (_) {}
   }
-  throw new Error('Claude החזיר פלט שאינו JSON תקין.');
+  throw new Error('הפלט שהתקבל לא תקין.');
 }
 
 // ─── Cost estimation ────────────────────────────────────────────────
@@ -3835,7 +4291,7 @@ async function generateGoalCalibration(snapshot, config, onUsage) {
 
 
 // ════════════════════════════════════════════════════════════════════
-// 13-screen-nutrition.jsx — Nutrition module (Claude-powered)
+// 13-screen-nutrition.jsx — Nutrition module (AI-powered)
 // ════════════════════════════════════════════════════════════════════
 
 function NutritionScreen({ onNavigate }) {
@@ -3844,10 +4300,12 @@ function NutritionScreen({ onNavigate }) {
   const [dateViewing, setDateViewing] = React.useState(todayISO());
   const [addOpen, setAddOpen] = React.useState(false);
   const [goalsOpen, setGoalsOpen] = React.useState(false);
+  const [editingMeal, setEditingMeal] = React.useState(null); // {meal, date}
 
   const goals = state.nutrition.goals;
   const mealsForDay = state.nutrition.meals[dateViewing] || [];
   const totals = sumMealsForDay(mealsForDay);
+  const nStreak = nutritionStreak(state.nutrition.meals);
 
   // Auto-calc goals if not set
   React.useEffect(() => {
@@ -3880,6 +4338,12 @@ function NutritionScreen({ onNavigate }) {
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>NUTRITION</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>תזונה · {fmt.relativeDay(dateViewing)}</div>
         </div>
+        {nStreak >= 2 && (
+          <div style={{
+            padding: '4px 10px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
+            borderRadius: 999, fontSize: 11, color: T.amber, fontFamily: T.mono, fontWeight: 700,
+          }}>🔥 {nStreak} ימים</div>
+        )}
         <button onClick={() => setGoalsOpen(true)} style={{
           background: T.bgElev, border: 'none', color: T.ink, cursor: 'pointer',
           width: 36, height: 36, borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -3899,20 +4363,25 @@ function NutritionScreen({ onNavigate }) {
         {/* Rings hero */}
         <NutritionRings totals={totals} goals={goals} />
 
-        {/* Mini stats below rings */}
+        {/* Mini stats — redesigned for readability */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
-          <MiniStat label="חלבון" val={totals.protein} unit="ג" goal={goals.protein} color={T.lime} />
-          <MiniStat label="פחמימות" val={totals.carbs} unit="ג" goal={goals.carbs} color={T.amber} />
-          <MiniStat label="שומן" val={totals.fat} unit="ג" goal={goals.fat} color={T.rose} />
+          <MacroCard label="חלבון" val={totals.protein} goal={goals.protein} color={T.lime} />
+          <MacroCard label="פחמימות" val={totals.carbs} goal={goals.carbs} color={T.amber} />
+          <MacroCard label="שומן" val={totals.fat} goal={goals.fat} color={T.rose} />
         </div>
 
-        {/* Meals list */}
-        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
-          ארוחות · {mealsForDay.length}
+        {/* Meals list header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
+            ארוחות · {mealsForDay.length}
+          </div>
+          {mealsForDay.length > 0 && (
+            <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>הקש לעריכה · החלק למחיקה</div>
+          )}
         </div>
 
         {mealsForDay.length === 0 ? (
-          <Card padding={20} style={{ textAlign: 'center' }}>
+          <Card padding={24} style={{ textAlign: 'center', border: `1px dashed ${T.stroke}`, background: 'transparent' }}>
             <div style={{ fontSize: 36, marginBottom: 8 }}>🍽️</div>
             <div style={{ fontSize: 13, color: T.inkSub }}>עדיין לא נרשמה ארוחה ל{dateViewing === todayISO() ? 'יום' : 'תאריך הזה'}</div>
           </Card>
@@ -3921,6 +4390,7 @@ function NutritionScreen({ onNavigate }) {
             {mealsForDay.map((m, i) => (
               <MealRow key={m.id} meal={m} dateViewing={dateViewing}
                 isLast={i === mealsForDay.length - 1}
+                onClick={() => setEditingMeal({ meal: m, date: dateViewing })}
                 onDelete={() => {
                   dispatch({ type: 'DELETE_MEAL', date: dateViewing, mealId: m.id });
                   toast('ארוחה נמחקה', { type: 'info' });
@@ -3930,16 +4400,17 @@ function NutritionScreen({ onNavigate }) {
           </Card>
         )}
 
-        {/* Add meal CTA (floating-style button) */}
-        {dateViewing === todayISO() && (
-          <div style={{ marginTop: 14 }}>
-            <Button onClick={() => setAddOpen(true)}>+ הוסף ארוחה</Button>
-          </div>
-        )}
+        {/* Add meal CTA — works for any day */}
+        <div style={{ marginTop: 14 }}>
+          <Button onClick={() => setAddOpen(true)}>
+            + הוסף ארוחה {dateViewing !== todayISO() ? `ל-${fmt.dayShort(dateViewing)}` : ''}
+          </Button>
+        </div>
       </div>
 
       {addOpen && <AddMealDialog date={dateViewing} onClose={() => setAddOpen(false)} />}
       {goalsOpen && <NutritionGoalsDialog onClose={() => setGoalsOpen(false)} />}
+      {editingMeal && <EditMealDialog date={editingMeal.date} meal={editingMeal.meal} onClose={() => setEditingMeal(null)} />}
     </div>
   );
 }
@@ -3978,39 +4449,54 @@ function NutritionRings({ totals, goals }) {
   );
 }
 
-function MiniStat({ label, val, unit, goal, color }) {
+// ─── Macro card — big, readable ────────────────────────────────────
+function MacroCard({ label, val, goal, color }) {
   const pct = goal ? Math.min(100, (val / goal) * 100) : 0;
+  const pctRounded = Math.round(pct);
   const pctColor = pct >= 95 ? T.lime : pct >= 70 ? T.amber : T.inkSub;
   return (
-    <Card padding={10} style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{label}</div>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, marginTop: 4 }}>
-        <span style={{ fontFamily: T.mono, fontSize: 18, fontWeight: 700, color: T.ink }}>{val}</span>
-        <span style={{ fontSize: 9, color: T.inkMute }}>{unit}</span>
+    <Card padding={12} style={{ textAlign: 'center', background: T.bgElev }}>
+      <div style={{ fontSize: 12, color: T.inkSub, fontWeight: 700 }}>{label}</div>
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 3 }}>
+        <span style={{ fontFamily: T.mono, fontSize: 26, fontWeight: 800, color: T.ink, letterSpacing: -1, lineHeight: 1 }}>{val}</span>
+        <span style={{ fontSize: 14, color: T.inkSub, fontFamily: T.mono, fontWeight: 600 }}>ג</span>
       </div>
-      <div style={{ height: 3, background: T.stroke, borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 300ms' }} />
+      <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, marginTop: 4 }}>
+        מתוך {goal}ג
       </div>
-      <div style={{ fontSize: 9, color: pctColor, fontFamily: T.mono, marginTop: 3 }}>
-        {goal ? `${Math.round(pct)}% · ${goal}ג` : '—'}
+      <div style={{ height: 6, background: T.stroke, borderRadius: 3, overflow: 'hidden', marginTop: 8 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 300ms' }} />
+      </div>
+      <div style={{ fontSize: 12, color: pctColor, fontFamily: T.mono, marginTop: 6, fontWeight: 700 }}>
+        {pctRounded}%
       </div>
     </Card>
   );
 }
 
-// ─── Meal row (swipeable, similar to weight entry) ──────────────────
-function MealRow({ meal, dateViewing, isLast, onDelete }) {
+// ─── Legacy alias (some code may still reference MiniStat) ──────────
+const MiniStat = MacroCard;
+
+// ─── Meal row (swipeable, clickable to edit) ──────────────────────
+function MealRow({ meal, dateViewing, isLast, onDelete, onClick }) {
   const [swipeX, setSwipeX] = React.useState(0);
+  const [moved, setMoved] = React.useState(false);
   const startX = React.useRef(0);
-  const onTouchStart = (e) => { startX.current = e.touches[0].clientX; };
+  const onTouchStart = (e) => { startX.current = e.touches[0].clientX; setMoved(false); };
   const onTouchMove = (e) => {
     const dx = e.touches[0].clientX - startX.current;
+    if (Math.abs(dx) > 8) setMoved(true);
     if (dx > 0) setSwipeX(Math.min(80, dx));
     else setSwipeX(0);
   };
   const onTouchEnd = () => setSwipeX(swipeX > 40 ? 80 : 0);
 
-  const sourceIcon = meal.source === 'photo_parse' ? '📷' : meal.source === 'label_parse' ? '🏷️' : meal.source === 'manual' ? '✏️' : '💬';
+  const handleClick = () => {
+    if (moved || swipeX > 0) return; // ignore click after swipe
+    onClick?.();
+  };
+
+  const sourceIcon = meal.source === 'photo_parse' ? '📷' : meal.source === 'label_parse' ? '🏷️' : meal.source === 'manual' ? '✏️' : meal.source === 'favorite' ? '⭐' : '💬';
 
   return (
     <div style={{ position: 'relative', overflow: 'hidden', borderBottom: isLast ? 'none' : `1px solid ${T.stroke}` }}>
@@ -4026,10 +4512,11 @@ function MealRow({ meal, dateViewing, isLast, onDelete }) {
           <span style={{ fontSize: 10, fontWeight: 700 }}>מחק</span>
         </button>
       </div>
-      <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} style={{
+      <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onClick={handleClick} style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
         background: T.bgElev, transform: `translateX(${swipeX}px)`,
         transition: swipeX === 0 || swipeX === 80 ? 'transform 200ms' : 'none',
+        cursor: 'pointer',
       }}>
         {meal.thumbnail ? (
           <img src={meal.thumbnail} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
@@ -4040,11 +4527,11 @@ function MealRow({ meal, dateViewing, isLast, onDelete }) {
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meal.description}</div>
-          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginTop: 2 }}>
-            {meal.time} · {meal.protein}ג חלבון · {meal.carbs}ג פחמימות · {meal.fat}ג שומן
+          <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginTop: 3 }}>
+            {meal.time} · <span style={{ color: T.lime }}>{meal.protein}ג</span> חלבון · <span style={{ color: T.amber }}>{meal.carbs}ג</span> פחמ׳ · <span style={{ color: T.rose }}>{meal.fat}ג</span> שומן
           </div>
         </div>
-        <div style={{ textAlign: 'left', fontFamily: T.mono, fontSize: 16, fontWeight: 700, color: T.ink, minWidth: 40 }}>
+        <div style={{ textAlign: 'left', fontFamily: T.mono, fontSize: 18, fontWeight: 700, color: T.ink, minWidth: 40 }}>
           {meal.calories}
         </div>
       </div>
@@ -4053,14 +4540,17 @@ function MealRow({ meal, dateViewing, isLast, onDelete }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Add meal dialog — text / photo / manual
+// Add meal dialog — favorites / text / photo / manual
 // ═════════════════════════════════════════════════════════════════════
 function AddMealDialog({ date, onClose }) {
-  const [mode, setMode] = React.useState(null); // null | 'text' | 'photo' | 'manual'
-  const [parsedResult, setParsedResult] = React.useState(null); // nutrition parsed, ready for review
+  const { state } = useStore();
+  const hasFavorites = Object.keys(state.nutrition.favorites || {}).length > 0;
+  // Default to favorites if any exist; otherwise show mode selector
+  const [mode, setMode] = React.useState(hasFavorites ? 'favorites' : null);
+  const [parsedResult, setParsedResult] = React.useState(null);
   const [photoThumb, setPhotoThumb] = React.useState(null);
 
-  const reset = () => { setMode(null); setParsedResult(null); setPhotoThumb(null); };
+  const reset = () => { setMode(hasFavorites ? 'favorites' : null); setParsedResult(null); setPhotoThumb(null); };
 
   return (
     <div style={{
@@ -4070,17 +4560,28 @@ function AddMealDialog({ date, onClose }) {
       <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
         {parsedResult ? (
           <button onClick={reset} style={iconBtn}>‹ חזור</button>
-        ) : mode ? (
+        ) : mode && !hasFavorites ? (
           <button onClick={reset} style={iconBtn}>‹</button>
         ) : null}
         <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>
-          {parsedResult ? 'אשר את הערכים' : mode === 'text' ? 'טקסט חופשי' : mode === 'photo' ? 'תמונה' : mode === 'manual' ? 'הזנה ידנית' : 'הוספת ארוחה'}
+          {parsedResult ? 'אשר את הערכים' : 'הוספת ארוחה'}
         </div>
         <button onClick={onClose} style={iconBtn}>×</button>
       </div>
 
+      {/* Mode tabs when not in review */}
+      {!parsedResult && (
+        <div style={{ padding: '10px 18px 4px', display: 'flex', gap: 6, overflowX: 'auto' }}>
+          {hasFavorites && <ModeTab active={mode === 'favorites'} onClick={() => setMode('favorites')} icon="⭐" label="מועדפים" />}
+          <ModeTab active={mode === 'text'} onClick={() => setMode('text')} icon="💬" label="טקסט" />
+          <ModeTab active={mode === 'photo'} onClick={() => setMode('photo')} icon="📷" label="תמונה" />
+          <ModeTab active={mode === 'manual'} onClick={() => setMode('manual')} icon="✏️" label="ידני" />
+        </div>
+      )}
+
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {!mode && <ModeSelector onPick={setMode} />}
+        {!mode && !parsedResult && <ModeSelector onPick={setMode} />}
+        {mode === 'favorites' && !parsedResult && <FavoritesFlow date={date} onClose={onClose} />}
         {mode === 'text' && !parsedResult && <TextParseFlow onParsed={setParsedResult} />}
         {mode === 'photo' && !parsedResult && <PhotoParseFlow onParsed={(r, thumb) => { setParsedResult(r); setPhotoThumb(thumb); }} />}
         {mode === 'manual' && !parsedResult && <ManualFlow onSubmit={setParsedResult} />}
@@ -4096,6 +4597,191 @@ function AddMealDialog({ date, onClose }) {
   );
 }
 
+function ModeTab({ active, onClick, icon, label }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '8px 14px', borderRadius: 999, border: `1px solid ${active ? T.lime : T.stroke}`,
+      background: active ? T.lime : 'transparent', color: active ? T.bg : T.inkSub,
+      fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+      display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', flexShrink: 0,
+    }}>
+      <span>{icon}</span>{label}
+    </button>
+  );
+}
+
+// ─── Favorites flow — reuse previously saved meals ──────────────────
+function FavoritesFlow({ date, onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const [query, setQuery] = React.useState('');
+  const [pending, setPending] = React.useState(null); // { fav, scale }
+
+  const favs = sortedFavorites(state.nutrition.favorites, 50);
+  const filtered = query
+    ? favs.filter(f => f.description.toLowerCase().includes(query.toLowerCase()))
+    : favs;
+
+  const addFav = (fav, scale = 1) => {
+    dispatch({
+      type: 'ADD_MEAL', date,
+      meal: {
+        time: nowHHMM(),
+        description: fav.description + (scale !== 1 ? ` (×${scale})` : ''),
+        calories: Math.round(fav.calories * scale),
+        protein: Math.round(fav.protein * scale),
+        carbs: Math.round(fav.carbs * scale),
+        fat: Math.round(fav.fat * scale),
+        source: 'favorite',
+        thumbnail: fav.thumbnail || null,
+        items: [], confidence: 'high',
+      },
+    });
+    toast('נוסף מהמועדפים', { type: 'success' });
+    onClose();
+  };
+
+  if (favs.length === 0) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <div style={{ fontSize: 40, marginBottom: 10 }}>⭐</div>
+        <div style={{ fontSize: 14, color: T.inkSub, lineHeight: 1.6 }}>
+          עדיין אין מועדפים.<br />
+          כל ארוחה שתוסיף תישמר אוטומטית כאן לשימוש חוזר.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '14px 18px 20px' }}>
+      {favs.length > 5 && (
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="חפש בארוחות שלך..."
+          style={{
+            width: '100%', padding: '10px 14px', background: T.bgElev,
+            border: `1px solid ${T.stroke}`, borderRadius: 10,
+            color: T.ink, fontSize: 13, fontFamily: T.font, outline: 'none',
+            direction: 'rtl', textAlign: 'right', marginBottom: 12,
+          }}
+        />
+      )}
+
+      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+        {filtered.length} ארוחות · לחץ להוספה · לחץ ארוך לשינוי כמות
+      </div>
+
+      {filtered.map(f => (
+        <FavoriteRow key={f.key} fav={f}
+          onClick={() => addFav(f, 1)}
+          onLongPress={() => setPending({ fav: f, scale: 1 })}
+          onRemove={() => {
+            dispatch({ type: 'REMOVE_FAVORITE', favKey: f.key });
+            toast('הוסר מהמועדפים', { type: 'info' });
+          }}
+        />
+      ))}
+
+      {pending && <ScaleFavoriteDialog fav={pending.fav}
+        onConfirm={(scale) => { addFav(pending.fav, scale); setPending(null); }}
+        onCancel={() => setPending(null)}
+      />}
+    </div>
+  );
+}
+
+function FavoriteRow({ fav, onClick, onLongPress, onRemove }) {
+  const pressTimer = React.useRef(null);
+  const longPressed = React.useRef(false);
+  const handleDown = () => {
+    longPressed.current = false;
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      onLongPress?.();
+    }, 500);
+  };
+  const handleUp = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    if (!longPressed.current) onClick?.();
+  };
+  const handleCancel = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  };
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+      background: T.bgElev, borderRadius: T.radius, marginBottom: 6, cursor: 'pointer',
+      border: `1px solid ${T.stroke}`,
+    }}
+    onPointerDown={handleDown} onPointerUp={handleUp} onPointerLeave={handleCancel} onPointerCancel={handleCancel}>
+      {fav.thumbnail ? (
+        <img src={fav.thumbnail} alt="" style={{ width: 34, height: 34, borderRadius: 7, objectFit: 'cover', flexShrink: 0 }} />
+      ) : (
+        <div style={{ width: 34, height: 34, borderRadius: 7, background: T.bgElev2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>⭐</div>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fav.description}</div>
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginTop: 2 }}>
+          {fav.calories} ק״ק · נוסף {fav.useCount} פעמים
+        </div>
+      </div>
+      <button onClick={(e) => { e.stopPropagation(); onRemove?.(); }} style={{
+        background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
+        padding: 4, fontSize: 14,
+      }}>🗑</button>
+    </div>
+  );
+}
+
+function ScaleFavoriteDialog({ fav, onConfirm, onCancel }) {
+  const [scale, setScale] = React.useState(1);
+  const chips = [0.5, 1, 1.5, 2];
+  const scaled = (v) => Math.round(v * scale);
+  return (
+    <div onClick={onCancel} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 950,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 20, maxWidth: 360, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{fav.description}</div>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, marginBottom: 14 }}>כמות · מכפיל</div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 14 }}>
+          {chips.map(c => (
+            <button key={c} onClick={() => setScale(c)} style={{
+              padding: '10px 0', borderRadius: 10,
+              border: `1px solid ${scale === c ? T.lime : T.stroke}`,
+              background: scale === c ? T.lime : 'transparent',
+              color: scale === c ? T.bg : T.inkSub,
+              fontFamily: T.mono, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            }}>×{c}</button>
+          ))}
+        </div>
+
+        <div style={{ padding: 12, background: T.bg, borderRadius: 10 }}>
+          <div style={{ fontFamily: T.mono, fontSize: 22, fontWeight: 700, color: T.ink, textAlign: 'center' }}>
+            {scaled(fav.calories)} ק״ק
+          </div>
+          <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginTop: 4, textAlign: 'center' }}>
+            <span style={{ color: T.lime }}>{scaled(fav.protein)}ג</span> חלבון · <span style={{ color: T.amber }}>{scaled(fav.carbs)}ג</span> פחמ׳ · <span style={{ color: T.rose }}>{scaled(fav.fat)}ג</span> שומן
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <Button variant="ghost" onClick={onCancel}>ביטול</Button>
+          <Button onClick={() => onConfirm(scale)}>הוסף</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const iconBtn = {
   width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
   border: 'none', cursor: 'pointer', fontSize: 18, fontFamily: T.font,
@@ -4104,22 +4790,22 @@ const iconBtn = {
 
 function ModeSelector({ onPick }) {
   const { state } = useStore();
-  const hasKey = apiReady(state.apiConfig);
+  const hasAI = apiReady(state.apiConfig);
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 12, color: T.inkMute, marginBottom: 16, lineHeight: 1.5 }}>
-        בחר איך להוסיף את הארוחה. Claude יציע ערכים, ואתה מאשר או עורך.
+        בחר איך להוסיף את הארוחה:
       </div>
-      {!hasKey && (
+      {!hasAI && (
         <div style={{ padding: '12px 14px', background: `${T.amber}15`, border: `1px solid ${T.amber}44`, borderRadius: 10, fontSize: 12, color: T.amber, marginBottom: 16 }}>
-          ⚠️ Claude API לא הוגדר. טקסט ותמונה דורשים Claude API. הזנה ידנית עובדת בלעדיו.
+          ⚠️ תובנות AI לא הוגדרו. טקסט ותמונה דורשים חיבור. הזנה ידנית עובדת בלעדיו.
         </div>
       )}
       <Col gap={10}>
         <ModeButton icon="💬" title="טקסט חופשי" desc='כתוב בעברית: "אכלתי שניצל 200 גרם עם אורז ירקות"'
-          onClick={() => onPick('text')} disabled={!hasKey} />
+          onClick={() => onPick('text')} disabled={!hasAI} />
         <ModeButton icon="📷" title="תמונה" desc="צלם ארוחה, תווית מוצר, או מוצר ממותג"
-          onClick={() => onPick('photo')} disabled={!hasKey} />
+          onClick={() => onPick('photo')} disabled={!hasAI} />
         <ModeButton icon="✏️" title="הזנה ידנית" desc="מלא ערכים בעצמך"
           onClick={() => onPick('manual')} />
       </Col>
@@ -4133,7 +4819,7 @@ function ModeButton({ icon, title, desc, onClick, disabled }) {
       display: 'flex', alignItems: 'center', gap: 14, padding: 16,
       border: `1px solid ${T.stroke}`, background: T.bgElev, borderRadius: T.radius,
       cursor: disabled ? 'not-allowed' : 'pointer', textAlign: 'right', direction: 'rtl',
-      fontFamily: T.font, color: T.ink, opacity: disabled ? 0.5 : 1,
+      fontFamily: T.font, color: T.ink, opacity: disabled ? 0.5 : 1, width: '100%',
     }}>
       <div style={{ fontSize: 28 }}>{icon}</div>
       <div style={{ flex: 1 }}>
@@ -4191,12 +4877,12 @@ function TextParseFlow({ onParsed }) {
         }}
       />
       <div style={{ fontSize: 11, color: T.inkMute, marginTop: 8, lineHeight: 1.5 }}>
-        Claude מעריך ומציע. תוכל לערוך בשלב הבא.
+        מנוע AI מעריך ומציע. תוכל לערוך בשלב הבא.
       </div>
       {error && <div style={{ marginTop: 12, padding: '10px 14px', background: `${T.rose}15`, border: `1px solid ${T.rose}44`, borderRadius: 10, fontSize: 12, color: T.rose }}>{error}</div>}
       <div style={{ marginTop: 20 }}>
         <Button onClick={handleParse} disabled={!text.trim() || loading}>
-          {loading ? 'Claude מנתח...' : 'נתח'}
+          {loading ? 'מנתח...' : 'נתח'}
         </Button>
       </div>
     </div>
@@ -4249,7 +4935,7 @@ function PhotoParseFlow({ onParsed }) {
       {!preview ? (
         <>
           <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.5, marginBottom: 20 }}>
-            צלם ארוחה, תווית תזונה (לוח תזונה), או מוצר ממותג (מעדני פרו, יוגורט וכו׳). Claude יזהה ויעריך ערכים.
+            צלם ארוחה, תווית תזונה (לוח תזונה), או מוצר ממותג (מעדני פרו, יוגורט וכו׳). המערכת תזהה ותציע ערכים.
           </div>
           <label style={{
             display: 'block', padding: '40px 20px', background: T.bgElev, border: `2px dashed ${T.stroke}`,
@@ -4272,7 +4958,7 @@ function PhotoParseFlow({ onParsed }) {
           <div style={{ display: 'flex', gap: 10 }}>
             <Button variant="ghost" onClick={() => { setFile(null); setPreview(null); }}>החלף</Button>
             <Button onClick={handleParse} disabled={loading}>
-              {loading ? 'Claude מנתח...' : 'נתח את התמונה'}
+              {loading ? 'מנתח...' : 'נתח את התמונה'}
             </Button>
           </div>
         </>
@@ -4514,6 +5200,382 @@ function NutritionGoalsDialog({ onClose }) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// Edit meal dialog — edit existing meal values
+// ═════════════════════════════════════════════════════════════════════
+function EditMealDialog({ date, meal, onClose }) {
+  const { dispatch } = useStore();
+  const toast = useToast();
+  const [desc, setDesc] = React.useState(meal.description || '');
+  const [cal, setCal] = React.useState(meal.calories || 0);
+  const [p, setP] = React.useState(meal.protein || 0);
+  const [c, setC] = React.useState(meal.carbs || 0);
+  const [f, setF] = React.useState(meal.fat || 0);
+  const [time, setTime] = React.useState(meal.time || nowHHMM());
+
+  const save = () => {
+    dispatch({
+      type: 'UPDATE_MEAL', date, mealId: meal.id,
+      updates: { description: desc.trim() || 'ארוחה', calories: cal, protein: p, carbs: c, fat: f, time },
+    });
+    toast('הארוחה עודכנה', { type: 'success' });
+    onClose();
+  };
+
+  const remove = () => {
+    dispatch({ type: 'DELETE_MEAL', date, mealId: meal.id });
+    toast('ארוחה נמחקה', { type: 'info' });
+    onClose();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 820,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={iconBtn}>×</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>עריכת ארוחה</div>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        {meal.thumbnail && (
+          <img src={meal.thumbnail} alt="" style={{
+            width: '100%', maxHeight: 200, objectFit: 'contain',
+            borderRadius: T.radius, background: T.bgElev, marginBottom: 16,
+          }} />
+        )}
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>תיאור</div>
+        <input value={desc} onChange={e => setDesc(e.target.value)} style={inputStyle} />
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שעה</div>
+          <input type="time" value={time} onChange={e => setTime(e.target.value)} style={{
+            ...inputStyle, direction: 'ltr', textAlign: 'left',
+          }} />
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
+          <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="kcal" />
+        </div>
+
+        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>חלבון</div>
+            <NumberStepper value={p} onChange={setP} min={0} max={300} step={1} unit="ג" />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>פחמימות</div>
+            <NumberStepper value={c} onChange={setC} min={0} max={500} step={1} unit="ג" />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>שומן</div>
+            <NumberStepper value={f} onChange={setF} min={0} max={200} step={1} unit="ג" />
+          </div>
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <Button onClick={save}>שמור שינויים</Button>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <button onClick={remove} style={{
+            width: '100%', padding: 14, background: 'transparent', border: `1px solid ${T.rose}55`,
+            borderRadius: T.radius, color: T.rose, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+          }}>מחק ארוחה זו</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// 14-tips.jsx — Tips library + tip-of-the-day widget
+// ════════════════════════════════════════════════════════════════════
+
+const TIPS = [
+  // ─── Weight fluctuation & scale literacy ──────────────────────────
+  {
+    id: 'scale_fluctuation_shabbat',
+    category: 'scale',
+    title: 'מה שאתה רואה בבוקר שבת הוא לא שומן',
+    body: 'ה-2-3 ק״ג שעלו אחרי ארוחת שישי הם מים, מלח ופחמימות שאגורים בשרירים. שומן לא נבנה ברבע יום — מתמטית בלתי אפשרי. בשבת בצהריים תתעלם מהנתון היומי, תסתכל על ממוצע 7 ימים בגרף. זה מה שאמיתי.',
+  },
+  {
+    id: 'water_weight_sodium',
+    category: 'scale',
+    title: 'גרם מלח אחד אוגר 100 גרם מים',
+    body: 'ארוחת סושי, פיצה, או מרק מסעדה יכולה להכיל 3-5 גרם מלח — 300-500 גרם של משקל מים שיוסרו תוך 48 שעות. אם ראית קפיצה של חצי ק״ג בין יום ליום, בדוק מה אכלת — כמעט תמיד זה מלח, לא שומן.',
+  },
+  {
+    id: 'weigh_same_time',
+    category: 'scale',
+    title: 'תשקול באותו זמן, באותו מצב',
+    body: 'הגוף יכול לשנות 1.5 ק״ג בין בוקר לערב. בוקר אחרי שירותים ולפני ארוחה זה הנקודה היציבה ביותר. אם אתה שוקל בערב לפעמים ובוקר לפעמים, הגרף שלך יראה רעש שאין לו שום משמעות.',
+  },
+  {
+    id: 'plateau_is_normal',
+    category: 'scale',
+    title: 'שבוע-שבועיים תקוע זה לא plateau אמיתי',
+    body: 'בדיאטה, שומן יורד בקצב יציב, אבל משקל המים תנודתי. אפשר לעשות 2-3 שבועות בלי שינוי בסקייל ועדיין להוריד 1 ק״ג שומן. ההגדרה האמיתית של plateau: 3+ שבועות רצופים של יציבות תוך שמירה על גירעון קלורי עקבי. קודם לכן זה רעש.',
+  },
+
+  // ─── Protein & nutrition facts ────────────────────────────────────
+  {
+    id: 'protein_ceiling',
+    category: 'nutrition',
+    title: 'חלבון מעל 2 גרם לק״ג זה בזבוז כסף',
+    body: 'לגוף שלך יש תקרת ניצול. 1.6 גרם לק״ג משקל גוף = שיא אמיתי בדיאטה (לשמירה על מסת שריר). מעבר לזה — הגוף ממיר את העודף לאנרגיה או מפריש. אם אתה שותה שייק חלבון 50 גרם בכדי לעלות מעל 2 ג׳/ק״ג, אתה בעצם מוציא כסף על שתן יקר.',
+  },
+  {
+    id: 'carbs_after_workout',
+    category: 'nutrition',
+    title: 'החלון האנאבולי הוא מיתוס שיווקי',
+    body: 'לאכול חלבון "תוך חצי שעה מהאימון" זה המצאה של חברות תוספים. מחקרים מהעשור האחרון הראו שחלון ההזדמנות הוא 4-6 שעות, לא 30 דקות. אם אכלת חלבון 2-3 שעות לפני האימון, אין שום לחץ אחריו.',
+  },
+  {
+    id: 'calorie_label_accuracy',
+    category: 'nutrition',
+    title: 'תוויות תזונה בישראל מדויקות עד ±20%',
+    body: 'חוק ישראלי מאפשר סטייה של 20% מהמוצהר. "מעדן פרו 90 קלוריות" יכול להיות באמת 72 או 108. זה לא סיבה לייאוש — זה סיבה לא לדייק יותר מדי בספירה. אם המדידה שלך בסטייה של 50 קלוריות ביום, אתה בטווח השגיאה הטבעי של המידע.',
+  },
+  {
+    id: 'protein_before_sleep',
+    category: 'nutrition',
+    title: 'קוטג׳ בלילה לא עושה אותך שמן',
+    body: 'אכילה מאוחרת אינה גורמת לעלייה במשקל יותר מאכילה מוקדמת — אם סך הקלוריות היומי זהה. מחקרים על cottage cheese לפני שינה (חלבון casein איטי) הראו שדווקא השפעה חיובית על שיקום שרירים.',
+  },
+
+  // ─── Israeli context ──────────────────────────────────────────────
+  {
+    id: 'israeli_restaurant_calories',
+    category: 'israeli',
+    title: 'ארוחה במסעדה ישראלית = 1000-1500 קלוריות',
+    body: 'חומוס עם פלאפל ופיתה: 900 ק״ק. שווארמה: 1100. פיצה שלמה משפחתית חצויה: 1200. השוקה של הלוגיקה הקלורית בחוץ אגרסיבית. אם יש לך 3 ארוחות בחוץ בשבוע, החלפת אחת לארוחה ביתית = 1500 קלוריות פחות בשבוע = 9 ק״ג פחות בשנה.',
+  },
+  {
+    id: 'pita_vs_lechem',
+    category: 'israeli',
+    title: 'פיתה אחת = 2 פרוסות לחם',
+    body: 'פיתה ישראלית ממוצעת: 220-250 קלוריות. פרוסת לחם: 100-110. אנשים מתייחסים לפיתה כ"עטיפה" ולא סופרים. לפלאפל בפיתה תוסיף 200 קלוריות על החשבון הזה לבד. לדעת את המספר הופך את ההחלטה למודעת.',
+  },
+  {
+    id: 'leben_vs_yogurt',
+    category: 'israeli',
+    title: 'לבן 3% = כמעט כפול קלוריות מיוגורט 0%',
+    body: 'לבן 3% (150 מ״ל): 110 ק״ק. יוגורט טבעי 0% (150 מ״ל): 60 ק״ק. שניהם עם ~12 ג׳ חלבון. אם אתה אוכל לבן פעמיים ביום, מעבר ליוגורט 0% = חיסכון של 700 ק״ק בשבוע בלי אפילו לשים לב.',
+  },
+  {
+    id: 'coca_zero_science',
+    category: 'israeli',
+    title: 'קוקה זירו לא מפריעה להרזיה',
+    body: 'בלי קלוריות, בלי סוכר. מטא-אנליזות גדולות (2020-2023) לא מצאו קשר סיבתי בין ממתיקים מלאכותיים לעלייה במשקל. מי שמגביל את עצמו למים ולא יכול לעמוד בזה זמן רב — זירו זה כלי שימושי להעביר את התקופה הקשה של הדיאטה.',
+  },
+
+  // ─── Psychology & behavior ────────────────────────────────────────
+  {
+    id: 'tracking_reduces_bingeing',
+    category: 'behavior',
+    title: 'תיעוד לפני האוכל מוריד את הכמות',
+    body: 'מחקרים התנהגותיים: אנשים שמתעדים ארוחה לפני שהם מתחילים לאכול, אוכלים 15-20% פחות מאלה שמתעדים אחרי. הסיבה פסיכולוגית — ברגע שאתה רואה את המספר, אתה מתאים את הכמות. תנסה את זה על מנה אחת השבוע.',
+  },
+  {
+    id: 'all_or_nothing_trap',
+    category: 'behavior',
+    title: 'יום דיאטה שבור זה לא שבוע שבור',
+    body: 'הסטטיסטיקה הקלאסית: 90% מאלה שמפסיקים דיאטה מפסיקים אחרי יום-יומיים של "פגם". הכל-או-כלום הוא הטועה הגדול. אם היית בגירעון 6 ימים ואכלת יותר ביום ה-7, עדיין ירדת באותו שבוע. פספוס לא מצטבר אחורה — רק עוצר את ההתקדמות קדימה.',
+  },
+  {
+    id: 'hunger_vs_habit',
+    category: 'behavior',
+    title: 'הרעב בשעה 3 בצהריים הוא הרגל, לא פיזיולוגיה',
+    body: 'אם ארוחת הצהריים שלך היא ב-14:00, בשעה 15:00 הגוף עדיין מעכל. הרעב שאתה מרגיש ב-15:30 הוא דפוס התנהגותי שנוצר מתקופה של אכילה אחר-הצהריים קודמת. נסה 3 ימים בלי לאכול באמצע — הרעב ייעלם.',
+  },
+  {
+    id: 'social_eating',
+    category: 'behavior',
+    title: 'אנשים אוכלים 44% יותר בחברה',
+    body: 'מחקר קלאסי של דה-קסטרו (1989, שוחזר פעמים רבות): סועדים עם 1 אדם אוכלים +33%, עם 3 אנשים +70%. זו עובדה ביולוגית-חברתית שאי אפשר להתעלם ממנה. אם יש לך 4 ארוחות חברתיות בשבוע, הן אחראיות על 30% מהסטייה שלך. לא לוותר — רק להיות מודע.',
+  },
+
+  // ─── Tracking strategy ────────────────────────────────────────────
+  {
+    id: 'weekly_average_truth',
+    category: 'tracking',
+    title: 'הממוצע השבועי זה האמת, היום היחיד זה רעש',
+    body: 'ההבדל בין יום לא יום יכול להיות ±1.5 ק״ג ממים וחלקים לא מעוכלים. ההבדל בין ממוצע שבוע לשבוע הוא האינדיקטור האמיתי לשומן. במקום לבדוק כל בוקר, תסתכל על הגרף פעם בשבוע.',
+  },
+  {
+    id: 'deficit_math',
+    category: 'tracking',
+    title: 'החסרה של 500 קלוריות ליום = חצי ק״ג בשבוע',
+    body: 'ק״ג שומן = 7700 קלוריות. גירעון של 500 קלוריות יומי = 3500 בשבוע = ~0.45 ק״ג שומן. אם יעד הקצב שלך 1 ק״ג בשבוע, אתה צריך גירעון של ~1100 קלוריות יומי — כמעט בלתי אפשרי לרוב האנשים לקיים יותר מחודש. קצב מציאותי: 0.3-0.6 ק״ג/שב׳.',
+  },
+  {
+    id: 'skip_breakfast_myth',
+    category: 'tracking',
+    title: 'ארוחת בוקר זה לא "הארוחה הכי חשובה"',
+    body: 'האמירה מהשישים (רלוונטית לילדים בגיל צמיחה) הפכה לדוגמה שיווקית של חברות דגנים. למבוגר במעקב משקל, intermittent fasting (אי-אכילה עד 12:00) יכול להיות אסטרטגיה טובה — אם זה נוח לו. המפתח: סך הקלוריות ביום, לא העיתוי.',
+  },
+
+  // ─── Myths & bad advice ───────────────────────────────────────────
+  {
+    id: 'metabolism_slowdown_myth',
+    category: 'myths',
+    title: 'גיל 30 לא "מאט את חילוף החומרים" בדרמטיות',
+    body: 'מחקר 2021 ב-Science הוכיח שחילוף החומרים יחסית יציב בין גיל 20-60 (ירידה של ~1% לעשור). מה שבאמת משתנה: אורח חיים יושבני, איבוד מסת שריר עקב חוסר פעילות. תוסיף אימוני התנגדות פעמיים בשבוע — חילוף החומרים שלך יגבר ב-15-20%.',
+  },
+  {
+    id: 'detox_is_fake',
+    category: 'myths',
+    title: 'הכבד שלך עושה detox 24/7 בחינם',
+    body: 'שייק סלק או "ניקוי רעלים" לא עושים שום דבר שהכבד והכליות לא עושים ממילא, כל יום, לאורך כל החיים. אם תרצה לתמוך במערכות הניקוי — שתה מים, ישן 7 שעות, תפסיק אלכוהול. כל מוצר שמבטיח "detox" מוכר לך מים יקרים במיתולוגיה.',
+  },
+  {
+    id: 'late_eating_myth',
+    category: 'myths',
+    title: 'לאכול אחרי 20:00 זה לא "אוטומטית שומן"',
+    body: 'המיתוס הזה חוזר כל דיאטה מוכרת. הגוף לא יודע את השעה. 2000 קלוריות ב-9:00 הופכות בדיוק כמו 2000 קלוריות ב-22:00. הנתון שחשוב: סך יומי. יש ארגומנטים לגיטימיים להימנע מאכילה מאוחרת (איכות שינה, עיכול), אבל לא "ישיר הופך לשומן".',
+  },
+
+  // ─── Strategy & long-term ─────────────────────────────────────────
+  {
+    id: 'first_3_kg',
+    category: 'strategy',
+    title: 'ה-3 ק״ג הראשונים יורדים תוך שבועיים',
+    body: 'זה 90% מים וגליקוגן. בסוף שבוע 2 הקצב מאט דרמטית (0.3-0.5 ק״ג/שב׳) — זה לא כישלון, זה פיזיולוגיה. אם אתה מצפה להמשיך בקצב של 1.5 ק״ג בשבוע הרביעי, אתה מציב לעצמך מלכודת מוטיבציונית.',
+  },
+  {
+    id: 'maintenance_is_skill',
+    category: 'strategy',
+    title: 'שמירה על המשקל זה כישור נפרד',
+    body: 'רוב המחקרים: 80% מאלה שהורידו 10%+ עולים בחזרה תוך שנתיים. הסיבה: להוריד זה "פרויקט" עם יעד. לשמור זה "אורח חיים" בלי קו-סיום. מי שמצליח לשמור, תיעד לפחות 2-3 פעמים בשבוע גם אחרי שהגיע ליעד. מעקב הוא הכלי, לא גזר הדין.',
+  },
+  {
+    id: 'exercise_for_maintenance',
+    category: 'strategy',
+    title: 'אימונים לא מורידים משקל — הם שומרים על השריר',
+    body: 'הדיאטה מורידה את הק״ג. האימון מחליט כמה מתוכם שומן ולא שריר. בלי אימוני כוח, 25% מהירידה יהיה שריר. עם — 10%. זה הופך את ההבדל בין מי שנראה "רזה" למי שנראה "כחוש-עייף" אחרי ירידה.',
+  },
+];
+
+const CATEGORY_LABELS = {
+  scale: 'מאזניים',
+  nutrition: 'תזונה',
+  israeli: 'ישראלי',
+  behavior: 'התנהגות',
+  tracking: 'מעקב',
+  myths: 'מיתוסים',
+  strategy: 'אסטרטגיה',
+};
+
+// ─── Tip of the day: deterministic rotation based on date ───────────
+function getTipOfDay(dateISO) {
+  // Simple hash: number of days since epoch % tips.length
+  const d = new Date(dateISO + 'T00:00:00Z');
+  const daysSinceEpoch = Math.floor(d.getTime() / (24 * 3600 * 1000));
+  return TIPS[daysSinceEpoch % TIPS.length];
+}
+
+// ─── Tip of the day card (for home screen) ──────────────────────────
+function TipOfDayCard({ onExpand }) {
+  const today = todayISO();
+  const tip = getTipOfDay(today);
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 14, cursor: 'pointer',
+      background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+      border: `1px solid ${T.stroke}`,
+    }} onClick={() => onExpand ? onExpand() : setExpanded(v => !v)}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 14, flexShrink: 0,
+          background: `${T.amber}25`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 14,
+        }}>💡</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>
+            טיפ היום · {CATEGORY_LABELS[tip.category]}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: expanded ? 8 : 0 }}>
+            {tip.title}
+          </div>
+          {expanded && (
+            <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7, marginTop: 8 }}>
+              {tip.body}
+            </div>
+          )}
+          {!expanded && (
+            <div style={{ fontSize: 11, color: T.inkMute, marginTop: 4 }}>לחץ להרחבה</div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ─── Full tips library screen ───────────────────────────────────────
+function TipsLibraryScreen({ onClose }) {
+  const [filter, setFilter] = React.useState('all');
+  const categories = ['all', ...Object.keys(CATEGORY_LABELS)];
+  const filtered = filter === 'all' ? TIPS : TIPS.filter(t => t.category === filter);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 800,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>TIPS · ספרייה</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>{TIPS.length} תובנות</div>
+        </div>
+      </div>
+
+      {/* Category filter chips */}
+      <div style={{ padding: '10px 18px 6px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        {categories.map(cat => (
+          <button key={cat} onClick={() => setFilter(cat)} style={{
+            display: 'inline-block', marginLeft: 6, padding: '6px 12px', fontSize: 12,
+            borderRadius: 999, border: `1px solid ${filter === cat ? T.lime : T.stroke}`,
+            background: filter === cat ? T.lime : 'transparent',
+            color: filter === cat ? T.bg : T.inkSub,
+            fontFamily: T.font, cursor: 'pointer', fontWeight: filter === cat ? 700 : 500,
+          }}>
+            {cat === 'all' ? 'הכל' : CATEGORY_LABELS[cat]}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+        {filtered.map(tip => (
+          <Card key={tip.id} padding={14} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>
+              {CATEGORY_LABELS[tip.category]}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6, lineHeight: 1.4 }}>
+              {tip.title}
+            </div>
+            <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7 }}>
+              {tip.body}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 // ════════════════════════════════════════════════════════════════════
 // 11-app.jsx — Root app: provider, router, SW registration
@@ -4578,9 +5640,9 @@ function Router() {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then(reg => {
-      console.log('[Mishkach] SW registered:', reg.scope);
+      console.log('[FiTracklon] SW registered:', reg.scope);
     }).catch(err => {
-      console.warn('[Mishkach] SW registration failed:', err);
+      console.warn('[FiTracklon] SW registration failed:', err);
     });
   });
 }

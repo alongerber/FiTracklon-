@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-// Mishkach Service Worker — offline-first with cache-on-first-use
+// FiTracklon Service Worker v1.4 — offline-first, auto-invalidate cache
 // ════════════════════════════════════════════════════════════════════
 
-const CACHE = 'mishkach-v1';
+const CACHE = 'fitracklon-v14';
 const CORE = [
   './',
   './index.html',
@@ -12,14 +12,12 @@ const CORE = [
   './icon-maskable.png',
 ];
 
-// Pre-cache core assets on install
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())
   );
 });
 
-// Clean old caches on activate
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then(keys =>
@@ -28,16 +26,15 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Fetch strategy:
-//   - navigation (HTML): network-first, fallback to cache
-//   - same-origin assets: cache-first
-//   - cross-origin (CDN: React, Babel, fonts): stale-while-revalidate
 self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
   const sameOrigin = url.origin === self.location.origin;
+
+  // Never cache /api/ — always fresh
+  if (url.pathname.startsWith('/api/')) return;
 
   // Navigation request — network first
   if (request.mode === 'navigate') {
@@ -51,7 +48,6 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Same-origin: cache first
   if (sameOrigin) {
     e.respondWith(
       caches.match(request).then(cached => cached || fetch(request).then(r => {
@@ -65,7 +61,6 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Cross-origin: stale-while-revalidate (for CDN)
   e.respondWith(
     caches.match(request).then(cached => {
       const fetchPromise = fetch(request).then(r => {
