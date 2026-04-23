@@ -2,7 +2,7 @@
 // FiTracklon Service Worker v1.4 — offline-first, auto-invalidate cache
 // ════════════════════════════════════════════════════════════════════
 
-const CACHE = 'fitracklon-v14';
+const CACHE = 'fitracklon-v15';
 const CORE = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const CORE = [
   './icon-192.png',
   './icon-512.png',
   './icon-maskable.png',
+  './logo-welcome.png',
 ];
 
 self.addEventListener('install', (e) => {

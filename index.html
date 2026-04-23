@@ -112,11 +112,11 @@ const T = {
   bg:        '#0b0d0c',
   bgElev:    '#141816',
   bgElev2:   '#1c211e',
-  stroke:    'rgba(255,255,255,0.08)',
-  strokeHi:  'rgba(255,255,255,0.14)',
+  stroke:    'rgba(255,255,255,0.10)',
+  strokeHi:  'rgba(255,255,255,0.20)',
   ink:       '#f4f6f2',
-  inkSub:    'rgba(244,246,242,0.62)',
-  inkMute:   'rgba(244,246,242,0.38)',
+  inkSub:    'rgba(244,246,242,0.82)',
+  inkMute:   'rgba(244,246,242,0.60)',
   lime:      '#c6ff3d',
   limeDim:   'rgba(198,255,61,0.18)',
   amber:     '#ffb94a',
@@ -1239,6 +1239,83 @@ function TabIcon({ name, size = 18 }) {
       return <svg {...p}>
         <path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6z"/>
       </svg>;
+    case 'key':
+      return <svg {...p}>
+        <circle cx="8" cy="15" r="4"/>
+        <path d="M10.85 12.15L21 2M18 5l3 3M15 8l3 3"/>
+      </svg>;
+    case 'wallet':
+      return <svg {...p}>
+        <path d="M20 12V8a2 2 0 00-2-2H5a2 2 0 010-4h13a2 2 0 012 2v4"/>
+        <path d="M3 6v14a2 2 0 002 2h15a2 2 0 002-2v-4"/>
+        <circle cx="17" cy="14" r="1.5" fill="currentColor"/>
+      </svg>;
+    case 'lightbulb':
+      return <svg {...p}>
+        <path d="M9 18h6M10 21h4M12 2a7 7 0 00-4 12.5V17h8v-2.5A7 7 0 0012 2z"/>
+      </svg>;
+    case 'ruler':
+      return <svg {...p}>
+        <path d="M3 17L17 3l4 4L7 21l-4-4z"/>
+        <path d="M7 11l2 2M11 7l2 2M15 15l2 2M10 14l2 2"/>
+      </svg>;
+    case 'bolt':
+      return <svg {...p}>
+        <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
+      </svg>;
+    case 'palette':
+      return <svg {...p}>
+        <circle cx="13.5" cy="6.5" r="1.5" fill="currentColor"/>
+        <circle cx="17.5" cy="10.5" r="1.5" fill="currentColor"/>
+        <circle cx="8.5" cy="7.5" r="1.5" fill="currentColor"/>
+        <circle cx="6.5" cy="12.5" r="1.5" fill="currentColor"/>
+        <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.8 1.5-1.7 0-.4-.2-.8-.5-1.1-.3-.3-.5-.7-.5-1.2 0-.9.7-1.6 1.6-1.6H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.4-10-8.4z"/>
+      </svg>;
+    case 'download-to-phone':
+      return <svg {...p}>
+        <rect x="7" y="2" width="10" height="20" rx="2"/>
+        <path d="M12 5v8M9 10l3 3 3-3"/>
+        <line x1="10" y1="19" x2="14" y2="19"/>
+      </svg>;
+    case 'trash':
+      return <svg {...p}>
+        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+      </svg>;
+    case 'upload':
+      return <svg {...p}>
+        <path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>
+      </svg>;
+    case 'download-inv':
+      return <svg {...p}>
+        <path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>
+      </svg>;
+    case 'edit':
+      return <svg {...p}>
+        <path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+      </svg>;
+    case 'flame':
+      return <svg {...p}>
+        <path d="M12 2c1.5 2.5 2 4 2 6 0-1-1-2-2-2s-2 1-2 2c0 0-1-1-1-3C6 7 4 10 4 14a8 8 0 0016 0c0-4-2.5-8-8-12z"/>
+      </svg>;
+    case 'star':
+      return <svg {...p}>
+        <path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/>
+      </svg>;
+    case 'photo':
+      return <svg {...p}>
+        <rect x="3" y="5" width="18" height="15" rx="2"/>
+        <circle cx="9" cy="11" r="2"/>
+        <path d="M21 17l-5-5L5 20"/>
+      </svg>;
+    case 'chat':
+      return <svg {...p}>
+        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+      </svg>;
+    case 'plate':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <circle cx="12" cy="12" r="5"/>
+      </svg>;
     default: return null;
   }
 }
@@ -1650,18 +1727,20 @@ function OnboardingScreen() {
 
 function WelcomeStep({ onNext }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 20, paddingTop: 40 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 20, paddingTop: 32 }}>
       <div style={{
-        width: 96, height: 96, borderRadius: 48, background: `${T.lime}22`,
+        width: 160, height: 160,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: `0 0 40px ${T.lime}33`,
       }}>
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke={T.lime} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 20h18"/>
-          <rect x="5" y="13" width="3" height="7" rx="1"/>
-          <rect x="10.5" y="8" width="3" height="12" rx="1"/>
-          <rect x="16" y="4" width="3" height="16" rx="1"/>
-        </svg>
+        <img
+          src="./logo-welcome.png"
+          alt="FiTracklon"
+          style={{
+            width: '100%', height: '100%', objectFit: 'contain',
+            borderRadius: 34,
+            boxShadow: `0 0 60px ${T.lime}44, 0 10px 30px rgba(0,0,0,0.5)`,
+          }}
+        />
       </div>
       <div>
         <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: -0.5 }}>ברוך הבא ל-FiTracklon</div>
@@ -1669,8 +1748,8 @@ function WelcomeStep({ onNext }) {
           משקל, תזונה ותובנות חכמות במקום אחד. הכל נשמר על המכשיר שלך בלבד.
         </div>
       </div>
-      <div style={{ marginTop: 20, fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>5 שאלות · 90 שניות</div>
-      <div style={{ marginTop: 20, width: '100%', maxWidth: 300, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ marginTop: 12, fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>5 שאלות · 90 שניות</div>
+      <div style={{ marginTop: 16, width: '100%', maxWidth: 300, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Button onClick={onNext}>בוא נתחיל</Button>
         <InstallButton variant="ghost" label="📱 התקן במסך הבית" />
       </div>
@@ -2137,12 +2216,19 @@ function HomeV1({ onNavigate }) {
       <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
         <HomeHeader onNavigate={onNavigate} />
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <EmptyState
-            icon="⚖️"
-            title="בוא נתחיל"
-            message="הוסף את השקילה הראשונה שלך כדי לראות מגמות וסטטיסטיקות."
-            action={<Button onClick={() => onNavigate('log')}>הוסף שקילה</Button>}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 16, maxWidth: 320 }}>
+            <img src="./logo-welcome.png" alt="FiTracklon" style={{
+              width: 140, height: 140, objectFit: 'contain', borderRadius: 30,
+              boxShadow: `0 0 50px ${T.lime}33, 0 10px 30px rgba(0,0,0,0.4)`,
+            }} />
+            <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>בוא נתחיל</div>
+            <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6 }}>
+              הוסף את השקילה הראשונה שלך כדי לראות מגמות וסטטיסטיקות.
+            </div>
+            <div style={{ width: '100%', maxWidth: 260, marginTop: 8 }}>
+              <Button onClick={() => onNavigate('log')}>הוסף שקילה</Button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -3473,19 +3559,19 @@ function ProfileScreen({ onNavigate }) {
 
         {/* Goal summary */}
         <Section title="יעד">
-          <RowItem icon="🎯" label="משקל יעד"
+          <RowItem icon={<TabIcon name="target" size={18} />} label="משקל יעד"
             value={state.goal.weight !== null ? `${fmt.kg(state.goal.weight, state.settings.unit)} ${fmt.unitLabel(state.settings.unit)}` : 'לא מוגדר'}
             onClick={() => onNavigate('goal')} />
           {state.goal.weight !== null && (
-            <RowItem icon="⚡" label="קצב" value={PACE_CONFIG[state.goal.pace]?.label || 'מאוזן'} onClick={() => onNavigate('goal')} />
+            <RowItem icon={<TabIcon name="bolt" size={18} />} label="קצב" value={PACE_CONFIG[state.goal.pace]?.label || 'מאוזן'} onClick={() => onNavigate('goal')} />
           )}
         </Section>
 
         {/* AI */}
         <Section title="תובנות AI">
-          <RowItem icon="🔑" label="מפתח / קוד גישה"
+          <RowItem icon={<TabIcon name="key" size={18} />} label="מפתח / קוד גישה"
             value={apiRowValue} onClick={() => setShowApiConfig(true)} />
-          <RowItem icon="💰" label="שימוש החודש"
+          <RowItem icon={<TabIcon name="wallet" size={18} />} label="שימוש החודש"
             value={`$${monthUsage.costUSD.toFixed(3)} · ${monthUsage.requests} בקשות`}
             onClick={() => setShowUsage(true)} />
         </Section>
@@ -3495,16 +3581,16 @@ function ProfileScreen({ onNavigate }) {
 
         {/* Tips Library */}
         <Section title="טיפים ותובנות">
-          <RowItem icon="💡" label="ספריית טיפים"
+          <RowItem icon={<TabIcon name="lightbulb" size={18} />} label="ספריית טיפים"
             value={`${25} תובנות`} onClick={() => setShowTips(true)} />
         </Section>
 
         {/* Settings */}
         <Section title="הגדרות">
-          <RowItem icon="📏" label="יחידת מדידה" right={
+          <RowItem icon={<TabIcon name="ruler" size={18} />} label="יחידת מדידה" right={
             <UnitToggle unit={state.settings.unit} onChange={(u) => dispatch({ type: 'SET_SETTING', key: 'unit', value: u })} />
           } />
-          <RowItem icon="🎨" label="תצוגת בית" right={
+          <RowItem icon={<TabIcon name="palette" size={18} />} label="תצוגת בית" right={
             <VariantToggle value={state.settings.homeVariant} onChange={(v) => {
               dispatch({ type: 'SET_SETTING', key: 'homeVariant', value: v });
               toast('תצוגה הוחלפה', { type: 'info' });
@@ -3514,9 +3600,9 @@ function ProfileScreen({ onNavigate }) {
 
         {/* Data */}
         <Section title="נתונים">
-          <RowItem icon="⬇️" label="ייצוא JSON" onClick={handleExport} />
-          <RowItem icon="⬆️" label="ייבוא מגיבוי" onClick={handleImport} />
-          <RowItem icon="🗑️" label="מחק הכל" danger onClick={() => setConfirmReset(true)} />
+          <RowItem icon={<TabIcon name="download-inv" size={18} />} label="ייצוא JSON" onClick={handleExport} />
+          <RowItem icon={<TabIcon name="upload" size={18} />} label="ייבוא מגיבוי" onClick={handleImport} />
+          <RowItem icon={<TabIcon name="trash" size={18} />} label="מחק הכל" danger onClick={() => setConfirmReset(true)} />
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
@@ -3552,6 +3638,7 @@ function Section({ title, children }) {
 }
 
 function RowItem({ icon, label, value, right, onClick, danger = false }) {
+  const iconColor = danger ? T.rose : T.lime;
   return (
     <div onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
@@ -3559,7 +3646,11 @@ function RowItem({ icon, label, value, right, onClick, danger = false }) {
       borderBottom: `1px solid ${T.stroke}`,
       color: danger ? T.rose : T.ink,
     }}>
-      <div style={{ fontSize: 18 }}>{icon}</div>
+      <div style={{
+        width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+        background: `${iconColor}18`, color: iconColor,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>{icon}</div>
       <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{label}</div>
       {value && <div style={{ fontSize: 13, color: T.inkSub, fontFamily: T.mono }}>{value}</div>}
       {right}
@@ -4342,7 +4433,11 @@ function NutritionScreen({ onNavigate }) {
           <div style={{
             padding: '4px 10px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
             borderRadius: 999, fontSize: 11, color: T.amber, fontFamily: T.mono, fontWeight: 700,
-          }}>🔥 {nStreak} ימים</div>
+            display: 'flex', alignItems: 'center', gap: 5,
+          }}>
+            <TabIcon name="flame" size={12} />
+            {nStreak} ימים
+          </div>
         )}
         <button onClick={() => setGoalsOpen(true)} style={{
           background: T.bgElev, border: 'none', color: T.ink, cursor: 'pointer',
@@ -4572,10 +4667,10 @@ function AddMealDialog({ date, onClose }) {
       {/* Mode tabs when not in review */}
       {!parsedResult && (
         <div style={{ padding: '10px 18px 4px', display: 'flex', gap: 6, overflowX: 'auto' }}>
-          {hasFavorites && <ModeTab active={mode === 'favorites'} onClick={() => setMode('favorites')} icon="⭐" label="מועדפים" />}
-          <ModeTab active={mode === 'text'} onClick={() => setMode('text')} icon="💬" label="טקסט" />
-          <ModeTab active={mode === 'photo'} onClick={() => setMode('photo')} icon="📷" label="תמונה" />
-          <ModeTab active={mode === 'manual'} onClick={() => setMode('manual')} icon="✏️" label="ידני" />
+          {hasFavorites && <ModeTab active={mode === 'favorites'} onClick={() => setMode('favorites')} iconName="star" label="מועדפים" />}
+          <ModeTab active={mode === 'text'} onClick={() => setMode('text')} iconName="chat" label="טקסט" />
+          <ModeTab active={mode === 'photo'} onClick={() => setMode('photo')} iconName="photo" label="תמונה" />
+          <ModeTab active={mode === 'manual'} onClick={() => setMode('manual')} iconName="edit" label="ידני" />
         </div>
       )}
 
@@ -4597,15 +4692,15 @@ function AddMealDialog({ date, onClose }) {
   );
 }
 
-function ModeTab({ active, onClick, icon, label }) {
+function ModeTab({ active, onClick, icon, iconName, label }) {
   return (
     <button onClick={onClick} style={{
       padding: '8px 14px', borderRadius: 999, border: `1px solid ${active ? T.lime : T.stroke}`,
       background: active ? T.lime : 'transparent', color: active ? T.bg : T.inkSub,
       fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
-      display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', flexShrink: 0,
+      display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', flexShrink: 0,
     }}>
-      <span>{icon}</span>{label}
+      {iconName ? <TabIcon name={iconName} size={15} /> : <span>{icon}</span>}{label}
     </button>
   );
 }
@@ -4802,18 +4897,18 @@ function ModeSelector({ onPick }) {
         </div>
       )}
       <Col gap={10}>
-        <ModeButton icon="💬" title="טקסט חופשי" desc='כתוב בעברית: "אכלתי שניצל 200 גרם עם אורז ירקות"'
+        <ModeButton iconName="chat" title="טקסט חופשי" desc='כתוב בעברית: "אכלתי שניצל 200 גרם עם אורז ירקות"'
           onClick={() => onPick('text')} disabled={!hasAI} />
-        <ModeButton icon="📷" title="תמונה" desc="צלם ארוחה, תווית מוצר, או מוצר ממותג"
+        <ModeButton iconName="photo" title="תמונה" desc="צלם ארוחה, תווית מוצר, או מוצר ממותג"
           onClick={() => onPick('photo')} disabled={!hasAI} />
-        <ModeButton icon="✏️" title="הזנה ידנית" desc="מלא ערכים בעצמך"
+        <ModeButton iconName="edit" title="הזנה ידנית" desc="מלא ערכים בעצמך"
           onClick={() => onPick('manual')} />
       </Col>
     </div>
   );
 }
 
-function ModeButton({ icon, title, desc, onClick, disabled }) {
+function ModeButton({ icon, iconName, title, desc, onClick, disabled }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
       display: 'flex', alignItems: 'center', gap: 14, padding: 16,
@@ -4821,7 +4916,10 @@ function ModeButton({ icon, title, desc, onClick, disabled }) {
       cursor: disabled ? 'not-allowed' : 'pointer', textAlign: 'right', direction: 'rtl',
       fontFamily: T.font, color: T.ink, opacity: disabled ? 0.5 : 1, width: '100%',
     }}>
-      <div style={{ fontSize: 28 }}>{icon}</div>
+      <div style={{
+        width: 44, height: 44, borderRadius: 12, background: `${T.lime}18`,
+        color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>{iconName ? <TabIcon name={iconName} size={22} /> : <span style={{ fontSize: 22 }}>{icon}</span>}</div>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
         <div style={{ fontSize: 11, color: T.inkSub, marginTop: 3, lineHeight: 1.4 }}>{desc}</div>
@@ -5495,10 +5593,12 @@ function TipOfDayCard({ onExpand }) {
     }} onClick={() => onExpand ? onExpand() : setExpanded(v => !v)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{
-          width: 28, height: 28, borderRadius: 14, flexShrink: 0,
-          background: `${T.amber}25`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 14,
-        }}>💡</div>
+          width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+          background: `${T.amber}22`, color: T.amber,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <TabIcon name="lightbulb" size={18} />
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>
             טיפ היום · {CATEGORY_LABELS[tip.category]}
