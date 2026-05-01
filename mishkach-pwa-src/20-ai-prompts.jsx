@@ -165,8 +165,12 @@ Rules: [NAME], gender, 80-200 words, no jargon. Focus on sustainability.`,
   },
 };
 
-// Build a system prompt for given persona + user
-function buildAISystemPrompt(promptType, state) {
+// Build a system prompt for given persona + user, with optional holiday context.
+// `windowDays` (optional) — if provided, the function checks for any holidays
+// in the last N days and appends a single line "Note: this period included
+// [holiday]" to the system prompt. Helps insights account for natural caloric
+// spikes around Jewish holidays / weekends.
+function buildAISystemPrompt(promptType, state, windowDays) {
   const personaId = state?.settings?.persona || 'neutral';
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
@@ -178,7 +182,58 @@ function buildAISystemPrompt(promptType, state) {
   if (!template) return '';
 
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
-  return template.replace(/\[NAME\]/g, name).replace(/\[GENDER\]/g, genderHe);
+  let prompt = template.replace(/\[NAME\]/g, name).replace(/\[GENDER\]/g, genderHe);
+
+  // Append holiday context if requested + helper is loaded (06-screen-home.jsx)
+  if (windowDays && typeof holidaysInRange === 'function') {
+    const today = todayISO();
+    const from = addDaysISO(today, -(windowDays - 1));
+    const holidays = holidaysInRange(from, today);
+    if (holidays.length > 0) {
+      const list = holidays.map(h => `${h.name} (${h.date})`).join(', ');
+      prompt += `\n\nNote: this period included Jewish holidays — ${list}. Account for this when analyzing nutrition spikes or weight fluctuations.`;
+    }
+  }
+  return prompt;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// E4 — Monthly recap (AI-augmented stats summary for last calendar month)
+// ════════════════════════════════════════════════════════════════════
+// Returns JSON: { achievements: [string, string, string], next_steps: string }
+// Caller (MonthlyRecapDialog) shows our auto-detected stats first; AI only
+// fills in the qualitative "what stood out" + "what to do next month" pieces.
+const MONTHLY_RECAP_PROMPT = `אתה מנתח חודש שעבר עבור משתמש מעקב משקל.
+
+קיבלת JSON עם נתוני החודש שעבר. החזר JSON תקין בלבד:
+{
+  "achievements": ["הישג 1", "הישג 2", "הישג 3"],
+  "next_steps": "1-2 משפטים על מה לעשות בחודש הבא, ספציפי לדאטה הזו"
+}
+
+חוקים:
+1. הישגים חייבים להיות **ספציפיים** למשתמש הזה — לא "התחלת חזק" או "המשך כך".
+2. אם השינוי במשקל קטן — תכבד את זה כהישג שמירה. אל תתבאסש.
+3. אם הייתה ירידה — ציין כמה ק"ג ובאיזה אחוז מהיעד החודשי.
+4. אם הייתה עלייה — ציין מספר ענייני; אל תהיה דרמטי.
+5. אם נכלל חג — ציין את ההשפעה האפשרית.
+6. next_steps: דבר אחד או שניים מאוד ספציפיים. לא "תאכל בריא".
+
+טון לפי פרסונה: {persona}.
+שם: {name}, מגדר: {gender}.
+
+הדאטה: {data}`;
+
+function buildMonthlyRecapPrompt(state, monthData) {
+  const personaId = state?.settings?.persona || 'neutral';
+  const gender = state?.user?.gender === 'female' ? 'female' : 'male';
+  const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
+  const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
+  return MONTHLY_RECAP_PROMPT
+    .replace('{persona}', personaId)
+    .replace('{name}', name)
+    .replace('{gender}', genderHe)
+    .replace('{data}', JSON.stringify(monthData));
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -290,6 +345,9 @@ const REPORT_INSIGHTS_SYSTEM_PROMPT = `אתה כותב תובנות לדוח א�
 // `recipient` is one of: 'self' | 'doctor' | 'trainer' | 'friend' | 'other'.
 // `customRecipientLabel` is the free-text label used when recipient === 'other'.
 // `filteredData` is a JSON-stringifiable snapshot — passed straight in.
+//
+// E3c: enriches filteredData with `holidays_in_period` (any Jewish holiday
+// within the report window) so the model can frame nutrition spikes.
 function buildReportPrompt(state, recipient, customRecipientLabel, filteredData) {
   const personaId = state?.settings?.persona || 'neutral';
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
@@ -308,8 +366,18 @@ function buildReportPrompt(state, recipient, customRecipientLabel, filteredData)
     }
   })();
 
+  // Inject holiday context into the snapshot if the period spans any.
+  // holidaysInRange is defined in 06-screen-home.jsx.
+  let enrichedData = filteredData;
+  if (typeof holidaysInRange === 'function' && filteredData?.period?.from && filteredData?.period?.to) {
+    const hh = holidaysInRange(filteredData.period.from, filteredData.period.to);
+    if (hh.length > 0) {
+      enrichedData = { ...filteredData, holidays_in_period: hh };
+    }
+  }
+
   return REPORT_INSIGHTS_SYSTEM_PROMPT
-    .replace('{filtered_data}', JSON.stringify(filteredData))
+    .replace('{filtered_data}', JSON.stringify(enrichedData))
     .replace('{recipient}', recipientLabel)
     .replace('{persona}', personaId)
     .replace('{gender}', genderHe)

@@ -24,6 +24,7 @@ const MODEL_BY_FEATURE = {
   goal_calibration:   'claude-opus-4-7',
   report_insights:    'claude-opus-4-7',     // pattern-finding for personal report
   workout_voice:      'claude-sonnet-4-6',   // structured Hebrew→JSON, Sonnet handles fine
+  monthly_recap:      'claude-sonnet-4-6',   // recap fits Sonnet — narrative + 3 short bullets
 };
 
 const DEFAULT_MODEL = 'claude-opus-4-7';
@@ -352,7 +353,7 @@ function normalizeNutrition(p) {
 async function generateWeeklyInsight(snapshot, config, onUsage, state) {
   // Use persona-specific prompt if state provided, else fallback to generic
   const system = state
-    ? buildAISystemPrompt('weekly_insight', state)
+    ? buildAISystemPrompt('weekly_insight', state, 7)
     : PROMPTS.weeklyInsight.system;
   const { text } = await callClaude({
     config,
@@ -367,7 +368,7 @@ async function generateWeeklyInsight(snapshot, config, onUsage, state) {
 
 async function generatePlateauAnalysis(snapshot, config, onUsage, state) {
   const system = state
-    ? buildAISystemPrompt('plateau_analysis', state)
+    ? buildAISystemPrompt('plateau_analysis', state, 21)
     : PROMPTS.plateauAnalysis.system;
   const { text } = await callClaude({
     config,
@@ -382,7 +383,7 @@ async function generatePlateauAnalysis(snapshot, config, onUsage, state) {
 
 async function generateGoalCalibration(snapshot, config, onUsage, state) {
   const system = state
-    ? buildAISystemPrompt('goal_calibration', state)
+    ? buildAISystemPrompt('goal_calibration', state, 21)
     : PROMPTS.goalCalibration.system;
   const { text } = await callClaude({
     config,
@@ -393,6 +394,22 @@ async function generateGoalCalibration(snapshot, config, onUsage, state) {
     onUsage,
   });
   return text.trim();
+}
+
+// ─── Monthly recap (Sonnet) ─────────────────────────────────────────
+// Returns { achievements: string[], next_steps: string }.
+// Caller already shows numeric KPIs — this is the qualitative layer.
+async function generateMonthlyRecap(monthData, config, onUsage, state) {
+  const system = buildMonthlyRecapPrompt(state, monthData);
+  const { text } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.monthly_recap,
+    system,
+    messages: [{ role: 'user', content: 'הוצא JSON תקין לפי הסכמה.' }],
+    maxTokens: 500,
+    onUsage,
+  });
+  return extractJSON(text);
 }
 
 // ─── Voice → workout parser (Sonnet) ────────────────────────────────

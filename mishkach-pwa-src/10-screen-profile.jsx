@@ -14,6 +14,7 @@ function ProfileScreen({ onNavigate }) {
   const [showNotifications, setShowNotifications] = React.useState(false);
   const [showWorkoutReminder, setShowWorkoutReminder] = React.useState(false);
   const [showReport, setShowReport] = React.useState(false);
+  const [showMonthlyArchive, setShowMonthlyArchive] = React.useState(false);
   const currentPersona = state.settings.persona || 'neutral';
   const personaLabel = PERSONAS[currentPersona]?.name || 'ישיר';
 
@@ -162,6 +163,8 @@ function ProfileScreen({ onNavigate }) {
         <Section title="דוחות">
           <RowItem icon={<TabIcon name="share" size={18} />} label="📄 צור דוח אישי"
             value="לרופא · למאמן · לעצמי" onClick={() => setShowReport(true)} />
+          <RowItem icon={<TabIcon name="chart" size={18} />} label="📊 סיכומים חודשיים"
+            value="ארכיון" onClick={() => setShowMonthlyArchive(true)} />
         </Section>
 
         {/* Settings */}
@@ -185,7 +188,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.2
+          מִשְׁקַלּוּת · v3.3
         </div>
       </div>
 
@@ -197,6 +200,7 @@ function ProfileScreen({ onNavigate }) {
       {showNotifications && <NotificationsSettingsDialog onClose={() => setShowNotifications(false)} />}
       {showWorkoutReminder && <WorkoutReminderDialog onClose={() => setShowWorkoutReminder(false)} />}
       {showReport && <ReportScreen onClose={() => setShowReport(false)} />}
+      {showMonthlyArchive && <MonthlyArchiveDialog onClose={() => setShowMonthlyArchive(false)} />}
 
       <ConfirmDialog
         open={confirmReset}

@@ -10,6 +10,109 @@ function HomeScreen({ onNavigate }) {
   return <HomeV1 onNavigate={onNavigate} />;
 }
 
+// ════════════════════════════════════════════════════════════════════
+// E3 — Calendar awareness
+// ════════════════════════════════════════════════════════════════════
+//
+// Static list of Jewish holidays for 2026-2027 in Gregorian dates.
+// IMPORTANT: dates were computed from typical Hebrew calendar mappings
+// but should be verified against an authoritative Hebrew calendar
+// before 2027. If a date is wrong, the only consequence is the banner
+// showing on the wrong day — no data corruption.
+//
+// kind: 'holiday' (yom tov) | 'eve' (erev chag) | 'minor' (purim, lag baomer)
+const HOLIDAYS = [
+  // ── 5786 / 2026 ─────────────────────────────────────────────────
+  { date: '2026-03-03', name: 'פורים',           emoji: '🎭', kind: 'minor' },
+  { date: '2026-04-01', name: 'ערב פסח',         emoji: '🍷', kind: 'eve' },
+  { date: '2026-04-02', name: 'פסח',             emoji: '🍷', kind: 'holiday' },
+  { date: '2026-04-08', name: 'שביעי של פסח',    emoji: '🍷', kind: 'holiday' },
+  { date: '2026-04-14', name: 'יום השואה',       emoji: '🕯️', kind: 'minor' },
+  { date: '2026-04-22', name: 'יום הזיכרון',     emoji: '🇮🇱', kind: 'minor' },
+  { date: '2026-04-23', name: 'יום העצמאות',     emoji: '🇮🇱', kind: 'holiday' },
+  { date: '2026-05-05', name: 'ל״ג בעומר',       emoji: '🔥', kind: 'minor' },
+  { date: '2026-05-22', name: 'שבועות',          emoji: '🌾', kind: 'holiday' },
+  { date: '2026-09-12', name: 'ערב ראש השנה',    emoji: '🍯', kind: 'eve' },
+  { date: '2026-09-13', name: 'ראש השנה',        emoji: '🍯', kind: 'holiday' },
+  { date: '2026-09-21', name: 'יום כיפור',       emoji: '🤍', kind: 'holiday' },
+  { date: '2026-09-26', name: 'סוכות',           emoji: '🌿', kind: 'holiday' },
+  { date: '2026-10-04', name: 'שמחת תורה',       emoji: '📜', kind: 'holiday' },
+  { date: '2026-12-05', name: 'חנוכה',           emoji: '🕎', kind: 'minor' },
+  // ── 5787 / 2027 (verify before use!) ───────────────────────────
+  { date: '2027-03-23', name: 'פורים',           emoji: '🎭', kind: 'minor' },
+  { date: '2027-04-21', name: 'ערב פסח',         emoji: '🍷', kind: 'eve' },
+  { date: '2027-04-22', name: 'פסח',             emoji: '🍷', kind: 'holiday' },
+];
+
+function getHolidayForDate(iso) {
+  return HOLIDAYS.find(h => h.date === iso) || null;
+}
+
+// Get a display tag for today: holiday > friday > saturday > null
+function todayBannerKind(iso) {
+  const h = getHolidayForDate(iso);
+  if (h) return { kind: 'holiday', holiday: h };
+  const dow = parseDOWFromISO(iso);
+  if (dow === 5) return { kind: 'friday' };
+  if (dow === 6) return { kind: 'saturday' };
+  return null;
+}
+
+// Find any holiday whose date falls within [fromISO, toISO] inclusive.
+// Used by AI prompts to add "this period included [holiday]" context.
+function holidaysInRange(fromISO, toISO) {
+  return HOLIDAYS.filter(h => h.date >= fromISO && h.date <= toISO);
+}
+
+// ─── DayBanner component — shown at top of HomeV1/V2/V3 ────────────
+function DayBanner() {
+  const { state, dispatch } = useStore();
+  const today = todayISO();
+  const dismissed = state.settings.dismissedDayBanner === today;
+  if (dismissed) return null;
+
+  const tag = todayBannerKind(today);
+  if (!tag) return null;
+
+  // Pick the right STRINGS key + vars
+  let key, vars = {};
+  let bgColor = T.bgElev2, accent = T.cyan;
+  if (tag.kind === 'holiday') {
+    key = 'banner_holiday';
+    vars = { NAME: tag.holiday.name, EMOJI: tag.holiday.emoji };
+    accent = tag.holiday.kind === 'holiday' ? T.amber : T.cyan;
+  } else if (tag.kind === 'friday') {
+    key = 'banner_friday';
+    accent = T.amber;
+  } else {
+    key = 'banner_saturday';
+    accent = T.lime;
+  }
+
+  const text = personaStr(state, key, '', vars);
+  if (!text) return null;
+
+  return (
+    <div style={{
+      margin: '4px 18px 6px', padding: '8px 10px 8px 12px',
+      background: `${accent}15`, border: `1px solid ${accent}44`,
+      borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8,
+      direction: 'rtl',
+    }}>
+      <div style={{ flex: 1, fontSize: 12, color: accent, lineHeight: 1.5 }}>
+        {text}
+      </div>
+      <button
+        onClick={() => dispatch({ type: 'SET_SETTING', key: 'dismissedDayBanner', value: today })}
+        aria-label="הסתר באנר"
+        style={{
+          background: 'transparent', border: 'none', color: accent,
+          cursor: 'pointer', padding: 4, fontSize: 16, opacity: 0.7,
+        }}>×</button>
+    </div>
+  );
+}
+
 // ─── Shared top bar ─────────────────────────────────────────────────
 function HomeHeader({ compact = false, onNavigate }) {
   const { state, stats } = useStore();
@@ -94,6 +197,8 @@ function HomeV1({ onNavigate }) {
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <HomeHeader onNavigate={onNavigate} />
+      <DayBanner />
+      <MonthlyRecapButton onNavigate={onNavigate} />
 
       <PullToRefresh
         onRefresh={() => new Promise(r => setTimeout(r, 600))}
@@ -233,6 +338,8 @@ function HomeV2({ onNavigate }) {
         <StreakBadge days={stats.streak} />
         <AvatarDot letter={(state.user.name || 'U')[0]} size={28} />
       </div>
+      <DayBanner />
+      <MonthlyRecapButton onNavigate={onNavigate} />
 
       {/* Streak milestone message — shows the last milestone passed, not just exact match */}
       {(() => {
@@ -436,6 +543,8 @@ function HomeV3({ onNavigate }) {
         <WorkoutStreakBadge onNavigate={onNavigate} />
         <AvatarDot letter={(state.user.name || 'U')[0]} size={32} />
       </div>
+      <DayBanner />
+      <MonthlyRecapButton onNavigate={onNavigate} />
 
       <div style={{ padding: '6px 18px 10px' }}>
         <Card padding={12} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -611,5 +720,424 @@ function NutritionWidget({ onNavigate }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// E4 — Monthly recap
+// ════════════════════════════════════════════════════════════════════
+//
+// Visible-on-Home button + full-screen dialog showing the previous
+// calendar month's stats. Auto-suppressed once per month (state
+// dismissedMonthlyRecap). Archive list lives in Profile.
+//
+// Conditions for the Home button to appear:
+//   - today.day <= 7 (first week of new month)
+//   - dismissedMonthlyRecap !== prevMonth (user hasn't acknowledged it)
+//   - >= 5 weight entries in prevMonth (enough to be worth a recap)
+
+const HEBREW_MONTH_NAMES = [
+  'ינואר','פברואר','מרץ','אפריל','מאי','יוני',
+  'יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר',
+];
+
+// "YYYY-MM" — the previous calendar month, regardless of today's day.
+function previousMonthYM(todayIso) {
+  const [y, m] = todayIso.split('-').map(Number);
+  const d = new Date(y, m - 2, 1); // m is 1-12; -2 makes it month-1 zero-indexed
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// "YYYY-MM" → "אפריל 2026"
+function monthDisplayName(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return `${HEBREW_MONTH_NAMES[m - 1]} ${y}`;
+}
+
+// All YYYY-MM keys that have at least one entry, sorted desc.
+function monthsWithData(state) {
+  const months = new Set();
+  Object.keys(state.entries || {}).forEach(d => months.add(d.slice(0, 7)));
+  Object.keys(state.workouts?.sessions || {}).forEach(d => months.add(d.slice(0, 7)));
+  Object.keys(state.nutrition?.meals || {}).forEach(d => months.add(d.slice(0, 7)));
+  return Array.from(months).sort().reverse();
+}
+
+// Compute the home-button gate. Returns the prevMonth YM if the button
+// should appear, or null otherwise.
+function shouldShowMonthlyRecap(state) {
+  const today = todayISO();
+  const day = parseInt(today.split('-')[2], 10);
+  if (day > 7) return null;
+
+  const prevMonth = previousMonthYM(today);
+  if (state.settings.dismissedMonthlyRecap === prevMonth) return null;
+
+  const entriesInMonth = Object.keys(state.entries || {})
+    .filter(d => d.startsWith(prevMonth + '-'));
+  if (entriesInMonth.length < 5) return null;
+
+  return prevMonth;
+}
+
+// Compute hard stats for any month (used by both the recap dialog and AI).
+function computeMonthStats(state, ym) {
+  const prefix = ym + '-';
+  // Weights
+  const entries = Object.entries(state.entries || {})
+    .filter(([d]) => d.startsWith(prefix))
+    .map(([d, e]) => ({ date: d, weight: e.weight, time: e.time, note: e.note || '' }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Workouts
+  const workouts = [];
+  Object.entries(state.workouts?.sessions || {}).forEach(([d, list]) => {
+    if (d.startsWith(prefix)) (list || []).forEach(w => workouts.push({ ...w, _date: d }));
+  });
+
+  // Nutrition (sums per day for context)
+  const nutritionDays = Object.keys(state.nutrition?.meals || {}).filter(d => d.startsWith(prefix));
+
+  // Streak: longest consecutive-day weight streak inside this month
+  let longestStreak = 0;
+  if (entries.length > 0) {
+    let cur = 1;
+    for (let i = 1; i < entries.length; i++) {
+      const prev = entries[i - 1].date;
+      const curr = entries[i].date;
+      const gap = daysBetweenISO(prev, curr);
+      if (gap === 1) {
+        cur += 1;
+      } else {
+        if (cur > longestStreak) longestStreak = cur;
+        cur = 1;
+      }
+    }
+    if (cur > longestStreak) longestStreak = cur;
+  }
+
+  const weights = entries.map(e => e.weight);
+  const avgWeight = weights.length ? weights.reduce((s, w) => s + w, 0) / weights.length : null;
+  const deltaWeight = (weights.length >= 2)
+    ? Math.round((weights[weights.length - 1] - weights[0]) * 10) / 10
+    : null;
+
+  // Holidays inside the month (E3 helper)
+  const monthStart = ym + '-01';
+  const [y, m] = ym.split('-').map(Number);
+  const lastDayObj = new Date(y, m, 0); // m is 1-based, day 0 of next = last of this
+  const monthEnd = `${ym}-${String(lastDayObj.getDate()).padStart(2, '0')}`;
+  const holidays = (typeof holidaysInRange === 'function')
+    ? holidaysInRange(monthStart, monthEnd) : [];
+
+  return {
+    ym, monthName: monthDisplayName(ym),
+    period: { from: monthStart, to: monthEnd },
+    entries_count: entries.length,
+    weight_entries: entries,
+    avg_weight: avgWeight !== null ? Math.round(avgWeight * 10) / 10 : null,
+    delta_weight: deltaWeight,
+    workouts_count: workouts.length,
+    workouts_minutes_total: workouts.reduce((s, w) => s + (w.durationMin || 0), 0),
+    nutrition_days_logged: nutritionDays.length,
+    longest_streak: longestStreak,
+    goal_target_kg: state.goal?.weight || null,
+    holidays,
+  };
+}
+
+// Quick deterministic achievements (shown if AI isn't available).
+function computeAutoAchievements(stats) {
+  const out = [];
+  if (stats.longest_streak >= 7) {
+    out.push(`רצף שקילה של ${stats.longest_streak} ימים — עקביות אמיתית.`);
+  } else if (stats.longest_streak >= 3) {
+    out.push(`רצף שקילה של ${stats.longest_streak} ימים.`);
+  }
+  if (stats.delta_weight !== null && stats.delta_weight < -0.3) {
+    out.push(`ירידה של ${Math.abs(stats.delta_weight).toFixed(1)} ק״ג בחודש.`);
+  } else if (stats.delta_weight !== null && Math.abs(stats.delta_weight) <= 0.3) {
+    out.push(`שמירה על משקל יציב — בתוך 0.3 ק״ג.`);
+  }
+  if (stats.workouts_count >= 8) {
+    out.push(`${stats.workouts_count} אימונים נרשמו (~${Math.round(stats.workouts_count / 4)} בשבוע).`);
+  } else if (stats.workouts_count > 0) {
+    out.push(`${stats.workouts_count} אימונים נרשמו.`);
+  }
+  if (stats.entries_count >= 20) {
+    out.push(`${stats.entries_count} ימי שקילה בחודש.`);
+  }
+  return out.slice(0, 3);
+}
+
+// ─── Home: button that opens the recap dialog ──────────────────────
+function MonthlyRecapButton({ onNavigate }) {
+  const { state } = useStore();
+  const [open, setOpen] = React.useState(false);
+  const ym = shouldShowMonthlyRecap(state);
+  if (!ym) return null;
+
+  const monthLabel = HEBREW_MONTH_NAMES[parseInt(ym.split('-')[1], 10) - 1];
+  const buttonText = personaStr(state, 'monthly_recap_button',
+    `📅 סיכום חודש ${monthLabel}`,
+    { MONTH: monthLabel }
+  );
+
+  return (
+    <>
+      <div style={{ padding: '6px 18px 0' }}>
+        <button onClick={() => setOpen(true)} style={{
+          width: '100%', padding: '12px 14px',
+          background: `linear-gradient(135deg, ${T.cyan}25 0%, ${T.lime}15 100%)`,
+          border: `1px solid ${T.cyan}55`, borderRadius: 10,
+          color: T.ink, fontSize: 13, fontWeight: 700, fontFamily: T.font,
+          cursor: 'pointer', textAlign: 'right', direction: 'rtl',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+        }}>
+          <span>{buttonText}</span>
+          <span style={{ fontSize: 18, color: T.cyan }}>›</span>
+        </button>
+      </div>
+
+      {open && <MonthlyRecapDialog
+        ym={ym}
+        onClose={() => setOpen(false)}
+        canDismiss={true}
+      />}
+    </>
+  );
+}
+
+// ─── Recap dialog (full-screen) ─────────────────────────────────────
+// canDismiss=true → "סיים" button writes dismissedMonthlyRecap.
+// canDismiss=false → archive view, only "סגור" (no state change).
+function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+
+  const monthStats = React.useMemo(() => computeMonthStats(state, ym), [state, ym]);
+  const autoAchievements = React.useMemo(() => computeAutoAchievements(monthStats), [monthStats]);
+
+  const [aiResult, setAiResult] = React.useState(null);
+  const [aiLoading, setAiLoading] = React.useState(false);
+  const [aiTried, setAiTried] = React.useState(false);
+
+  // Try AI once on open if API is ready and we have enough data
+  React.useEffect(() => {
+    if (aiTried) return;
+    if (!apiReady(state.apiConfig)) return;
+    if (monthStats.entries_count < 5) return;
+    setAiTried(true);
+    setAiLoading(true);
+    generateMonthlyRecap(monthStats, state.apiConfig, (usage) => {
+      const cost = estimateCost(usage, state.apiConfig.model);
+      dispatch({ type: 'TRACK_USAGE',
+        inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+        feature: 'monthly_recap', costUSD: cost,
+      });
+    }, state)
+      .then(r => setAiResult(r))
+      .catch(_ => { /* fall back silently to autoAchievements */ })
+      .finally(() => setAiLoading(false));
+  }, [aiTried, monthStats, state]);
+
+  const finish = () => {
+    if (canDismiss) {
+      dispatch({ type: 'SET_SETTING', key: 'dismissedMonthlyRecap', value: ym });
+    }
+    onClose();
+  };
+
+  const unit = state.settings.unit;
+  const chartData = monthStats.weight_entries.map(e => ({ date: e.date, weight: e.weight }));
+  const achievements = (aiResult?.achievements && aiResult.achievements.length > 0)
+    ? aiResult.achievements.slice(0, 3)
+    : autoAchievements;
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 855,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} aria-label="סגור" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>RECAP · סיכום חודשי</div>
+          <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            📅 {monthStats.monthName}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
+        {/* 4 KPI grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 14 }}>
+          <RecapKPI label="משקל ממוצע"
+            value={monthStats.avg_weight !== null ? fmt.kg(monthStats.avg_weight, unit) : '—'}
+            unit={fmt.unitLabel(unit)} />
+          <RecapKPI label="שינוי במשקל"
+            value={monthStats.delta_weight !== null
+              ? (monthStats.delta_weight > 0 ? '+' : '') + monthStats.delta_weight.toFixed(1)
+              : '—'}
+            unit={fmt.unitLabel(unit)}
+            color={monthStats.delta_weight === null ? T.ink :
+                   monthStats.delta_weight < 0 ? T.lime :
+                   monthStats.delta_weight > 0.3 ? T.rose : T.ink} />
+          <RecapKPI label="אימונים"
+            value={monthStats.workouts_count}
+            sub={monthStats.workouts_minutes_total > 0 ? `${monthStats.workouts_minutes_total} דק׳ סה״כ` : ''} />
+          <RecapKPI label="רצף ארוך"
+            value={monthStats.longest_streak}
+            unit="ימים" color={T.amber} />
+        </div>
+
+        {/* Weight chart for the month */}
+        {chartData.length >= 2 && (
+          <Card padding={12} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+              משקל · {chartData.length} מדידות
+            </div>
+            <WeightChart data={chartData} goal={monthStats.goal_target_kg}
+              width={340} height={140} showMarkers={false} showDots={true} />
+          </Card>
+        )}
+
+        {/* Achievements (AI > auto fallback) */}
+        {achievements.length > 0 && (
+          <Card padding={14} style={{ marginBottom: 14, background: `${T.lime}10`, border: `1px solid ${T.lime}30` }}>
+            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10 }}>
+              ✨ הישגים{aiLoading ? ' (טוען...)' : ''}
+            </div>
+            {achievements.map((a, i) => (
+              <div key={i} style={{
+                padding: '8px 12px', background: T.bg, borderRadius: 8, marginBottom: 6,
+                fontSize: 13, color: T.ink, lineHeight: 1.5,
+                borderRight: `3px solid ${T.lime}`,
+              }}>{a}</div>
+            ))}
+          </Card>
+        )}
+
+        {/* AI next-steps */}
+        {(aiResult?.next_steps || aiLoading) && (
+          <Card padding={14} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+              🎯 מה הלאה
+            </div>
+            {aiLoading && !aiResult ? (
+              <SkeletonLines lines={2} />
+            ) : (
+              <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.6 }}>
+                {aiResult.next_steps}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Holidays footer (if any) */}
+        {monthStats.holidays.length > 0 && (
+          <div style={{ marginTop: 14, fontSize: 11, color: T.inkMute, fontFamily: T.mono, textAlign: 'center', lineHeight: 1.6 }}>
+            כלל את: {monthStats.holidays.map(h => `${h.emoji} ${h.name}`).join(' · ')}
+          </div>
+        )}
+
+        {/* Finish CTA */}
+        <div style={{ marginTop: 20 }}>
+          <Button onClick={finish}>
+            {canDismiss ? 'סיים' : 'סגור'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecapKPI({ label, value, unit, sub, color = T.ink }) {
+  return (
+    <Card padding={14} style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 4, marginTop: 6 }}>
+        <span style={{ fontFamily: T.mono, fontSize: 22, fontWeight: 700, color, letterSpacing: -1 }}>{value}</span>
+        {unit && <span style={{ fontSize: 11, color: T.inkMute }}>{unit}</span>}
+      </div>
+      {sub && <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginTop: 4 }}>{sub}</div>}
+    </Card>
+  );
+}
+
+// ─── Archive list (used from Profile) ──────────────────────────────
+// Lists every month with data; clicking opens the recap dialog read-only.
+function MonthlyArchiveDialog({ onClose }) {
+  const { state } = useStore();
+  const [openYM, setOpenYM] = React.useState(null);
+  const months = React.useMemo(() => monthsWithData(state), [state]);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 850,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} aria-label="סגור" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ARCHIVE · ארכיון</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>📊 סיכומים חודשיים</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
+        {months.length === 0 ? (
+          <div style={{ padding: '60px 12px', textAlign: 'center' }}>
+            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>📊</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>אין עדיין סיכומים</div>
+            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
+              סיכומים חודשיים יופיעו כאן אחרי שיצטברו לפחות 5 ימי שקילה בחודש.
+            </div>
+          </div>
+        ) : (
+          <Col gap={8}>
+            {months.map(ym => {
+              const stats = computeMonthStats(state, ym);
+              const enough = stats.entries_count >= 5;
+              return (
+                <button key={ym}
+                  onClick={() => enough && setOpenYM(ym)}
+                  disabled={!enough}
+                  style={{
+                    padding: '14px 16px', background: T.bgElev,
+                    border: `1px solid ${T.stroke}`, borderRadius: 10,
+                    color: T.ink, fontSize: 14, cursor: enough ? 'pointer' : 'not-allowed',
+                    fontFamily: T.font, textAlign: 'right', direction: 'rtl',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    opacity: enough ? 1 : 0.5,
+                  }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700 }}>{stats.monthName}</div>
+                    <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, marginTop: 3 }}>
+                      {stats.entries_count} שקילות · {stats.workouts_count} אימונים
+                      {stats.delta_weight !== null
+                        ? ` · ${stats.delta_weight > 0 ? '+' : ''}${stats.delta_weight.toFixed(1)} ק״ג`
+                        : ''}
+                    </div>
+                  </div>
+                  {enough
+                    ? <span style={{ color: T.cyan, fontSize: 18 }}>›</span>
+                    : <span style={{ fontSize: 10, color: T.inkMute }}>פחות מ-5 שקילות</span>
+                  }
+                </button>
+              );
+            })}
+          </Col>
+        )}
+      </div>
+
+      {openYM && <MonthlyRecapDialog ym={openYM} onClose={() => setOpenYM(null)} canDismiss={false} />}
+    </div>
   );
 }

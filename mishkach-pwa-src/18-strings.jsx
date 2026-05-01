@@ -492,6 +492,98 @@ const STRINGS = {
     },
   },
 
+  // ─── Day banner: holiday (used by HomeScreen) ─────────────────────
+  // Vars: {NAME} = holiday name (Hebrew), {EMOJI} = holiday emoji
+  banner_holiday: {
+    polish_mom: {
+      male: '{EMOJI} {NAME}, אלון. תאכל, תהנה, תזכור לתעד בלילה.',
+      female: '{EMOJI} {NAME}, מותק. תאכלי, תהני, תזכרי לתעד בלילה.',
+    },
+    salesman: {
+      male: '{EMOJI} {NAME}! מי שמתחזק כאן עולה הכי גבוה. CHALLENGE TIME!',
+      female: '{EMOJI} {NAME}! מי שמתחזקת כאן עולה הכי גבוה. CHALLENGE TIME!',
+    },
+    cynic_coach: {
+      male: '{EMOJI} {NAME}. רוב האנשים נופלים בחג. תוכיח אחרת.',
+      female: '{EMOJI} {NAME}. רוב האנשים נופלים בחג. תוכיחי אחרת.',
+    },
+    jealous_friend: {
+      male: '{EMOJI} {NAME}. גם אני אוכל היום, אל תרגיש לבד.',
+      female: '{EMOJI} {NAME}. גם אני אוכלת היום, אל תרגישי לבד.',
+    },
+    neutral: {
+      male: '{EMOJI} {NAME}',
+      female: '{EMOJI} {NAME}',
+    },
+  },
+
+  // ─── Day banner: friday ───────────────────────────────────────────
+  banner_friday: {
+    polish_mom: {
+      male: 'שישי, אלון. ארוחה משפחתית, אבל שקול ביום ראשון.',
+      female: 'שישי, מותק. ארוחה משפחתית, אבל שקלי ביום ראשון.',
+    },
+    salesman: {
+      male: 'WEEKEND MODE — מי שמחזיק את הקצב כאן עולה הכי גבוה!',
+      female: 'WEEKEND MODE — מי שמחזיקה את הקצב כאן עולה הכי גבוה!',
+    },
+    cynic_coach: {
+      male: 'שישי. רוב האנשים נופלים. אתה?',
+      female: 'שישי. רוב האנשים נופלים. את?',
+    },
+    jealous_friend: {
+      male: 'שישי. גם אני אוכל הערב. שלא תהיה לבד.',
+      female: 'שישי. גם אני אוכלת הערב. שלא תהיי לבד.',
+    },
+    neutral: { male: 'יום שישי', female: 'יום שישי' },
+  },
+
+  // ─── Day banner: saturday ─────────────────────────────────────────
+  banner_saturday: {
+    polish_mom: {
+      male: 'שבת שלום, אלון. תנוח. ביום ראשון נחזור.',
+      female: 'שבת שלום, מותק. תנוחי. ביום ראשון נחזור.',
+    },
+    salesman: {
+      male: 'שבת — REST DAY. גם זה חלק מההשקעה.',
+      female: 'שבת — REST DAY. גם זה חלק מההשקעה.',
+    },
+    cynic_coach: {
+      male: 'שבת. אם אכלת — אתה לא לבד.',
+      female: 'שבת. אם אכלת — את לא לבד.',
+    },
+    jealous_friend: {
+      male: 'שבת! זה היום שלי לאכול הכל. אבל שמור שלך.',
+      female: 'שבת! זה היום שלי לאכול הכל. אבל שמרי שלך.',
+    },
+    neutral: { male: 'שבת שלום', female: 'שבת שלום' },
+  },
+
+  // ─── Monthly recap CTA (used by HomeScreen button) ────────────────
+  // Vars: {MONTH} = Hebrew month name (e.g. "אפריל")
+  monthly_recap_button: {
+    polish_mom: {
+      male: '📅 {MONTH} סוף סוף נגמר. בוא נראה איך הלך.',
+      female: '📅 {MONTH} סוף סוף נגמר. בואי נראה איך הלך.',
+    },
+    salesman: {
+      male: '📅 {MONTH} REPORT — סקור את הQUARTER הקטן שלך',
+      female: '📅 {MONTH} REPORT — סקרי את הQUARTER הקטן שלך',
+    },
+    cynic_coach: {
+      male: '📅 סיכום {MONTH}. נראה אם משהו השתנה.',
+      female: '📅 סיכום {MONTH}. נראה אם משהו השתנה.',
+    },
+    jealous_friend: {
+      male: '📅 {MONTH} — נראה אם הגזמת.',
+      female: '📅 {MONTH} — נראה אם הגזמת.',
+    },
+    neutral: {
+      male: '📅 סיכום חודש {MONTH}',
+      female: '📅 סיכום חודש {MONTH}',
+    },
+  },
+
   // ─── Weight overwrite warning (used by LogScreen confirm dialog) ──
   // Vars: {DATE} = formatted date (e.g. "ש׳ · 14.5"), {OLD} = existing weight
   weight_overwrite_warning: {

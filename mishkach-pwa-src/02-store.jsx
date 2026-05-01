@@ -85,6 +85,9 @@ const initialState = {
       days: [],            // e.g. [0, 2, 4] = Sun/Tue/Thu
       time: '17:00',
     },
+    // Dismissed UI surfaces — single-shot dismissals tracked by their natural key.
+    dismissedDayBanner: null,     // YYYY-MM-DD — date the user closed the day banner
+    dismissedMonthlyRecap: null,  // YYYY-MM — month whose recap was acknowledged
     // Last-used preferences for the personal report generator.
     // Pre-populated as smart defaults next time the user opens the report flow.
     reportPrefs: {
