@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-// FiTracklon Service Worker v1.4 — offline-first, auto-invalidate cache
+// מִשְׁקַלּוּת Service Worker v2.4 — offline-first, auto-invalidate cache
 // ════════════════════════════════════════════════════════════════════
 
-const CACHE = 'fitracklon-v15';
+const CACHE = 'mishkalut-v24';
 const CORE = [
   './',
   './index.html',

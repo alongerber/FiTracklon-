@@ -1,13 +1,13 @@
 {
-  "name": "FiTracklon · מעקב משקל ותזונה",
-  "short_name": "FiTracklon",
-  "description": "מעקב משקל, תזונה ותובנות חכמות",
+  "name": "מִשְׁקַלּוּת · תשקלו לפני שתאכלו",
+  "short_name": "מִשְׁקַלּוּת",
+  "description": "תשקלו לפני שתאכלו. תקנאו בעצמכם של מחר.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#0a0a0a",
-  "background_color": "#0a0a0a",
+  "theme_color": "#0b0d0c",
+  "background_color": "#0b0d0c",
   "lang": "he",
   "dir": "rtl",
   "icons": [
