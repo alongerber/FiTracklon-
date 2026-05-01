@@ -12,6 +12,7 @@ function ProfileScreen({ onNavigate }) {
   const [showTips, setShowTips] = React.useState(false);
   const [showPersona, setShowPersona] = React.useState(false);
   const [showNotifications, setShowNotifications] = React.useState(false);
+  const [showWorkoutReminder, setShowWorkoutReminder] = React.useState(false);
   const [showReport, setShowReport] = React.useState(false);
   const currentPersona = state.settings.persona || 'neutral';
   const personaLabel = PERSONAS[currentPersona]?.name || 'ישיר';
@@ -134,9 +135,18 @@ function ProfileScreen({ onNavigate }) {
         <Section title="אופי האפליקציה">
           <RowItem icon={<TabIcon name="user" size={18} />} label="מי מלווה אותך"
             value={personaLabel} onClick={() => setShowPersona(true)} />
-          <RowItem icon={<TabIcon name="sparkle" size={18} />} label="התראות יומיות"
+          <RowItem icon={<TabIcon name="sparkle" size={18} />} label="תזכורת שקילה"
             value={state.settings.notifications?.enabled ? (state.settings.notifications.weighTime || '08:00') : 'כבוי'}
             onClick={() => setShowNotifications(true)} />
+          <RowItem icon={<TabIcon name="dumbbell" size={18} />} label="תזכורת אימון"
+            value={(() => {
+              const r = state.settings.workoutReminder;
+              if (!r || !r.enabled || !(r.days || []).length) return 'כבוי';
+              const labels = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+              const dayStr = (r.days || []).slice().sort().map(d => labels[d]).join(',');
+              return `${dayStr} · ${r.time || '17:00'}`;
+            })()}
+            onClick={() => setShowWorkoutReminder(true)} />
         </Section>
 
         {/* Install app */}
@@ -175,7 +185,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v2.8
+          מִשְׁקַלּוּת · v2.9
         </div>
       </div>
 
@@ -185,6 +195,7 @@ function ProfileScreen({ onNavigate }) {
       {showTips && <CreativeTipsLibrary onClose={() => setShowTips(false)} />}
       {showPersona && <PersonaPickerDialog onClose={() => setShowPersona(false)} />}
       {showNotifications && <NotificationsSettingsDialog onClose={() => setShowNotifications(false)} />}
+      {showWorkoutReminder && <WorkoutReminderDialog onClose={() => setShowWorkoutReminder(false)} />}
       {showReport && <ReportScreen onClose={() => setShowReport(false)} />}
 
       <ConfirmDialog

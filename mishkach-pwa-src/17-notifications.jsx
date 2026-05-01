@@ -195,20 +195,204 @@ function NotificationsSettingsDialog({ onClose }) {
   );
 }
 
-// ─── Hook: auto-schedule reminder on app load if enabled ────────────
+// ─── Workout reminder — persona-aware via STRINGS['workout_reminder'] ──
+// Format in 18-strings: 'title||body'. Falls back to neutral copy if missing.
+function getWorkoutReminderMessage(state) {
+  const fallbackTitle = 'תזכורת אימון';
+  const fallbackBody = 'הגיע מועד האימון המתוכנן.';
+  const raw = personaStr(state, 'workout_reminder', `${fallbackTitle}||${fallbackBody}`);
+  const [title, body] = (raw || '').split('||');
+  return {
+    title: (title || fallbackTitle).trim(),
+    body: (body || fallbackBody).trim(),
+  };
+}
+
+// Schedule the workout reminder for the rest of TODAY only, if all conditions hold.
+// Returns a timeoutId or null.
+function scheduleNextWorkoutReminder(reminder, state, workedOutToday) {
+  if (!isNotificationSupported() || Notification.permission !== 'granted') return null;
+  if (!reminder || !reminder.enabled) return null;
+  const days = Array.isArray(reminder.days) ? reminder.days : [];
+  if (days.length === 0) return null;
+
+  const now = new Date();
+  if (!days.includes(now.getDay())) return null; // not a scheduled day
+  if (workedOutToday) return null;                // already done — skip
+
+  const [h, m] = (reminder.time || '17:00').split(':').map(Number);
+  const target = new Date();
+  target.setHours(h, m, 0, 0);
+  if (target <= now) return null;                 // already past for today
+  const delay = target - now;
+  if (delay > 6 * 3600 * 1000) return null;       // out of in-session range; will retry on next open
+
+  return setTimeout(() => {
+    const msg = getWorkoutReminderMessage(state);
+    showLocalNotification(msg.title, msg.body, { tag: 'fitracklon-workout-reminder' });
+  }, delay);
+}
+
+// ─── Workout reminder settings dialog (shape: { enabled, days, time }) ──
+function WorkoutReminderDialog({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const r = state.settings.workoutReminder || { enabled: false, days: [], time: '17:00' };
+  const [enabled, setEnabled] = React.useState(!!r.enabled);
+  const [days, setDays] = React.useState(Array.isArray(r.days) ? r.days : []);
+  const [time, setTime] = React.useState(r.time || '17:00');
+  const [permission, setPermission] = React.useState(
+    isNotificationSupported() ? Notification.permission : 'unsupported'
+  );
+
+  const dayLabels = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+
+  const toggleDay = (d) => {
+    setDays(curr => curr.includes(d) ? curr.filter(x => x !== d) : [...curr, d].sort());
+  };
+
+  const handleEnable = async () => {
+    if (!isNotificationSupported()) {
+      toast('הדפדפן שלך לא תומך בהתראות', { type: 'error' });
+      return;
+    }
+    const result = await requestNotificationPermission();
+    setPermission(result);
+    if (result === 'granted') {
+      setEnabled(true);
+      const msg = getWorkoutReminderMessage(state);
+      showLocalNotification(msg.title, msg.body, { tag: 'fitracklon-workout-reminder-test' });
+    } else if (result === 'denied') {
+      toast('הרשאה נדחתה. אפשר מהגדרות הדפדפן', { type: 'error' });
+    }
+  };
+
+  const save = () => {
+    dispatch({
+      type: 'SET_SETTING',
+      key: 'workoutReminder',
+      value: {
+        enabled: enabled && permission === 'granted' && days.length > 0,
+        days,
+        time,
+      },
+    });
+    toast('תזכורת האימון נשמרה', { type: 'success' });
+    onClose();
+  };
+
+  const canSave = !enabled || (days.length > 0 && permission === 'granted');
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 900,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 400, width: '100%', direction: 'rtl', maxHeight: '85vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>תזכורת אימון</div>
+        <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 16, lineHeight: 1.6 }}>
+          תזכורת ניפרדת מהשקילה — בימים שתבחר, בשעה הקבועה. אם כבר הזנת אימון באותו יום, התזכורת לא תופיע.
+        </div>
+
+        {permission !== 'granted' && (
+          <div style={{
+            padding: 14, background: `${T.amber}15`, border: `1px solid ${T.amber}44`,
+            borderRadius: 10, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 12, color: T.amber, marginBottom: 8 }}>
+              {permission === 'denied' ? 'הרשאה נדחתה' : 'דרוש אישור'}
+            </div>
+            <button onClick={handleEnable} disabled={permission === 'denied'} style={{
+              padding: '8px 14px', background: T.amber, color: T.bg, border: 'none',
+              borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+              opacity: permission === 'denied' ? 0.5 : 1,
+            }}>
+              {permission === 'denied' ? 'חסום בדפדפן' : 'אפשר התראות'}
+            </button>
+          </div>
+        )}
+
+        {permission === 'granted' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
+                style={{ width: 20, height: 20, accentColor: T.lime }} />
+              <div style={{ fontSize: 14 }}>הפעל תזכורת אימון</div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 8, fontFamily: T.mono, letterSpacing: 1 }}>ימי שבוע</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 16 }}>
+              {dayLabels.map((label, d) => {
+                const on = days.includes(d);
+                return (
+                  <button key={d} onClick={() => toggleDay(d)} style={{
+                    padding: '10px 0', borderRadius: 8, cursor: 'pointer',
+                    background: on ? T.lime : T.bgElev2,
+                    color: on ? T.bg : T.inkSub,
+                    border: 'none',
+                    fontFamily: T.font, fontSize: 12, fontWeight: 700,
+                  }}>{label}</button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שעת תזכורת</div>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} style={{
+              width: '100%', padding: '12px 14px', background: T.bg,
+              border: `1px solid ${T.stroke}`, borderRadius: 10,
+              color: T.ink, fontSize: 15, fontFamily: T.mono, outline: 'none',
+              direction: 'ltr', textAlign: 'left',
+            }} />
+
+            {enabled && days.length === 0 && (
+              <div style={{ marginTop: 12, fontSize: 11, color: T.amber }}>
+                בחר לפחות יום אחד.
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginTop: 14, lineHeight: 1.6 }}>
+          הקול של התזכורת יתאים לפרסונה שבחרת.
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <Button variant="ghost" onClick={onClose}>ביטול</Button>
+          <Button onClick={save} disabled={!canSave}>שמור</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Hook: auto-schedule reminders on app load if enabled ───────────
 function useNotificationScheduler() {
   const { state } = useStore();
   const n = state.settings.notifications;
+  const wReminder = state.settings.workoutReminder;
   const personaId = state.settings.persona || 'neutral';
   const today = todayISO();
   // entries is an object keyed by date, not an array
   const weighedToday = !!(state.entries && state.entries[today]);
+  const workedOutToday = !!(state.workouts && state.workouts.sessions && state.workouts.sessions[today] && state.workouts.sessions[today].length);
 
+  // Weight reminder (existing)
   React.useEffect(() => {
     if (!n || !n.enabled || !isNotificationSupported()) return;
     if (Notification.permission !== 'granted') return;
-    if (weighedToday) return; // no reminder if already weighed
+    if (weighedToday) return;
     const timeoutId = scheduleNextReminder(n.weighTime, personaId, weighedToday);
     return () => { if (timeoutId) clearTimeout(timeoutId); };
   }, [n?.enabled, n?.weighTime, personaId, weighedToday]);
+
+  // Workout reminder (new)
+  React.useEffect(() => {
+    if (!wReminder || !wReminder.enabled) return;
+    const timeoutId = scheduleNextWorkoutReminder(wReminder, state, workedOutToday);
+    return () => { if (timeoutId) clearTimeout(timeoutId); };
+  }, [wReminder?.enabled, wReminder?.time, JSON.stringify(wReminder?.days || []), personaId, workedOutToday]);
 }

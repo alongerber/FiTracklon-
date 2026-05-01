@@ -442,6 +442,80 @@ const STRINGS = {
     },
     neutral: { male: 'הוסר מהמועדפים.', female: 'הוסר מהמועדפים.' },
   },
+
+  // ─── Report: insufficient data screen ────────────────────────────
+  // Vars: {X} = days_logged, {Y} = days_needed
+  report_insufficient_data: {
+    polish_mom: {
+      male: 'אלון מותק, יש לך רק {X} ימים. אני לא לוחצת, אבל גם לא ישנה בלילה.',
+      female: 'מותק, יש לך רק {X} ימים. אני לא לוחצת, אבל גם לא ישנה בלילה.',
+    },
+    salesman: {
+      male: 'אלון, רק {X} ימים בתיק. חבל על הפוטנציאל — הדוח שלך עוד לא מוכן לסגירה.',
+      female: 'מירב, רק {X} ימים בתיק. חבל על הפוטנציאל — הדוח שלך עוד לא מוכן לסגירה.',
+    },
+    cynic_coach: {
+      male: '{X} ימים. ראיתי הרבה התחלות דומות. תוכיח שאתה הולך הלאה.',
+      female: '{X} ימים. ראיתי הרבה התחלות דומות. תוכיחי שאת הולכת הלאה.',
+    },
+    jealous_friend: {
+      male: 'רק {X} ימים? אני לפחות מתעצל בעקביות. עוד קצת ואני אתחיל להתרשם.',
+      female: 'רק {X} ימים? אני לפחות מתעצל בעקביות. עוד קצת ואני אתחיל להתרשם.',
+    },
+    neutral: {
+      male: 'נרשמו {X}/7 ימים בתקופה. נדרש מינימום של 7 לחישוב תובנות.',
+      female: 'נרשמו {X}/7 ימים בתקופה. נדרש מינימום של 7 לחישוב תובנות.',
+    },
+  },
+
+  // Vars: {Y} = days_left
+  report_keep_logging: {
+    polish_mom: {
+      male: 'תרשום לי עוד {Y} ימים, ואז נדבר. אני אזכיר לך כל בוקר אם צריך.',
+      female: 'תרשמי לי עוד {Y} ימים, ואז נדבר. אני אזכיר לך כל בוקר אם צריך.',
+    },
+    salesman: {
+      male: 'עוד {Y} שקילות והדוח הופך לסיפור הצלחה. אל תוותר עכשיו.',
+      female: 'עוד {Y} שקילות והדוח הופך לסיפור הצלחה. אל תוותרי עכשיו.',
+    },
+    cynic_coach: {
+      male: 'עוד {Y} ימים. אם בא לך — תחזור. אני לא הולך לשום מקום.',
+      female: 'עוד {Y} ימים. אם בא לך — תחזרי. אני לא הולך לשום מקום.',
+    },
+    jealous_friend: {
+      male: 'עוד {Y} ושוב תזכיר לי שאני זה שלא עושה כלום.',
+      female: 'עוד {Y} ושוב תזכירי לי שאני זה שלא עושה כלום.',
+    },
+    neutral: {
+      male: 'יש להוסיף {Y} ימי שקילה נוספים לקבלת ניתוח.',
+      female: 'יש להוסיף {Y} ימי שקילה נוספים לקבלת ניתוח.',
+    },
+  },
+
+  // ─── Workout reminder notification (used by 17-notifications.jsx) ──
+  // Two-line format expected: title || body (split on '||' at runtime)
+  workout_reminder: {
+    polish_mom: {
+      male: 'תזמן לי אימון||אלון, הגוף שלך לא נכנס לכושר לבד. תזכור שכבר היית פעם בכושר טוב.',
+      female: 'תזמני לי אימון||מותק, הגוף שלך לא נכנס לכושר לבד. תזכרי שכבר היית פעם בכושר טוב.',
+    },
+    salesman: {
+      male: 'אימון = השקעה||אלון, היום זה היום של ה-deposit. 30 דק׳ בכושר = ROI ארוך טווח.',
+      female: 'אימון = השקעה||מירב, היום זה היום של ה-deposit. 30 דק׳ בכושר = ROI ארוך טווח.',
+    },
+    cynic_coach: {
+      male: 'זמן לזוז||היה כתוב פה אימון. אז לזוז. או לעדכן את הלוח.',
+      female: 'זמן לזוז||היה כתוב פה אימון. אז לזוז. או לעדכן את הלוח.',
+    },
+    jealous_friend: {
+      male: 'הזכרתי לעצמי גם||יום אימון. גם אני לא הולך, אבל לפחות לי אין אפליקציה שתזכיר.',
+      female: 'הזכרתי לעצמי גם||יום אימון. גם אני לא הולכת, אבל לפחות לי אין אפליקציה שתזכיר.',
+    },
+    neutral: {
+      male: 'תזכורת אימון||הגיע מועד האימון המתוכנן.',
+      female: 'תזכורת אימון||הגיע מועד האימון המתוכנן.',
+    },
+  },
 };
 
 // ─── Sincerity moments: every N interactions, persona drops the mask once ─
@@ -492,16 +566,18 @@ function getSincerityLine(state) {
 }
 
 // ─── Resolve a UI string for current user's persona + gender + name ───
-function personaStr(state, key, fallback = '') {
+// vars: optional { X: 5, Y: 2, ... } to substitute {X}, {Y}, etc. in the template.
+// Substitution is literal — vars are coerced to String at render time.
+function personaStr(state, key, fallback = '', vars = null) {
   const personaId = state?.settings?.persona || 'neutral';
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const name = (state?.user?.name || '').trim();
 
   const entry = STRINGS[key];
-  if (!entry) return fallback;
+  if (!entry) return interpolateVars(fallback, vars);
 
   const personaEntry = entry[personaId] || entry.neutral;
-  if (!personaEntry) return fallback;
+  if (!personaEntry) return interpolateVars(fallback, vars);
 
   let text = personaEntry[gender] || personaEntry.male || fallback;
 
@@ -512,5 +588,15 @@ function personaStr(state, key, fallback = '') {
       text = text.replace(new RegExp(placeholder, 'g'), name);
     }
   }
-  return text;
+
+  return interpolateVars(text, vars);
+}
+
+// ─── Substitute {X}, {Y}, etc. in a template string ─────────────────
+// Used by personaStr; safe to call with null/undefined vars (returns text as-is).
+function interpolateVars(text, vars) {
+  if (!vars || !text) return text;
+  return text.replace(/\{(\w+)\}/g, (match, key) => {
+    return Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match;
+  });
 }

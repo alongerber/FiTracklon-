@@ -67,7 +67,10 @@ function HistoryScreen({ onNavigate }) {
         <div style={{ fontSize: 18, fontWeight: 700 }}>כל המספרים שלך</div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 20px' }}
+      >
         {/* Main chart */}
         <Card padding={12} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -155,7 +158,7 @@ function HistoryScreen({ onNavigate }) {
             );
           })}
         </Card>
-      </div>
+      </PullToRefresh>
 
       <ConfirmDialog
         open={!!confirmDelete}

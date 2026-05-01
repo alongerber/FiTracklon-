@@ -642,3 +642,171 @@ function LoadingPersona({ message = 'טוען...' }) {
     </div>
   );
 }
+
+// ════════════════════════════════════════════════════════════════════
+// PullToRefresh — mobile-only pull-down gesture wrapper
+// ════════════════════════════════════════════════════════════════════
+//
+// Replaces the screen's scrollable container. On touch devices it tracks
+// pull-down from scrollTop===0 and triggers `onRefresh()` past 60px.
+// On desktop it's a transparent pass-through (just adds the style).
+//
+// Usage:
+//   <PullToRefresh onRefresh={async () => { /* do stuff */ }}
+//                  style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+//     ...content...
+//   </PullToRefresh>
+//
+// `onRefresh` may be sync or return a Promise. The spinner stays up until
+// it resolves + a small 300ms hold so it doesn't feel jumpy.
+
+const _PTR_THRESHOLD = 60;
+const _PTR_MAX = 110;
+
+function _isTouchDevice() {
+  if (typeof window === 'undefined') return false;
+  if ('ontouchstart' in window) return true;
+  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
+  return false;
+}
+
+function PullToRefresh({ onRefresh, children, style, message }) {
+  // Capture once on mount. Stable across renders.
+  const [isTouch] = React.useState(() => _isTouchDevice());
+
+  // Desktop: no PTR — keep the scroll container behavior.
+  if (!isTouch) {
+    return <div style={style}>{children}</div>;
+  }
+
+  return <_PullToRefreshTouch onRefresh={onRefresh} style={style} message={message}>
+    {children}
+  </_PullToRefreshTouch>;
+}
+
+function _PullToRefreshTouch({ onRefresh, children, style, message }) {
+  const { state } = useStore();
+  const scrollRef = React.useRef(null);
+  const startY = React.useRef(0);
+  const tracking = React.useRef(false);
+  const [pullY, setPullY] = React.useState(0);
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const onTouchStart = (e) => {
+    const el = scrollRef.current;
+    if (!el || refreshing) return;
+    if (el.scrollTop > 0) return;       // not at top — let normal scroll happen
+    startY.current = e.touches[0].clientY;
+    tracking.current = true;
+  };
+
+  const onTouchMove = (e) => {
+    if (!tracking.current || refreshing) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy <= 0) {
+      // Going back up or sideways — release
+      tracking.current = false;
+      setPullY(0);
+      return;
+    }
+    // Damped pull (rubber-band feel)
+    const damped = Math.min(_PTR_MAX, Math.pow(dy, 0.82));
+    setPullY(damped);
+  };
+
+  const onTouchEnd = async () => {
+    if (!tracking.current) return;
+    tracking.current = false;
+    if (pullY < _PTR_THRESHOLD) {
+      setPullY(0);
+      return;
+    }
+    setRefreshing(true);
+    setPullY(50);                        // settle to "loading" position
+    try {
+      await Promise.resolve(onRefresh && onRefresh());
+    } catch (_) {
+      // Swallow — refresh failures shouldn't crash the screen
+    }
+    // Hold briefly so it doesn't feel like a flicker
+    setTimeout(() => {
+      setPullY(0);
+      setRefreshing(false);
+    }, 320);
+  };
+
+  // Persona-aware microcopy on the spinner
+  const persona = state.settings.persona || 'neutral';
+  const phrases = {
+    polish_mom:    'רגע, מותק...',
+    salesman:      'מסנכרן את הPortfolio...',
+    cynic_coach:   'מרענן.',
+    jealous_friend:'אוקיי, אוקיי, מרענן...',
+    neutral:       'מרענן...',
+  };
+  const idleHint = pullY > _PTR_THRESHOLD ? 'שחרר לרענון' : 'משוך לרענון';
+  const activeHint = message || phrases[persona] || phrases.neutral;
+
+  // Indicator opacity ramps up with pull
+  const opacity = Math.min(1, pullY / _PTR_THRESHOLD);
+
+  return (
+    <div
+      ref={scrollRef}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      style={{ ...style, position: 'relative', overscrollBehaviorY: 'contain' }}
+    >
+      {/* Floating indicator — sits above content, fades in with pull */}
+      <div style={{
+        position: 'sticky', top: 0, height: 0, zIndex: 5,
+        pointerEvents: 'none', textAlign: 'center',
+      }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          marginTop: Math.max(0, pullY - 28),
+          padding: '6px 14px',
+          background: T.bgElev2, border: `1px solid ${T.stroke}`,
+          borderRadius: 999,
+          opacity,
+          transform: `scale(${0.85 + opacity * 0.15})`,
+          transition: refreshing || pullY === 0 ? 'all 240ms ease' : 'none',
+          color: T.lime, fontSize: 11, fontFamily: T.mono, fontWeight: 700,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+        }}>
+          <_PTRSpinner spinning={refreshing} angle={pullY * 3} />
+          <span style={{ color: refreshing ? T.lime : T.inkSub }}>
+            {refreshing ? activeHint : idleHint}
+          </span>
+        </div>
+      </div>
+
+      {/* Content shifts down with pull for tactile feel */}
+      <div style={{
+        transform: `translateY(${refreshing ? 30 : pullY * 0.5}px)`,
+        transition: refreshing || pullY === 0 ? 'transform 240ms ease' : 'none',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function _PTRSpinner({ spinning, angle = 0 }) {
+  return (
+    <>
+      <style>{`@keyframes mk-ptr-spin { to { transform: rotate(360deg); } }`}</style>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+        style={{
+          transform: spinning ? undefined : `rotate(${angle}deg)`,
+          animation: spinning ? 'mk-ptr-spin 0.9s linear infinite' : 'none',
+          transition: spinning ? 'none' : 'transform 80ms',
+        }}>
+        <circle cx="12" cy="12" r="9" stroke={T.stroke} strokeWidth="2" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke={T.lime} strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </>
+  );
+}

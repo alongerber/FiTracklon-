@@ -79,7 +79,10 @@ function NutritionScreen({ onNavigate }) {
         <button onClick={() => setDateViewing(d => addDaysISO(d, 1))} disabled={dateViewing >= todayISO()} style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>›</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}
+      >
         {/* Rings hero */}
         <NutritionRings totals={totals} goals={goals} />
 
@@ -139,7 +142,7 @@ function NutritionScreen({ onNavigate }) {
             + הוסף ארוחה {dateViewing !== todayISO() ? `ל-${fmt.dayShort(dateViewing)}` : ''}
           </Button>
         </div>
-      </div>
+      </PullToRefresh>
 
       {addOpen && <AddMealDialog date={dateViewing} onClose={() => setAddOpen(false)} />}
       {goalsOpen && <NutritionGoalsDialog onClose={() => setGoalsOpen(false)} />}

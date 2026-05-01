@@ -1,5 +1,12 @@
 """Assemble all JSX source files into the final single-file PWA index.html."""
-import os, shutil
+import os, shutil, sys
+
+# Make stdout UTF-8 even on Windows console (cp1252 default) — otherwise
+# the final ✓ print blows up with UnicodeEncodeError.
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 # Resolve paths relative to this script's location, so the build works from
 # anywhere (cd to repo root, cd to mishkach-pwa-src/, IDE play button, etc).

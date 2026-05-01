@@ -113,12 +113,7 @@
     setTimeout(function() {
       var boot = document.querySelector('.boot');
       if (boot && boot.parentNode) {
-        boot.innerHTML = '<div style="text-align:center;padding:20px;color:#f4f6f2;font-family:system-ui;direction:rtl">\
-          <div style="font-size:40px;margin-bottom:10px">⚠️</div>\
-          <div style="font-size:16px;font-weight:700;margin-bottom:8px">טעינה נכשלה</div>\
-          <div style="font-size:12px;color:#999">אולי אין חיבור לרשת. נסה לטעון מחדש.</div>\
-          <button onclick="location.reload()" style="margin-top:20px;padding:10px 20px;background:#c6ff3d;color:#0b0d0c;border:none;border-radius:10px;font-weight:700;cursor:pointer">טען מחדש</button>\
-        </div>';
+        boot.innerHTML = '<div style="text-align:center;padding:20px;color:#f4f6f2;font-family:system-ui;direction:rtl">          <div style="font-size:40px;margin-bottom:10px">⚠️</div>          <div style="font-size:16px;font-weight:700;margin-bottom:8px">טעינה נכשלה</div>          <div style="font-size:12px;color:#999">אולי אין חיבור לרשת. נסה לטעון מחדש.</div>          <button onclick="location.reload()" style="margin-top:20px;padding:10px 20px;background:#c6ff3d;color:#0b0d0c;border:none;border-radius:10px;font-weight:700;cursor:pointer">טען מחדש</button>        </div>';
       }
     }, 10000);
   </script>
@@ -310,6 +305,13 @@ const initialState = {
       enabled: false,
       weighTime: '08:00',
       pushSubscription: null,
+    },
+    // Optional separate reminder for workout days. days = JS Date.getDay() (0=Sun..6=Sat).
+    // Independent from `notifications` (which is the weigh-in reminder); both can be on at once.
+    workoutReminder: {
+      enabled: false,
+      days: [],            // e.g. [0, 2, 4] = Sun/Tue/Thu
+      time: '17:00',
     },
     // Last-used preferences for the personal report generator.
     // Pre-populated as smart defaults next time the user opens the report flow.
@@ -2032,6 +2034,174 @@ function LoadingPersona({ message = 'טוען...' }) {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
+// PullToRefresh — mobile-only pull-down gesture wrapper
+// ════════════════════════════════════════════════════════════════════
+//
+// Replaces the screen's scrollable container. On touch devices it tracks
+// pull-down from scrollTop===0 and triggers `onRefresh()` past 60px.
+// On desktop it's a transparent pass-through (just adds the style).
+//
+// Usage:
+//   <PullToRefresh onRefresh={async () => { /* do stuff */ }}
+//                  style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+//     ...content...
+//   </PullToRefresh>
+//
+// `onRefresh` may be sync or return a Promise. The spinner stays up until
+// it resolves + a small 300ms hold so it doesn't feel jumpy.
+
+const _PTR_THRESHOLD = 60;
+const _PTR_MAX = 110;
+
+function _isTouchDevice() {
+  if (typeof window === 'undefined') return false;
+  if ('ontouchstart' in window) return true;
+  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
+  return false;
+}
+
+function PullToRefresh({ onRefresh, children, style, message }) {
+  // Capture once on mount. Stable across renders.
+  const [isTouch] = React.useState(() => _isTouchDevice());
+
+  // Desktop: no PTR — keep the scroll container behavior.
+  if (!isTouch) {
+    return <div style={style}>{children}</div>;
+  }
+
+  return <_PullToRefreshTouch onRefresh={onRefresh} style={style} message={message}>
+    {children}
+  </_PullToRefreshTouch>;
+}
+
+function _PullToRefreshTouch({ onRefresh, children, style, message }) {
+  const { state } = useStore();
+  const scrollRef = React.useRef(null);
+  const startY = React.useRef(0);
+  const tracking = React.useRef(false);
+  const [pullY, setPullY] = React.useState(0);
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const onTouchStart = (e) => {
+    const el = scrollRef.current;
+    if (!el || refreshing) return;
+    if (el.scrollTop > 0) return;       // not at top — let normal scroll happen
+    startY.current = e.touches[0].clientY;
+    tracking.current = true;
+  };
+
+  const onTouchMove = (e) => {
+    if (!tracking.current || refreshing) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy <= 0) {
+      // Going back up or sideways — release
+      tracking.current = false;
+      setPullY(0);
+      return;
+    }
+    // Damped pull (rubber-band feel)
+    const damped = Math.min(_PTR_MAX, Math.pow(dy, 0.82));
+    setPullY(damped);
+  };
+
+  const onTouchEnd = async () => {
+    if (!tracking.current) return;
+    tracking.current = false;
+    if (pullY < _PTR_THRESHOLD) {
+      setPullY(0);
+      return;
+    }
+    setRefreshing(true);
+    setPullY(50);                        // settle to "loading" position
+    try {
+      await Promise.resolve(onRefresh && onRefresh());
+    } catch (_) {
+      // Swallow — refresh failures shouldn't crash the screen
+    }
+    // Hold briefly so it doesn't feel like a flicker
+    setTimeout(() => {
+      setPullY(0);
+      setRefreshing(false);
+    }, 320);
+  };
+
+  // Persona-aware microcopy on the spinner
+  const persona = state.settings.persona || 'neutral';
+  const phrases = {
+    polish_mom:    'רגע, מותק...',
+    salesman:      'מסנכרן את הPortfolio...',
+    cynic_coach:   'מרענן.',
+    jealous_friend:'אוקיי, אוקיי, מרענן...',
+    neutral:       'מרענן...',
+  };
+  const idleHint = pullY > _PTR_THRESHOLD ? 'שחרר לרענון' : 'משוך לרענון';
+  const activeHint = message || phrases[persona] || phrases.neutral;
+
+  // Indicator opacity ramps up with pull
+  const opacity = Math.min(1, pullY / _PTR_THRESHOLD);
+
+  return (
+    <div
+      ref={scrollRef}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      style={{ ...style, position: 'relative', overscrollBehaviorY: 'contain' }}
+    >
+      {/* Floating indicator — sits above content, fades in with pull */}
+      <div style={{
+        position: 'sticky', top: 0, height: 0, zIndex: 5,
+        pointerEvents: 'none', textAlign: 'center',
+      }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          marginTop: Math.max(0, pullY - 28),
+          padding: '6px 14px',
+          background: T.bgElev2, border: `1px solid ${T.stroke}`,
+          borderRadius: 999,
+          opacity,
+          transform: `scale(${0.85 + opacity * 0.15})`,
+          transition: refreshing || pullY === 0 ? 'all 240ms ease' : 'none',
+          color: T.lime, fontSize: 11, fontFamily: T.mono, fontWeight: 700,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+        }}>
+          <_PTRSpinner spinning={refreshing} angle={pullY * 3} />
+          <span style={{ color: refreshing ? T.lime : T.inkSub }}>
+            {refreshing ? activeHint : idleHint}
+          </span>
+        </div>
+      </div>
+
+      {/* Content shifts down with pull for tactile feel */}
+      <div style={{
+        transform: `translateY(${refreshing ? 30 : pullY * 0.5}px)`,
+        transition: refreshing || pullY === 0 ? 'transform 240ms ease' : 'none',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function _PTRSpinner({ spinning, angle = 0 }) {
+  return (
+    <>
+      <style>{`@keyframes mk-ptr-spin { to { transform: rotate(360deg); } }`}</style>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+        style={{
+          transform: spinning ? undefined : `rotate(${angle}deg)`,
+          animation: spinning ? 'mk-ptr-spin 0.9s linear infinite' : 'none',
+          transition: spinning ? 'none' : 'transform 80ms',
+        }}>
+        <circle cx="12" cy="12" r="9" stroke={T.stroke} strokeWidth="2" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke={T.lime} strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </>
+  );
+}
+
 
 // ════════════════════════════════════════════════════════════════════
 // 15-personas.jsx — 5 voices that wrap the entire app
@@ -2710,6 +2880,80 @@ const STRINGS = {
     },
     neutral: { male: 'הוסר מהמועדפים.', female: 'הוסר מהמועדפים.' },
   },
+
+  // ─── Report: insufficient data screen ────────────────────────────
+  // Vars: {X} = days_logged, {Y} = days_needed
+  report_insufficient_data: {
+    polish_mom: {
+      male: 'אלון מותק, יש לך רק {X} ימים. אני לא לוחצת, אבל גם לא ישנה בלילה.',
+      female: 'מותק, יש לך רק {X} ימים. אני לא לוחצת, אבל גם לא ישנה בלילה.',
+    },
+    salesman: {
+      male: 'אלון, רק {X} ימים בתיק. חבל על הפוטנציאל — הדוח שלך עוד לא מוכן לסגירה.',
+      female: 'מירב, רק {X} ימים בתיק. חבל על הפוטנציאל — הדוח שלך עוד לא מוכן לסגירה.',
+    },
+    cynic_coach: {
+      male: '{X} ימים. ראיתי הרבה התחלות דומות. תוכיח שאתה הולך הלאה.',
+      female: '{X} ימים. ראיתי הרבה התחלות דומות. תוכיחי שאת הולכת הלאה.',
+    },
+    jealous_friend: {
+      male: 'רק {X} ימים? אני לפחות מתעצל בעקביות. עוד קצת ואני אתחיל להתרשם.',
+      female: 'רק {X} ימים? אני לפחות מתעצל בעקביות. עוד קצת ואני אתחיל להתרשם.',
+    },
+    neutral: {
+      male: 'נרשמו {X}/7 ימים בתקופה. נדרש מינימום של 7 לחישוב תובנות.',
+      female: 'נרשמו {X}/7 ימים בתקופה. נדרש מינימום של 7 לחישוב תובנות.',
+    },
+  },
+
+  // Vars: {Y} = days_left
+  report_keep_logging: {
+    polish_mom: {
+      male: 'תרשום לי עוד {Y} ימים, ואז נדבר. אני אזכיר לך כל בוקר אם צריך.',
+      female: 'תרשמי לי עוד {Y} ימים, ואז נדבר. אני אזכיר לך כל בוקר אם צריך.',
+    },
+    salesman: {
+      male: 'עוד {Y} שקילות והדוח הופך לסיפור הצלחה. אל תוותר עכשיו.',
+      female: 'עוד {Y} שקילות והדוח הופך לסיפור הצלחה. אל תוותרי עכשיו.',
+    },
+    cynic_coach: {
+      male: 'עוד {Y} ימים. אם בא לך — תחזור. אני לא הולך לשום מקום.',
+      female: 'עוד {Y} ימים. אם בא לך — תחזרי. אני לא הולך לשום מקום.',
+    },
+    jealous_friend: {
+      male: 'עוד {Y} ושוב תזכיר לי שאני זה שלא עושה כלום.',
+      female: 'עוד {Y} ושוב תזכירי לי שאני זה שלא עושה כלום.',
+    },
+    neutral: {
+      male: 'יש להוסיף {Y} ימי שקילה נוספים לקבלת ניתוח.',
+      female: 'יש להוסיף {Y} ימי שקילה נוספים לקבלת ניתוח.',
+    },
+  },
+
+  // ─── Workout reminder notification (used by 17-notifications.jsx) ──
+  // Two-line format expected: title || body (split on '||' at runtime)
+  workout_reminder: {
+    polish_mom: {
+      male: 'תזמן לי אימון||אלון, הגוף שלך לא נכנס לכושר לבד. תזכור שכבר היית פעם בכושר טוב.',
+      female: 'תזמני לי אימון||מותק, הגוף שלך לא נכנס לכושר לבד. תזכרי שכבר היית פעם בכושר טוב.',
+    },
+    salesman: {
+      male: 'אימון = השקעה||אלון, היום זה היום של ה-deposit. 30 דק׳ בכושר = ROI ארוך טווח.',
+      female: 'אימון = השקעה||מירב, היום זה היום של ה-deposit. 30 דק׳ בכושר = ROI ארוך טווח.',
+    },
+    cynic_coach: {
+      male: 'זמן לזוז||היה כתוב פה אימון. אז לזוז. או לעדכן את הלוח.',
+      female: 'זמן לזוז||היה כתוב פה אימון. אז לזוז. או לעדכן את הלוח.',
+    },
+    jealous_friend: {
+      male: 'הזכרתי לעצמי גם||יום אימון. גם אני לא הולך, אבל לפחות לי אין אפליקציה שתזכיר.',
+      female: 'הזכרתי לעצמי גם||יום אימון. גם אני לא הולכת, אבל לפחות לי אין אפליקציה שתזכיר.',
+    },
+    neutral: {
+      male: 'תזכורת אימון||הגיע מועד האימון המתוכנן.',
+      female: 'תזכורת אימון||הגיע מועד האימון המתוכנן.',
+    },
+  },
 };
 
 // ─── Sincerity moments: every N interactions, persona drops the mask once ─
@@ -2760,16 +3004,18 @@ function getSincerityLine(state) {
 }
 
 // ─── Resolve a UI string for current user's persona + gender + name ───
-function personaStr(state, key, fallback = '') {
+// vars: optional { X: 5, Y: 2, ... } to substitute {X}, {Y}, etc. in the template.
+// Substitution is literal — vars are coerced to String at render time.
+function personaStr(state, key, fallback = '', vars = null) {
   const personaId = state?.settings?.persona || 'neutral';
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const name = (state?.user?.name || '').trim();
 
   const entry = STRINGS[key];
-  if (!entry) return fallback;
+  if (!entry) return interpolateVars(fallback, vars);
 
   const personaEntry = entry[personaId] || entry.neutral;
-  if (!personaEntry) return fallback;
+  if (!personaEntry) return interpolateVars(fallback, vars);
 
   let text = personaEntry[gender] || personaEntry.male || fallback;
 
@@ -2780,7 +3026,17 @@ function personaStr(state, key, fallback = '') {
       text = text.replace(new RegExp(placeholder, 'g'), name);
     }
   }
-  return text;
+
+  return interpolateVars(text, vars);
+}
+
+// ─── Substitute {X}, {Y}, etc. in a template string ─────────────────
+// Used by personaStr; safe to call with null/undefined vars (returns text as-is).
+function interpolateVars(text, vars) {
+  if (!vars || !text) return text;
+  return text.replace(/\{(\w+)\}/g, (match, key) => {
+    return Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match;
+  });
 }
 
 
@@ -3945,7 +4201,10 @@ function HomeV1({ onNavigate }) {
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <HomeHeader onNavigate={onNavigate} />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}
+      >
         {/* Hero */}
         <Card padding={18} style={{ background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`, border: `1px solid ${T.strokeHi}`, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -4041,7 +4300,7 @@ function HomeV1({ onNavigate }) {
             </div>
           </Card>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   );
 }
@@ -4124,7 +4383,10 @@ function HomeV2({ onNavigate }) {
         );
       })()}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '0 18px 20px' }}
+      >
         {/* Velocity gauge hero */}
         <div style={{ position: 'relative', marginTop: 4, marginBottom: 10 }}>
           <ArcGauge value={velocityNormalized} color={velocityNormalized > 0 ? T.lime : velocityNormalized < 0 ? T.rose : T.inkMute} size={320} />
@@ -4224,7 +4486,7 @@ function HomeV2({ onNavigate }) {
             </Card>
           </div>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   );
 }
@@ -4300,7 +4562,10 @@ function HomeV3({ onNavigate }) {
         </Card>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 18px 20px', position: 'relative' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '4px 18px 20px', position: 'relative' }}
+      >
         <div style={{ position: 'relative', minHeight: 480 }}>
           <div style={{
             position: 'absolute', top: 10, bottom: 10, right: 32, width: 3,
@@ -4379,7 +4644,7 @@ function HomeV3({ onNavigate }) {
             </div>
           </Card>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   );
 }
@@ -4746,7 +5011,10 @@ function HistoryScreen({ onNavigate }) {
         <div style={{ fontSize: 18, fontWeight: 700 }}>כל המספרים שלך</div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '6px 18px 20px' }}
+      >
         {/* Main chart */}
         <Card padding={12} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -4834,7 +5102,7 @@ function HistoryScreen({ onNavigate }) {
             );
           })}
         </Card>
-      </div>
+      </PullToRefresh>
 
       <ConfirmDialog
         open={!!confirmDelete}
@@ -5536,6 +5804,7 @@ function ProfileScreen({ onNavigate }) {
   const [showTips, setShowTips] = React.useState(false);
   const [showPersona, setShowPersona] = React.useState(false);
   const [showNotifications, setShowNotifications] = React.useState(false);
+  const [showWorkoutReminder, setShowWorkoutReminder] = React.useState(false);
   const [showReport, setShowReport] = React.useState(false);
   const currentPersona = state.settings.persona || 'neutral';
   const personaLabel = PERSONAS[currentPersona]?.name || 'ישיר';
@@ -5658,9 +5927,18 @@ function ProfileScreen({ onNavigate }) {
         <Section title="אופי האפליקציה">
           <RowItem icon={<TabIcon name="user" size={18} />} label="מי מלווה אותך"
             value={personaLabel} onClick={() => setShowPersona(true)} />
-          <RowItem icon={<TabIcon name="sparkle" size={18} />} label="התראות יומיות"
+          <RowItem icon={<TabIcon name="sparkle" size={18} />} label="תזכורת שקילה"
             value={state.settings.notifications?.enabled ? (state.settings.notifications.weighTime || '08:00') : 'כבוי'}
             onClick={() => setShowNotifications(true)} />
+          <RowItem icon={<TabIcon name="dumbbell" size={18} />} label="תזכורת אימון"
+            value={(() => {
+              const r = state.settings.workoutReminder;
+              if (!r || !r.enabled || !(r.days || []).length) return 'כבוי';
+              const labels = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+              const dayStr = (r.days || []).slice().sort().map(d => labels[d]).join(',');
+              return `${dayStr} · ${r.time || '17:00'}`;
+            })()}
+            onClick={() => setShowWorkoutReminder(true)} />
         </Section>
 
         {/* Install app */}
@@ -5699,7 +5977,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v2.8
+          מִשְׁקַלּוּת · v2.9
         </div>
       </div>
 
@@ -5709,6 +5987,7 @@ function ProfileScreen({ onNavigate }) {
       {showTips && <CreativeTipsLibrary onClose={() => setShowTips(false)} />}
       {showPersona && <PersonaPickerDialog onClose={() => setShowPersona(false)} />}
       {showNotifications && <NotificationsSettingsDialog onClose={() => setShowNotifications(false)} />}
+      {showWorkoutReminder && <WorkoutReminderDialog onClose={() => setShowWorkoutReminder(false)} />}
       {showReport && <ReportScreen onClose={() => setShowReport(false)} />}
 
       <ConfirmDialog
@@ -6622,7 +6901,10 @@ function NutritionScreen({ onNavigate }) {
         <button onClick={() => setDateViewing(d => addDaysISO(d, 1))} disabled={dateViewing >= todayISO()} style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>›</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}
+      >
         {/* Rings hero */}
         <NutritionRings totals={totals} goals={goals} />
 
@@ -6682,7 +6964,7 @@ function NutritionScreen({ onNavigate }) {
             + הוסף ארוחה {dateViewing !== todayISO() ? `ל-${fmt.dayShort(dateViewing)}` : ''}
           </Button>
         </div>
-      </div>
+      </PullToRefresh>
 
       {addOpen && <AddMealDialog date={dateViewing} onClose={() => setAddOpen(false)} />}
       {goalsOpen && <NutritionGoalsDialog onClose={() => setGoalsOpen(false)} />}
@@ -12625,22 +12907,206 @@ function NotificationsSettingsDialog({ onClose }) {
   );
 }
 
-// ─── Hook: auto-schedule reminder on app load if enabled ────────────
+// ─── Workout reminder — persona-aware via STRINGS['workout_reminder'] ──
+// Format in 18-strings: 'title||body'. Falls back to neutral copy if missing.
+function getWorkoutReminderMessage(state) {
+  const fallbackTitle = 'תזכורת אימון';
+  const fallbackBody = 'הגיע מועד האימון המתוכנן.';
+  const raw = personaStr(state, 'workout_reminder', `${fallbackTitle}||${fallbackBody}`);
+  const [title, body] = (raw || '').split('||');
+  return {
+    title: (title || fallbackTitle).trim(),
+    body: (body || fallbackBody).trim(),
+  };
+}
+
+// Schedule the workout reminder for the rest of TODAY only, if all conditions hold.
+// Returns a timeoutId or null.
+function scheduleNextWorkoutReminder(reminder, state, workedOutToday) {
+  if (!isNotificationSupported() || Notification.permission !== 'granted') return null;
+  if (!reminder || !reminder.enabled) return null;
+  const days = Array.isArray(reminder.days) ? reminder.days : [];
+  if (days.length === 0) return null;
+
+  const now = new Date();
+  if (!days.includes(now.getDay())) return null; // not a scheduled day
+  if (workedOutToday) return null;                // already done — skip
+
+  const [h, m] = (reminder.time || '17:00').split(':').map(Number);
+  const target = new Date();
+  target.setHours(h, m, 0, 0);
+  if (target <= now) return null;                 // already past for today
+  const delay = target - now;
+  if (delay > 6 * 3600 * 1000) return null;       // out of in-session range; will retry on next open
+
+  return setTimeout(() => {
+    const msg = getWorkoutReminderMessage(state);
+    showLocalNotification(msg.title, msg.body, { tag: 'fitracklon-workout-reminder' });
+  }, delay);
+}
+
+// ─── Workout reminder settings dialog (shape: { enabled, days, time }) ──
+function WorkoutReminderDialog({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const r = state.settings.workoutReminder || { enabled: false, days: [], time: '17:00' };
+  const [enabled, setEnabled] = React.useState(!!r.enabled);
+  const [days, setDays] = React.useState(Array.isArray(r.days) ? r.days : []);
+  const [time, setTime] = React.useState(r.time || '17:00');
+  const [permission, setPermission] = React.useState(
+    isNotificationSupported() ? Notification.permission : 'unsupported'
+  );
+
+  const dayLabels = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+
+  const toggleDay = (d) => {
+    setDays(curr => curr.includes(d) ? curr.filter(x => x !== d) : [...curr, d].sort());
+  };
+
+  const handleEnable = async () => {
+    if (!isNotificationSupported()) {
+      toast('הדפדפן שלך לא תומך בהתראות', { type: 'error' });
+      return;
+    }
+    const result = await requestNotificationPermission();
+    setPermission(result);
+    if (result === 'granted') {
+      setEnabled(true);
+      const msg = getWorkoutReminderMessage(state);
+      showLocalNotification(msg.title, msg.body, { tag: 'fitracklon-workout-reminder-test' });
+    } else if (result === 'denied') {
+      toast('הרשאה נדחתה. אפשר מהגדרות הדפדפן', { type: 'error' });
+    }
+  };
+
+  const save = () => {
+    dispatch({
+      type: 'SET_SETTING',
+      key: 'workoutReminder',
+      value: {
+        enabled: enabled && permission === 'granted' && days.length > 0,
+        days,
+        time,
+      },
+    });
+    toast('תזכורת האימון נשמרה', { type: 'success' });
+    onClose();
+  };
+
+  const canSave = !enabled || (days.length > 0 && permission === 'granted');
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 900,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 400, width: '100%', direction: 'rtl', maxHeight: '85vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>תזכורת אימון</div>
+        <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 16, lineHeight: 1.6 }}>
+          תזכורת ניפרדת מהשקילה — בימים שתבחר, בשעה הקבועה. אם כבר הזנת אימון באותו יום, התזכורת לא תופיע.
+        </div>
+
+        {permission !== 'granted' && (
+          <div style={{
+            padding: 14, background: `${T.amber}15`, border: `1px solid ${T.amber}44`,
+            borderRadius: 10, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 12, color: T.amber, marginBottom: 8 }}>
+              {permission === 'denied' ? 'הרשאה נדחתה' : 'דרוש אישור'}
+            </div>
+            <button onClick={handleEnable} disabled={permission === 'denied'} style={{
+              padding: '8px 14px', background: T.amber, color: T.bg, border: 'none',
+              borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+              opacity: permission === 'denied' ? 0.5 : 1,
+            }}>
+              {permission === 'denied' ? 'חסום בדפדפן' : 'אפשר התראות'}
+            </button>
+          </div>
+        )}
+
+        {permission === 'granted' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
+                style={{ width: 20, height: 20, accentColor: T.lime }} />
+              <div style={{ fontSize: 14 }}>הפעל תזכורת אימון</div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 8, fontFamily: T.mono, letterSpacing: 1 }}>ימי שבוע</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 16 }}>
+              {dayLabels.map((label, d) => {
+                const on = days.includes(d);
+                return (
+                  <button key={d} onClick={() => toggleDay(d)} style={{
+                    padding: '10px 0', borderRadius: 8, cursor: 'pointer',
+                    background: on ? T.lime : T.bgElev2,
+                    color: on ? T.bg : T.inkSub,
+                    border: 'none',
+                    fontFamily: T.font, fontSize: 12, fontWeight: 700,
+                  }}>{label}</button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שעת תזכורת</div>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} style={{
+              width: '100%', padding: '12px 14px', background: T.bg,
+              border: `1px solid ${T.stroke}`, borderRadius: 10,
+              color: T.ink, fontSize: 15, fontFamily: T.mono, outline: 'none',
+              direction: 'ltr', textAlign: 'left',
+            }} />
+
+            {enabled && days.length === 0 && (
+              <div style={{ marginTop: 12, fontSize: 11, color: T.amber }}>
+                בחר לפחות יום אחד.
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginTop: 14, lineHeight: 1.6 }}>
+          הקול של התזכורת יתאים לפרסונה שבחרת.
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <Button variant="ghost" onClick={onClose}>ביטול</Button>
+          <Button onClick={save} disabled={!canSave}>שמור</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Hook: auto-schedule reminders on app load if enabled ───────────
 function useNotificationScheduler() {
   const { state } = useStore();
   const n = state.settings.notifications;
+  const wReminder = state.settings.workoutReminder;
   const personaId = state.settings.persona || 'neutral';
   const today = todayISO();
   // entries is an object keyed by date, not an array
   const weighedToday = !!(state.entries && state.entries[today]);
+  const workedOutToday = !!(state.workouts && state.workouts.sessions && state.workouts.sessions[today] && state.workouts.sessions[today].length);
 
+  // Weight reminder (existing)
   React.useEffect(() => {
     if (!n || !n.enabled || !isNotificationSupported()) return;
     if (Notification.permission !== 'granted') return;
-    if (weighedToday) return; // no reminder if already weighed
+    if (weighedToday) return;
     const timeoutId = scheduleNextReminder(n.weighTime, personaId, weighedToday);
     return () => { if (timeoutId) clearTimeout(timeoutId); };
   }, [n?.enabled, n?.weighTime, personaId, weighedToday]);
+
+  // Workout reminder (new)
+  React.useEffect(() => {
+    if (!wReminder || !wReminder.enabled) return;
+    const timeoutId = scheduleNextWorkoutReminder(wReminder, state, workedOutToday);
+    return () => { if (timeoutId) clearTimeout(timeoutId); };
+  }, [wReminder?.enabled, wReminder?.time, JSON.stringify(wReminder?.days || []), personaId, workedOutToday]);
 }
 
 
@@ -13065,7 +13531,10 @@ function WorkoutScreen() {
         <button onClick={() => setDateViewing(d => addDaysISO(d, 1))} disabled={dateViewing >= todayISO()} style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>›</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 20px' }}
+      >
         {/* Weekly summary card */}
         <Card padding={14} style={{ marginBottom: 12, background: `linear-gradient(145deg, ${T.bgElev}, ${T.bgElev2})` }}>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
@@ -13145,7 +13614,7 @@ function WorkoutScreen() {
         <div style={{ marginTop: 16 }}>
           <Button onClick={() => setNewOpen(true)}>+ אימון חדש</Button>
         </div>
-      </div>
+      </PullToRefresh>
 
       {newOpen && <NewWorkoutDialog
         date={dateViewing}
@@ -14852,18 +15321,29 @@ function ReportLoadingStep() {
 }
 
 function ReportInsufficientStep({ daysWithData, onClose }) {
+  const { state } = useStore();
   const need = REPORT_MIN_DAYS - daysWithData;
+  // Persona-aware copy with {X}=daysWithData, {Y}=need substitution
+  const insufficientLine = personaStr(
+    state, 'report_insufficient_data',
+    `יש לך ${daysWithData}/${REPORT_MIN_DAYS} ימי שקילה.`,
+    { X: daysWithData, Y: need }
+  );
+  const keepLoggingLine = personaStr(
+    state, 'report_keep_logging',
+    `נדרשים עוד ${need} ${need === 1 ? 'יום' : 'ימים'}.`,
+    { X: daysWithData, Y: need }
+  );
   return (
     <div style={{ padding: '60px 24px', textAlign: 'center' }}>
       <div style={{ fontSize: 44, marginBottom: 16, opacity: 0.7 }}>📊</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 8 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 12 }}>
         אסוף עוד מעט נתונים
       </div>
-      <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, maxWidth: 320, margin: '0 auto' }}>
-        כדי לחפש תבניות אמיתיות, ה-AI צריך לפחות {REPORT_MIN_DAYS} ימי שקילה.
-        {daysWithData > 0 && ` יש לך כרגע ${daysWithData}.`}
+      <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7, maxWidth: 340, margin: '0 auto' }}>
+        {insufficientLine}
         <br /><br />
-        תשקול עוד {need} {need === 1 ? 'יום' : 'ימים'}, ונחזור לדוח עוד שבוע.
+        {keepLoggingLine}
       </div>
       <div style={{ marginTop: 24, maxWidth: 240, margin: '24px auto 0' }}>
         <Button onClick={onClose}>סגור</Button>

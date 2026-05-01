@@ -78,6 +78,13 @@ const initialState = {
       weighTime: '08:00',
       pushSubscription: null,
     },
+    // Optional separate reminder for workout days. days = JS Date.getDay() (0=Sun..6=Sat).
+    // Independent from `notifications` (which is the weigh-in reminder); both can be on at once.
+    workoutReminder: {
+      enabled: false,
+      days: [],            // e.g. [0, 2, 4] = Sun/Tue/Thu
+      time: '17:00',
+    },
     // Last-used preferences for the personal report generator.
     // Pre-populated as smart defaults next time the user opens the report flow.
     reportPrefs: {

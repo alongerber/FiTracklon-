@@ -507,18 +507,29 @@ function ReportLoadingStep() {
 }
 
 function ReportInsufficientStep({ daysWithData, onClose }) {
+  const { state } = useStore();
   const need = REPORT_MIN_DAYS - daysWithData;
+  // Persona-aware copy with {X}=daysWithData, {Y}=need substitution
+  const insufficientLine = personaStr(
+    state, 'report_insufficient_data',
+    `יש לך ${daysWithData}/${REPORT_MIN_DAYS} ימי שקילה.`,
+    { X: daysWithData, Y: need }
+  );
+  const keepLoggingLine = personaStr(
+    state, 'report_keep_logging',
+    `נדרשים עוד ${need} ${need === 1 ? 'יום' : 'ימים'}.`,
+    { X: daysWithData, Y: need }
+  );
   return (
     <div style={{ padding: '60px 24px', textAlign: 'center' }}>
       <div style={{ fontSize: 44, marginBottom: 16, opacity: 0.7 }}>📊</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 8 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 12 }}>
         אסוף עוד מעט נתונים
       </div>
-      <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, maxWidth: 320, margin: '0 auto' }}>
-        כדי לחפש תבניות אמיתיות, ה-AI צריך לפחות {REPORT_MIN_DAYS} ימי שקילה.
-        {daysWithData > 0 && ` יש לך כרגע ${daysWithData}.`}
+      <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7, maxWidth: 340, margin: '0 auto' }}>
+        {insufficientLine}
         <br /><br />
-        תשקול עוד {need} {need === 1 ? 'יום' : 'ימים'}, ונחזור לדוח עוד שבוע.
+        {keepLoggingLine}
       </div>
       <div style={{ marginTop: 24, maxWidth: 240, margin: '24px auto 0' }}>
         <Button onClick={onClose}>סגור</Button>

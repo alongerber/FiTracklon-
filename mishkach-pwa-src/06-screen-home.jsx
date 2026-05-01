@@ -95,7 +95,10 @@ function HomeV1({ onNavigate }) {
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <HomeHeader onNavigate={onNavigate} />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}
+      >
         {/* Hero */}
         <Card padding={18} style={{ background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`, border: `1px solid ${T.strokeHi}`, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -191,7 +194,7 @@ function HomeV1({ onNavigate }) {
             </div>
           </Card>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   );
 }
@@ -274,7 +277,10 @@ function HomeV2({ onNavigate }) {
         );
       })()}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '0 18px 20px' }}
+      >
         {/* Velocity gauge hero */}
         <div style={{ position: 'relative', marginTop: 4, marginBottom: 10 }}>
           <ArcGauge value={velocityNormalized} color={velocityNormalized > 0 ? T.lime : velocityNormalized < 0 ? T.rose : T.inkMute} size={320} />
@@ -374,7 +380,7 @@ function HomeV2({ onNavigate }) {
             </Card>
           </div>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   );
 }
@@ -450,7 +456,10 @@ function HomeV3({ onNavigate }) {
         </Card>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 18px 20px', position: 'relative' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '4px 18px 20px', position: 'relative' }}
+      >
         <div style={{ position: 'relative', minHeight: 480 }}>
           <div style={{
             position: 'absolute', top: 10, bottom: 10, right: 32, width: 3,
@@ -529,7 +538,7 @@ function HomeV3({ onNavigate }) {
             </div>
           </Card>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   );
 }

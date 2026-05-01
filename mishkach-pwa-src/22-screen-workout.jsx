@@ -65,7 +65,10 @@ function WorkoutScreen() {
         <button onClick={() => setDateViewing(d => addDaysISO(d, 1))} disabled={dateViewing >= todayISO()} style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>›</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 20px' }}>
+      <PullToRefresh
+        onRefresh={() => new Promise(r => setTimeout(r, 600))}
+        style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 20px' }}
+      >
         {/* Weekly summary card */}
         <Card padding={14} style={{ marginBottom: 12, background: `linear-gradient(145deg, ${T.bgElev}, ${T.bgElev2})` }}>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
@@ -145,7 +148,7 @@ function WorkoutScreen() {
         <div style={{ marginTop: 16 }}>
           <Button onClick={() => setNewOpen(true)}>+ אימון חדש</Button>
         </div>
-      </div>
+      </PullToRefresh>
 
       {newOpen && <NewWorkoutDialog
         date={dateViewing}
