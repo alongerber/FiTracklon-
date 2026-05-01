@@ -180,10 +180,17 @@ function HistoryScreen({ onNavigate }) {
 
 // ─── Swipeable entry row ────────────────────────────────────────────
 function SwipeableEntry({ entry, delta, hasDelta, unit, isLast, onDelete, onClick }) {
+  const { state } = useStore();
   const [swipeX, setSwipeX] = React.useState(0);
   const [moved, setMoved] = React.useState(false);
   const startX = React.useRef(0);
   const currentX = React.useRef(0);
+
+  // Mood emoji indicator (if user logged a mood that day)
+  const moodForDay = state.mood?.[entry.date];
+  const moodFace = moodForDay && moodForDay.mood >= 1 && moodForDay.mood <= 5
+    ? ['😞', '😕', '😐', '🙂', '😊'][moodForDay.mood - 1]
+    : null;
 
   const onTouchStart = (e) => {
     startX.current = e.touches[0].clientX;
@@ -249,8 +256,11 @@ function SwipeableEntry({ entry, delta, hasDelta, unit, isLast, onDelete, onClic
           {entry.time && <div style={{ fontSize: 9, color: T.inkMute, marginTop: 2 }}>{entry.time}</div>}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: T.mono, fontSize: 15, fontWeight: 600 }}>
+          <div style={{ fontFamily: T.mono, fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
             {fmt.kg(entry.weight, unit)}<span style={{ fontSize: 11, color: T.inkMute }}> {fmt.unitLabel(unit)}</span>
+            {moodFace && (
+              <span title={`מצב רוח: ${moodForDay.mood}/5`} style={{ fontSize: 13, opacity: 0.8 }}>{moodFace}</span>
+            )}
           </div>
           {entry.note && <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.note}</div>}
         </div>

@@ -21,6 +21,9 @@ const initialState = {
   },
   // entries: { 'YYYY-MM-DD': { weight: kg, time: 'HH:mm', note: string, createdAt: iso } }
   entries: {},
+  // Daily mood/energy/sleep self-report (1-5 each).
+  // mood: { 'YYYY-MM-DD': { mood: 1-5, energy: 1-5, sleep: 1-5, note: string, createdAt: iso } }
+  mood: {},
   // nutrition: goals + meals + favorites keyed by date
   nutrition: {
     goals: {
@@ -128,6 +131,7 @@ function loadState() {
       goal: { ...initialState.goal, ...(parsed.goal || {}) },
       settings: { ...initialState.settings, ...(parsed.settings || {}) },
       entries: parsed.entries || {},
+      mood: parsed.mood || {},
       nutrition: {
         ...initialState.nutrition,
         ...(parsed.nutrition || {}),
@@ -192,6 +196,29 @@ function reducer(state, action) {
     case 'DELETE_ENTRY': {
       const { [action.date]: _, ...rest } = state.entries;
       return { ...state, entries: rest };
+    }
+
+    // ─── Mood / energy / sleep daily self-report ────────────────────
+    case 'SET_MOOD': {
+      // action: { date, mood, energy, sleep, note }
+      // Stores all four on one key — overwrites if it already exists for that day.
+      const { date, mood: m, energy, sleep, note } = action;
+      return {
+        ...state,
+        mood: {
+          ...state.mood,
+          [date]: {
+            mood: m, energy, sleep,
+            note: note || '',
+            createdAt: state.mood[date]?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+    case 'DELETE_MOOD': {
+      const { [action.date]: _, ...rest } = state.mood;
+      return { ...state, mood: rest };
     }
 
     // ─── Nutrition ──────────────────────────────────────────────
@@ -810,6 +837,31 @@ function buildInsightSnapshot(state, stats, daysBack = 7) {
     },
     nutrition_by_day: nutritionByDay,
     nutrition_days_logged: Object.keys(nutritionByDay).length,
+    ...buildMoodSummary(state, from, today),
+  };
+}
+
+// ─── Mood summary for the snapshot — averages over the window ──────
+// Only included if there are at least 2 days with mood data, otherwise
+// the AI gets noise. Returns 0-2 fields depending on data.
+function buildMoodSummary(state, fromISO, toISO) {
+  const moodMap = state.mood || {};
+  const days = Object.entries(moodMap)
+    .filter(([d]) => d >= fromISO && d <= toISO)
+    .map(([d, m]) => m);
+  if (days.length < 2) return {};
+  const avg = (key) => {
+    const vals = days.map(d => d[key]).filter(v => v >= 1 && v <= 5);
+    if (vals.length === 0) return null;
+    return Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10;
+  };
+  return {
+    mood_summary: {
+      days_logged: days.length,
+      avg_mood: avg('mood'),
+      avg_energy: avg('energy'),
+      avg_sleep: avg('sleep'),
+    },
   };
 }
 

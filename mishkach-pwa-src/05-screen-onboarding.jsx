@@ -430,10 +430,17 @@ function NumberStepper({ value, onChange, min, max, step = 1, unit = '', display
     </div>
   );
 }
+// QA17: minHeight=44 guarantees Apple/Google touch-target sizing even when
+// the central input is short. width=56 stays the same so −/+ are symmetric.
+// QA9: identical style for both buttons (same width, same minHeight, same
+// font/border) — symmetry is structural, not just visual.
 const btnPlusMinus = {
-  width: 56, background: T.bgElev, border: `1px solid ${T.stroke}`,
+  width: 56, minHeight: 44,
+  background: T.bgElev, border: `1px solid ${T.stroke}`,
   borderRadius: 12, color: T.ink, fontSize: 24, fontFamily: T.mono, fontWeight: 700,
   cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: 0,
 };
 
 // ─── Step 5 (index 4): AI setup — access code or personal key ───────

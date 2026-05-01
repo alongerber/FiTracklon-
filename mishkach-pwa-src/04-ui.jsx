@@ -104,15 +104,20 @@ function TabBar({ active = 'home', onChange }) {
         const on = t.id === active;
         const isAdd = t.id === 'log';
         if (isAdd) {
+          // QA10: explicit label + plus icon, so the FAB is self-documenting.
+          // Reduced from a circular icon-only button to a pill so the Hebrew
+          // word fits without crowding the icon.
           return (
-            <button key={t.id} onClick={() => onChange?.(t.id)} style={{
-              border: 'none', cursor: 'pointer', padding: 0,
-              width: 52, height: 52, marginTop: -16,
-              borderRadius: '50%', background: T.lime, color: T.bg,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            <button key={t.id} onClick={() => onChange?.(t.id)} aria-label="הזנת שקילה" style={{
+              border: 'none', cursor: 'pointer', padding: '8px 14px',
+              height: 44, marginTop: -10,
+              borderRadius: 22, background: T.lime, color: T.bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               boxShadow: `0 6px 24px ${T.lime}55, 0 0 0 4px ${T.bg}`,
+              fontFamily: T.font, fontSize: 13, fontWeight: 800,
             }}>
-              <TabIcon name="plus" size={22} />
+              <TabIcon name="plus" size={18} />
+              שקילה
             </button>
           );
         }

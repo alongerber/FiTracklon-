@@ -202,7 +202,9 @@ function NutritionRings({ totals, goals }) {
         </div>
         {totals.count > 0 && (
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginTop: 6 }}>
-            {totals.count} ארוחות · ~{Math.round(totals.calories / totals.count)} לארוחה
+            {totals.count === 1
+              ? `ארוחה אחת · ${Math.round(totals.calories)} ק״ק`
+              : `${totals.count} ארוחות · ממוצע ~${Math.round(totals.calories / totals.count)} ק״ק לארוחה`}
           </div>
         )}
       </div>
@@ -344,8 +346,10 @@ function AddMealDialog({ date, onClose }) {
         <button onClick={guardedClose} style={iconBtn}>×</button>
       </div>
 
-      {/* Mode tabs when not in review */}
-      {!parsedResult && (
+      {/* Mode tabs — only after the user picked a mode (or has favorites).
+          QA16: when mode === null AND no favorites, ONLY the ModeSelector below
+          shows; tabs would be a duplicate of the same choices. */}
+      {!parsedResult && mode && (
         <div style={{ padding: '10px 18px 4px', display: 'flex', gap: 6, overflowX: 'auto' }}>
           {hasFavorites && <ModeTab active={mode === 'favorites'} onClick={() => setMode('favorites')} iconName="star" label="מועדפים" />}
           <ModeTab active={mode === 'text'} onClick={() => setMode('text')} iconName="chat" label="טקסט" />
@@ -815,7 +819,7 @@ function ManualFlow({ onSubmit }) {
 
       <div style={{ marginTop: 16 }}>
         <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
-        <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="kcal" />
+        <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="ק״ק" />
         {attempted && calMissing && (
           <div style={{ marginTop: 6, fontSize: 12, color: T.rose, lineHeight: 1.5 }}>
             נא להזין מספר קלוריות (לפחות 1).
@@ -919,7 +923,7 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
 
       <div style={{ marginTop: 16 }}>
         <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
-        <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="kcal" />
+        <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="ק״ק" />
       </div>
 
       <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -1003,7 +1007,7 @@ function NutritionGoalsDialog({ onClose }) {
         </Card>
 
         <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות יומי</div>
-        <NumberStepper value={cal} onChange={setCal} min={1000} max={5000} step={50} unit="kcal" />
+        <NumberStepper value={cal} onChange={setCal} min={1000} max={5000} step={50} unit="ק״ק" />
 
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>חלבון</div>
@@ -1021,8 +1025,15 @@ function NutritionGoalsDialog({ onClose }) {
         <Card padding={12} style={{ marginTop: 16, background: T.bgElev2 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono }}>בדיקת איזון</div>
           <div style={{ fontSize: 12, color: T.inkSub, marginTop: 6, lineHeight: 1.5 }}>
-            {p}×4 + {c}×4 + {f}×9 = {macroKcal} kcal<br/>
-            יעד: {cal} kcal · הפרש: <span style={{ color: Math.abs(macroVsCal) > 100 ? T.rose : T.lime }}>{macroVsCal > 0 ? '+' : ''}{macroVsCal}</span>
+            {p}×4 + {c}×4 + {f}×9 = {macroKcal} ק״ק<br/>
+            יעד: {cal} ק״ק · {(() => {
+              // QA4: rounding noise (±5 kcal) is shown as "תואם", not as a tiny diff
+              if (Math.abs(macroVsCal) <= 5) {
+                return <span style={{ color: T.lime }}>תואם</span>;
+              }
+              const color = Math.abs(macroVsCal) > 100 ? T.rose : T.amber;
+              return <>הפרש: <span style={{ color }}>{macroVsCal > 0 ? '+' : ''}{macroVsCal}</span></>;
+            })()}
           </div>
         </Card>
 
@@ -1119,7 +1130,7 @@ function EditMealDialog({ date, meal, onClose }) {
 
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
-          <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="kcal" />
+          <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="ק״ק" />
         </div>
 
         <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -1265,7 +1276,7 @@ function MealSearchDialog({ onClose, onJumpToDate }) {
                 {m.description || 'ארוחה'}
               </div>
               <div style={{ fontSize: 11, color: T.inkSub, marginTop: 4, fontFamily: T.mono }}>
-                ח׳ {m.protein}g · פ׳ {m.carbs}g · ש׳ {m.fat}g
+                ח׳ {m.protein}ג · פ׳ {m.carbs}ג · ש׳ {m.fat}ג
               </div>
             </Card>
           ))

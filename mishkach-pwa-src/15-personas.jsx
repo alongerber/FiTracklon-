@@ -196,13 +196,17 @@ function PersonaSelector({ selected, onSelect, compact = false }) {
             textAlign: 'right', direction: 'rtl', fontFamily: T.font, color: T.ink,
             width: '100%', transition: 'all 150ms',
           }}>
+            {/* v3.5: SVG persona icon (PersonaIcon, defined in 24-icons.jsx)
+                replaces the cartoony emoji avatars. Tinted lime when selected. */}
             <div style={{
-              fontSize: compact ? 22 : 26,
               width: compact ? 36 : 42, height: compact ? 36 : 42,
               borderRadius: compact ? 12 : 14,
               background: isSelected ? `${T.lime}22` : T.bgElev2,
+              color: isSelected ? T.lime : T.inkSub,
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>{p.emoji}</div>
+            }}>
+              <PersonaIcon kind={p.id} size={compact ? 22 : 26} />
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700 }}>{p.name}</div>
               <div style={{ fontSize: compact ? 11 : 12, color: T.inkSub, marginTop: 2, lineHeight: 1.4 }}>{p.tagline}</div>

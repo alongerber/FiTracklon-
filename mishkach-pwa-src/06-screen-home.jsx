@@ -123,9 +123,12 @@ function HomeHeader({ compact = false, onNavigate }) {
   return (
     <div style={{ padding: '14px 18px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
       <AvatarDot letter={letter} size={compact ? 28 : 32} />
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 11, color: T.inkMute }}>{greet}</div>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>{name}</div>
+      {/* QA19: name + greeting must not crowd the badges. minWidth: 0 lets
+          the flex item shrink; ellipsis truncates long names (Hebrew names
+          like ישראל ישראלי-כהן can overflow). */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: T.inkMute, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{greet}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
       </div>
       <WorkoutStreakBadge onNavigate={onNavigate} />
       <StreakBadge days={stats.streak} />
@@ -199,6 +202,7 @@ function HomeV1({ onNavigate }) {
       <HomeHeader onNavigate={onNavigate} />
       <DayBanner />
       <MonthlyRecapButton onNavigate={onNavigate} />
+      <MoodCard />
 
       <PullToRefresh
         onRefresh={() => new Promise(r => setTimeout(r, 600))}
@@ -272,7 +276,17 @@ function HomeV1({ onNavigate }) {
               fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
             }}>הכל ›</button>
           </div>
-          <WeightChart data={chartData} goal={goal} width={320} height={160} />
+          {/* QA18: a single point isn't a "trend" — show a hint instead of a one-dot chart */}
+          {chartData.length < 3 ? (
+            <div style={{
+              padding: '36px 16px', textAlign: 'center', background: T.bg, borderRadius: 8,
+              fontSize: 12, color: T.inkSub, lineHeight: 1.6,
+            }}>
+              📊 הוסף עוד {3 - chartData.length} מדידות לראות מגמה
+            </div>
+          ) : (
+            <WeightChart data={chartData} goal={goal} width={320} height={160} />
+          )}
         </Card>
 
         {/* Nutrition mini widget */}
@@ -333,13 +347,14 @@ function HomeV2({ onNavigate }) {
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1, fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>MISHKACH · VELOCITY</div>
+        <div style={{ flex: 1, fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>מהירות · קצב שבועי</div>
         <WorkoutStreakBadge onNavigate={onNavigate} />
         <StreakBadge days={stats.streak} />
         <AvatarDot letter={(state.user.name || 'U')[0]} size={28} />
       </div>
       <DayBanner />
       <MonthlyRecapButton onNavigate={onNavigate} />
+      <MoodCard />
 
       {/* Streak milestone message — shows the last milestone passed, not just exact match */}
       {(() => {
@@ -395,14 +410,14 @@ function HomeV2({ onNavigate }) {
           <div style={{ position: 'absolute', bottom: 16, right: 18, fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>-1.2</div>
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>0</div>
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 10 }}>
-            <div style={{ fontSize: 10, color: T.inkSub, letterSpacing: 2, fontFamily: T.mono }}>VELOCITY · קצב שבועי</div>
+            <div style={{ fontSize: 10, color: T.inkSub, letterSpacing: 2, fontFamily: T.mono }}>קצב שבועי</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
               {pace !== null ? (
                 <>
                   <span style={{ fontFamily: T.mono, fontSize: 48, fontWeight: 700, color: pace < 0 ? T.lime : pace > 0 ? T.rose : T.inkMute, letterSpacing: -2, lineHeight: 1 }}>
                     {fmt.signed(pace)}
                   </span>
-                  <span style={{ fontSize: 14, color: T.inkSub, fontWeight: 600 }}>{unit === 'lb' ? 'lb/w' : 'ק״ג/שב׳'}</span>
+                  <span style={{ fontSize: 14, color: T.inkSub, fontWeight: 600 }}>{unit === 'lb' ? 'ליב׳/שב׳' : 'ק״ג/שב׳'}</span>
                 </>
               ) : (
                 <span style={{ fontFamily: T.mono, fontSize: 30, color: T.inkMute, fontWeight: 600 }}>אין נתונים</span>
@@ -418,7 +433,7 @@ function HomeV2({ onNavigate }) {
         <Card padding={14} style={{ marginBottom: 12, background: T.bgElev2 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: 10, color: T.inkMute, letterSpacing: 1, fontFamily: T.mono }}>NOW</div>
+              <div style={{ fontSize: 10, color: T.inkMute, letterSpacing: 1, fontFamily: T.mono }}>עכשיו</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 2 }}>
                 <span style={{ fontFamily: T.mono, fontSize: 40, fontWeight: 600, letterSpacing: -1.5 }}>{fmt.kg(stats.current, unit)}</span>
                 <span style={{ fontSize: 14, color: T.inkSub }}>{fmt.unitLabel(unit)}</span>
@@ -426,15 +441,15 @@ function HomeV2({ onNavigate }) {
             </div>
             <div style={{ textAlign: 'left' }}>
               <Sparkline data={stats.list.slice(-14)} width={110} height={40} stroke={T.lime} />
-              <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginTop: 2 }}>14 DAYS</div>
+              <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginTop: 2 }}>14 ימים אחרונים</div>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.stroke}` }}>
             {[
-              { label: 'Δ DAY',   val: stats.dayDelta },
-              { label: 'Δ WEEK',  val: stats.deltaWeek },
-              { label: 'Δ MONTH', val: stats.deltaMonth },
+              { label: 'יום',   val: stats.dayDelta },
+              { label: 'שבוע',  val: stats.deltaWeek },
+              { label: 'חודש', val: stats.deltaMonth },
             ].map(m => (
               <div key={m.label}>
                 <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{m.label}</div>
@@ -448,8 +463,8 @@ function HomeV2({ onNavigate }) {
         {stats.etaDays !== null && goal !== null && (
           <Card padding={0} style={{ marginBottom: 12, overflow: 'hidden' }}>
             <div style={{ padding: '14px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 2 }}>ETA · ESTIMATED ARRIVAL</div>
-              <Pill color={T.lime} size="sm">מסלול פעיל</Pill>
+              <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 2 }}>זמן הגעה משוער</div>
+              <Pill color={T.lime} size="sm">בקצב</Pill>
             </div>
             <div style={{ padding: '10px 16px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
@@ -476,12 +491,12 @@ function HomeV2({ onNavigate }) {
         {stats.n >= 3 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <Card padding={12}>
-              <div style={{ fontSize: 10, color: T.rose, fontFamily: T.mono, letterSpacing: 1 }}>PEAK · שיא ▲</div>
+              <div style={{ fontSize: 10, color: T.rose, fontFamily: T.mono, letterSpacing: 1 }}>שיא ▲</div>
               <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, letterSpacing: -1, marginTop: 6 }}>{fmt.kg(stats.peak.weight, unit)}</div>
               <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2 }}>{fmt.day(stats.peak.date)}</div>
             </Card>
             <Card padding={12}>
-              <div style={{ fontSize: 10, color: T.lime, fontFamily: T.mono, letterSpacing: 1 }}>LOW · שפל ▼</div>
+              <div style={{ fontSize: 10, color: T.lime, fontFamily: T.mono, letterSpacing: 1 }}>שפל ▼</div>
               <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, letterSpacing: -1, marginTop: 6 }}>{fmt.kg(stats.low.weight, unit)}</div>
               <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2 }}>{fmt.day(stats.low.date)}</div>
             </Card>
@@ -535,7 +550,7 @@ function HomeV3({ onNavigate }) {
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '12px 18px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1.5 }}>THE JOURNEY · המסע שלך</div>
+          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1.5 }}>המסע שלך</div>
           <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>
             יום {stats.streak} · {fmt.kg(Math.abs(startWeight - curW), unit)} ק״ג {startWeight > curW ? 'מאחורה' : 'מעל ההתחלה'}
           </div>
@@ -545,11 +560,12 @@ function HomeV3({ onNavigate }) {
       </div>
       <DayBanner />
       <MonthlyRecapButton onNavigate={onNavigate} />
+      <MoodCard />
 
       <div style={{ padding: '6px 18px 10px' }}>
         <Card padding={12} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>CURRENT POSITION</div>
+            <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>מיקום נוכחי</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
               <span style={{ fontFamily: T.mono, fontSize: 40, fontWeight: 700, letterSpacing: -1.5 }}>{fmt.kg(curW, unit)}</span>
               <span style={{ fontSize: 13, color: T.inkSub }}>{fmt.unitLabel(unit)}</span>
@@ -1070,6 +1086,169 @@ function RecapKPI({ label, value, unit, sub, color = T.ink }) {
 
 // ─── Archive list (used from Profile) ──────────────────────────────
 // Lists every month with data; clicking opens the recap dialog read-only.
+// ════════════════════════════════════════════════════════════════════
+// Mood card — daily 3-axis self-report (mood/energy/sleep), shown once
+// per day on Home until the user fills it in.
+// ════════════════════════════════════════════════════════════════════
+//
+// Storage: state.mood[YYYY-MM-DD] = { mood, energy, sleep, note }.
+// Hidden once today's entry exists so the home screen stays uncluttered.
+
+const MOOD_FACES = ['😞', '😕', '😐', '🙂', '😊'];
+const ENERGY_LABELS = ['1', '2', '3', '4', '5'];
+const SLEEP_LABELS = ['1', '2', '3', '4', '5'];
+
+function MoodCard() {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const today = todayISO();
+  const existing = state.mood?.[today];
+
+  // Local form state. Initial = existing values or null (must pick all 3).
+  const [mood, setMood] = React.useState(existing?.mood || 0);
+  const [energy, setEnergy] = React.useState(existing?.energy || 0);
+  const [sleep, setSleep] = React.useState(existing?.sleep || 0);
+  const [note, setNote] = React.useState(existing?.note || '');
+  const [showNoteField, setShowNoteField] = React.useState(false);
+  const [collapsed, setCollapsed] = React.useState(!!existing);
+
+  // If the user already saved today, we collapse the card to a small chip.
+  if (collapsed) {
+    return (
+      <div style={{ padding: '0 18px 6px' }}>
+        <button onClick={() => setCollapsed(false)} style={{
+          width: '100%', padding: '8px 12px',
+          background: T.bgElev, border: `1px solid ${T.stroke}`, borderRadius: 10,
+          color: T.inkSub, fontSize: 12, fontFamily: T.font, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between',
+          direction: 'rtl',
+        }}>
+          <span>נשמר היום: {MOOD_FACES[(existing?.mood || mood) - 1] || '—'} מצב רוח · {existing?.energy || energy}/5 אנרגיה · {existing?.sleep || sleep}/5 שינה</span>
+          <span style={{ color: T.inkMute, fontSize: 11 }}>ערוך</span>
+        </button>
+      </div>
+    );
+  }
+
+  const valid = mood >= 1 && energy >= 1 && sleep >= 1;
+
+  const save = () => {
+    if (!valid) return;
+    dispatch({ type: 'SET_MOOD', date: today, mood, energy, sleep, note: note.trim() });
+    toast(personaStr(state, 'mood_saved', 'נשמר.'), { type: 'success' });
+    setCollapsed(true);
+  };
+
+  return (
+    <div style={{ padding: '0 18px 8px' }}>
+      <Card padding={14} style={{ background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)` }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 12, textAlign: 'center' }}>
+          {personaStr(state, 'mood_card_title', 'איך אתה היום?')}
+        </div>
+
+        {/* Mood row — 5 faces */}
+        <_MoodRow
+          label="מצב רוח"
+          options={MOOD_FACES}
+          value={mood}
+          onChange={setMood}
+        />
+
+        {/* Energy row — 5 dots fill */}
+        <_LevelRow
+          label="אנרגיה"
+          color={T.amber}
+          value={energy}
+          onChange={setEnergy}
+        />
+
+        {/* Sleep row — 5 dots fill */}
+        <_LevelRow
+          label="שינה"
+          color={T.cyan}
+          value={sleep}
+          onChange={setSleep}
+        />
+
+        {/* Optional note */}
+        {showNoteField ? (
+          <input value={note} onChange={e => setNote(e.target.value)} autoFocus
+            placeholder="הערה (לא חובה)"
+            style={{
+              marginTop: 10, width: '100%', padding: '8px 12px', boxSizing: 'border-box',
+              background: T.bg, border: `1px solid ${T.stroke}`, borderRadius: 8,
+              color: T.ink, fontSize: 12, fontFamily: T.font, outline: 'none',
+              direction: 'rtl', textAlign: 'right',
+            }} />
+        ) : (
+          <button onClick={() => setShowNoteField(true)} style={{
+            marginTop: 8, background: 'transparent', border: 'none', color: T.inkMute,
+            fontSize: 11, cursor: 'pointer', fontFamily: T.font,
+          }}>+ הוסף הערה</button>
+        )}
+
+        <button onClick={save} disabled={!valid} style={{
+          width: '100%', padding: 10, marginTop: 12,
+          background: valid ? T.lime : T.bgElev2,
+          color: valid ? T.bg : T.inkMute,
+          border: 'none', borderRadius: 10,
+          fontSize: 13, fontWeight: 700, fontFamily: T.font,
+          cursor: valid ? 'pointer' : 'not-allowed',
+        }}>
+          {valid ? 'שמור' : 'בחר את שלושת השדות'}
+        </button>
+      </Card>
+    </div>
+  );
+}
+
+function _MoodRow({ label, options, value, onChange }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4 }}>
+        {options.map((o, i) => {
+          const v = i + 1;
+          const on = value === v;
+          return (
+            <button key={v} onClick={() => onChange(v)} aria-label={`${label} ${v}`} style={{
+              padding: '8px 0',
+              background: on ? `${T.lime}22` : T.bg,
+              border: `1.5px solid ${on ? T.lime : T.stroke}`,
+              borderRadius: 8, cursor: 'pointer',
+              fontSize: 22,
+              filter: on ? 'none' : 'grayscale(0.6) opacity(0.6)',
+            }}>{o}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function _LevelRow({ label, color, value, onChange }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4 }}>
+        {[1, 2, 3, 4, 5].map(v => {
+          const filled = v <= value;
+          return (
+            <button key={v} onClick={() => onChange(v)} aria-label={`${label} ${v}`} style={{
+              padding: '10px 0',
+              background: filled ? `${color}33` : T.bg,
+              border: `1.5px solid ${filled ? color : T.stroke}`,
+              borderRadius: 8, cursor: 'pointer',
+              color: filled ? color : T.inkMute,
+              fontSize: 13, fontWeight: 700, fontFamily: T.mono,
+            }}>{v}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MonthlyArchiveDialog({ onClose }) {
   const { state } = useStore();
   const [openYM, setOpenYM] = React.useState(null);
