@@ -42,25 +42,52 @@ function LogScreen({ onClose, onSaved }) {
   const [showNote, setShowNote] = React.useState(!!existing?.note);
   // Confirm-dialog visibility for the overwrite warning
   const [confirmOverwrite, setConfirmOverwrite] = React.useState(false);
+  // Confirm-dialog for unsaved-changes guard on close
+  const [confirmCloseUnsaved, setConfirmCloseUnsaved] = React.useState(false);
+  // QA1: tracks whether the user has actually typed since the screen / date
+  // loaded a placeholder weight. The first keystroke REPLACES the placeholder
+  // (97.0 → 8 should land on "8", not "97.08") — only subsequent keys append.
+  const [hasUserTyped, setHasUserTyped] = React.useState(false);
 
   // When the date changes, reload weight + note from whatever's there
   React.useEffect(() => {
     setWeight(initialWeight);
     setNote(existing?.note || '');
     setShowNote(!!existing?.note);
+    setHasUserTyped(false); // re-arm the placeholder-replace behavior
     // intentionally not depending on initialWeight (derived) — only on date
   }, [targetDate]);
 
   const handleKey = (k) => {
-    if (k === '⌫') return setWeight(w => w.length > 1 ? w.slice(0, -1) : '0');
+    // Backspace always edits in place + counts as "user typed"
+    if (k === '⌫') {
+      setHasUserTyped(true);
+      return setWeight(w => w.length > 1 ? w.slice(0, -1) : '0');
+    }
     if (k === '.' && weight.includes('.')) return;
+
+    // QA1: first keystroke after open/date-change replaces the placeholder.
+    if (!hasUserTyped) {
+      setHasUserTyped(true);
+      if (k === '.') return setWeight('0.');
+      return setWeight(k);
+    }
     if (weight === '0' && k !== '.') return setWeight(k);
     if (weight.replace('.','').length >= 5) return;
     setWeight(w => w + k);
   };
 
   const wNum = parseFloat(weight);
-  const valid = !isNaN(wNum) && wNum > 20 && wNum < 400;
+  // QA1: gate the save button at the kg level (after unit conversion). Below
+  // 30 or above 300 is treated as invalid in the UI itself, not just at save.
+  // The big-number color stays red for invalid input — visual warning preserved.
+  const wKgForCheck = !isNaN(wNum) ? (unit === 'lb' ? wNum / 2.20462 : wNum) : NaN;
+  const valid = !isNaN(wKgForCheck) && wKgForCheck >= 30 && wKgForCheck <= 300;
+
+  // hasUnsavedChanges = the displayed weight no longer equals what's stored
+  // for the target date (or what we'd default to if nothing's stored).
+  // Only true if user typed AND the value differs from the placeholder.
+  const hasUnsavedChanges = hasUserTyped && weight !== initialWeight;
 
   // Delta vs previous reference — only meaningful when saving today
   const deltaFromPrev = !isToday ? null : (
@@ -199,10 +226,19 @@ function LogScreen({ onClose, onSaved }) {
     return `הזנת משקל · ${fmt.day(targetDate)}`;
   })();
 
+  // QA5: intercept close; if there are unsaved edits, warn first.
+  const guardedClose = () => {
+    if (hasUnsavedChanges) {
+      setConfirmCloseUnsaved(true);
+    } else {
+      onClose?.();
+    }
+  };
+
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '12px 18px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={onClose} style={{
+        <button onClick={guardedClose} style={{
           width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
           border: 'none', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
@@ -353,6 +389,22 @@ function LogScreen({ onClose, onSaved }) {
           performSave();
         }}
         onCancel={() => setConfirmOverwrite(false)}
+      />
+
+      {/* QA5: unsaved-changes guard on close */}
+      <ConfirmDialog
+        open={confirmCloseUnsaved}
+        title="לסגור בלי לשמור?"
+        message={personaStr(state, 'unsaved_changes_warning',
+          'יש שינויים שלא נשמרו. לסגור בכל זאת?')}
+        confirmLabel="סגור בלי לשמור"
+        cancelLabel="חזור"
+        danger
+        onConfirm={() => {
+          setConfirmCloseUnsaved(false);
+          onClose?.();
+        }}
+        onCancel={() => setConfirmCloseUnsaved(false)}
       />
     </div>
   );

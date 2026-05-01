@@ -492,6 +492,124 @@ const STRINGS = {
     },
   },
 
+  // ─── QA2 — meal description required (ManualFlow inline error) ────
+  meal_desc_required: {
+    polish_mom: {
+      male: 'אלון, איך נדע מה אכלת בלי שתכתוב? תאר לי במשפט קצר.',
+      female: 'מותק, איך נדע מה אכלת בלי שתכתבי? תארי לי במשפט קצר.',
+    },
+    salesman: {
+      male: 'נא לתאר. בלי תיאור — אין דאטה לעקוב אחריו.',
+      female: 'נא לתאר. בלי תיאור — אין דאטה לעקוב אחריו.',
+    },
+    cynic_coach: {
+      male: 'תיאור חסר. תכתוב משהו.',
+      female: 'תיאור חסר. תכתבי משהו.',
+    },
+    jealous_friend: {
+      male: 'אז מה אכלת? תספר. אני סקרן.',
+      female: 'אז מה אכלת? תספרי. אני סקרן.',
+    },
+    neutral: {
+      male: 'נא להזין תיאור לארוחה.',
+      female: 'נא להזין תיאור לארוחה.',
+    },
+  },
+
+  // ─── QA4 — confirm delete (3 keys, persona-aware) ─────────────────
+  confirm_delete_meal: {
+    polish_mom: {
+      male: 'אלון, אתה בטוח? אחרי שמוחקים, אין חזרה. אני שואלת רק.',
+      female: 'מותק, את בטוחה? אחרי שמוחקים, אין חזרה. אני שואלת רק.',
+    },
+    salesman: {
+      male: 'מחיקה = data loss permanent. ממשיך?',
+      female: 'מחיקה = data loss permanent. ממשיכה?',
+    },
+    cynic_coach: {
+      male: 'מחיקה. אין undo. החלטה שלך.',
+      female: 'מחיקה. אין undo. החלטה שלך.',
+    },
+    jealous_friend: {
+      male: 'מוחק את זה? איזה כיף, פחות ראיות עליך.',
+      female: 'מוחקת את זה? איזה כיף, פחות ראיות עליך.',
+    },
+    neutral: {
+      male: 'הארוחה תימחק לצמיתות. להמשיך?',
+      female: 'הארוחה תימחק לצמיתות. להמשיך?',
+    },
+  },
+
+  confirm_delete_workout: {
+    polish_mom: {
+      male: 'אלון, האימון הזה יימחק. אתה בטוח?',
+      female: 'מותק, האימון הזה יימחק. את בטוחה?',
+    },
+    salesman: {
+      male: 'מחיקת אימון = הצלחה שנשכחת. ממשיך?',
+      female: 'מחיקת אימון = הצלחה שנשכחת. ממשיכה?',
+    },
+    cynic_coach: {
+      male: 'מחיקת אימון. אין השוואה אם תרצה. בכל זאת?',
+      female: 'מחיקת אימון. אין השוואה אם תרצי. בכל זאת?',
+    },
+    jealous_friend: {
+      male: 'מוחק את האימון? אצלי לא היה אימון בכלל. שווים עכשיו.',
+      female: 'מוחקת את האימון? אצלי לא היה אימון בכלל. שוות עכשיו.',
+    },
+    neutral: {
+      male: 'האימון יימחק לצמיתות. להמשיך?',
+      female: 'האימון יימחק לצמיתות. להמשיך?',
+    },
+  },
+
+  confirm_delete_weight: {
+    polish_mom: {
+      male: 'אלון, אתה בטוח? כל מספר חשוב לתמונה הגדולה.',
+      female: 'מותק, את בטוחה? כל מספר חשוב לתמונה הגדולה.',
+    },
+    salesman: {
+      male: 'מחיקת data point = פער בגרף. ממשיך?',
+      female: 'מחיקת data point = פער בגרף. ממשיכה?',
+    },
+    cynic_coach: {
+      male: 'מחיקת שקילה. נקודה אחת מהגרף. ממשיך?',
+      female: 'מחיקת שקילה. נקודה אחת מהגרף. ממשיכה?',
+    },
+    jealous_friend: {
+      male: 'מוחק את השקילה? נסיון להעלים ראיות שוב, אה?',
+      female: 'מוחקת את השקילה? נסיון להעלים ראיות שוב, אה?',
+    },
+    neutral: {
+      male: 'השקילה תימחק לצמיתות. להמשיך?',
+      female: 'השקילה תימחק לצמיתות. להמשיך?',
+    },
+  },
+
+  // ─── QA5 — unsaved changes warning (used by AddMeal/NewWorkout/Log) ─
+  unsaved_changes_warning: {
+    polish_mom: {
+      male: 'אלון, יש שינויים שלא שמרת. אתה בטוח שאתה רוצה לסגור?',
+      female: 'מותק, יש שינויים שלא שמרת. את בטוחה שאת רוצה לסגור?',
+    },
+    salesman: {
+      male: 'יש לך work in progress. סגירה = lost data. ממשיך?',
+      female: 'יש לך work in progress. סגירה = lost data. ממשיכה?',
+    },
+    cynic_coach: {
+      male: 'שינויים לא שמורים. סגור = איבוד. בכוונה?',
+      female: 'שינויים לא שמורים. סגור = איבוד. בכוונה?',
+    },
+    jealous_friend: {
+      male: 'גם אני לא שומר תמיד. אבל לסגור עכשיו? בטוח?',
+      female: 'גם אני לא שומרת תמיד. אבל לסגור עכשיו? בטוחה?',
+    },
+    neutral: {
+      male: 'יש שינויים שלא נשמרו. לסגור בכל זאת?',
+      female: 'יש שינויים שלא נשמרו. לסגור בכל זאת?',
+    },
+  },
+
   // ─── Day banner: holiday (used by HomeScreen) ─────────────────────
   // Vars: {NAME} = holiday name (Hebrew), {EMOJI} = holiday emoji
   banner_holiday: {

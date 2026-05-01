@@ -61,9 +61,11 @@ function WorkoutScreen() {
 
       {/* Day navigator */}
       <div style={{ padding: '4px 18px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button onClick={() => setDateViewing(d => addDaysISO(d, -1))} style={navBtn}>‹</button>
+        <button onClick={() => setDateViewing(d => addDaysISO(d, -1))} style={navBtn}>‹ אתמול</button>
         <div style={{ flex: 1, textAlign: 'center', fontSize: 13, fontFamily: T.mono, color: T.inkSub }}>{fmt.day(dateViewing)}</div>
-        <button onClick={() => setDateViewing(d => addDaysISO(d, 1))} disabled={dateViewing >= todayISO()} style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>›</button>
+        <button onClick={() => setDateViewing(d => addDaysISO(d, 1))}
+          disabled={dateViewing >= todayISO()}
+          style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>מחר ›</button>
       </div>
 
       <PullToRefresh
@@ -239,6 +241,23 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
   const [notes, setNotes] = React.useState('');
   const [exercises, setExercises] = React.useState(prefill?.exercises || []); // [{ exerciseId, name, sets, notes }]
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  // QA5: confirm close if user has typed something or added exercises
+  const [confirmCloseUnsaved, setConfirmCloseUnsaved] = React.useState(false);
+
+  // "Has unsaved progress" — covers all three steps. Prefill from a routine
+  // counts as having progress (user came here intentionally to save).
+  const hasUnsavedProgress = !!(
+    prefill ||
+    name.trim() ||
+    notes.trim() ||
+    (exercises && exercises.length > 0) ||
+    step > 0
+  );
+
+  const guardedClose = () => {
+    if (hasUnsavedProgress) setConfirmCloseUnsaved(true);
+    else onClose();
+  };
 
   const handleAddExercise = (catalogEx) => {
     setExercises(arr => [...arr, {
@@ -312,7 +331,7 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
     }}>
       {/* Header */}
       <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
-        <button onClick={onClose} style={{
+        <button onClick={guardedClose} style={{
           width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
@@ -471,6 +490,19 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
       </div>
 
       {pickerOpen && <ExercisePicker onPick={handleAddExercise} onAddCustom={handleAddCustomExercise} onClose={() => setPickerOpen(false)} />}
+
+      {/* QA5: unsaved-changes guard for NewWorkoutDialog */}
+      <ConfirmDialog
+        open={confirmCloseUnsaved}
+        title="לסגור בלי לשמור?"
+        message={personaStr(state, 'unsaved_changes_warning',
+          'יש שינויים שלא נשמרו. לסגור בכל זאת?')}
+        confirmLabel="סגור בלי לשמור"
+        cancelLabel="חזור"
+        danger
+        onConfirm={() => { setConfirmCloseUnsaved(false); onClose(); }}
+        onCancel={() => setConfirmCloseUnsaved(false)}
+      />
     </div>
   );
 }
@@ -932,8 +964,10 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
       <ConfirmDialog
         open={confirmDelete}
         title="למחוק את האימון?"
-        message="פעולה זו תסיר את האימון לצמיתות."
+        message={personaStr(state, 'confirm_delete_workout',
+          'פעולה זו תסיר את האימון לצמיתות.')}
         confirmLabel="מחק"
+        cancelLabel="ביטול"
         danger={true}
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(false)}

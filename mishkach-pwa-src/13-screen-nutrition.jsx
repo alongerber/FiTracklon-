@@ -10,6 +10,8 @@ function NutritionScreen({ onNavigate }) {
   const [goalsOpen, setGoalsOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [editingMeal, setEditingMeal] = React.useState(null); // {meal, date}
+  // QA4: confirm before deleting a meal (was instant + undo toast — too easy to misclick)
+  const [confirmDeleteMeal, setConfirmDeleteMeal] = React.useState(null); // { meal, date } or null
 
   const goals = state.nutrition.goals;
   const mealsForDay = state.nutrition.meals[dateViewing] || [];
@@ -72,11 +74,13 @@ function NutritionScreen({ onNavigate }) {
         </button>
       </div>
 
-      {/* Day navigator */}
+      {/* Day navigator (QA3 — explicit text, no ambiguous arrows) */}
       <div style={{ padding: '4px 18px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button onClick={() => setDateViewing(d => addDaysISO(d, -1))} style={navBtn}>‹</button>
+        <button onClick={() => setDateViewing(d => addDaysISO(d, -1))} style={navBtn}>‹ אתמול</button>
         <div style={{ flex: 1, textAlign: 'center', fontSize: 13, fontFamily: T.mono, color: T.inkSub }}>{fmt.day(dateViewing)}</div>
-        <button onClick={() => setDateViewing(d => addDaysISO(d, 1))} disabled={dateViewing >= todayISO()} style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>›</button>
+        <button onClick={() => setDateViewing(d => addDaysISO(d, 1))}
+          disabled={dateViewing >= todayISO()}
+          style={{ ...dayNavBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>מחר ›</button>
       </div>
 
       <PullToRefresh
@@ -118,19 +122,7 @@ function NutritionScreen({ onNavigate }) {
               <MealRow key={m.id} meal={m} dateViewing={dateViewing}
                 isLast={i === mealsForDay.length - 1}
                 onClick={() => setEditingMeal({ meal: m, date: dateViewing })}
-                onDelete={() => {
-                  const dateOfMeal = dateViewing;
-                  const mealCopy = { ...m };
-                  dispatch({ type: 'DELETE_MEAL', date: dateOfMeal, mealId: m.id });
-                  toast(personaStr(state, 'meal_deleted', 'ארוחה נמחקה'), {
-                    type: 'info',
-                    duration: 5000,
-                    actionLabel: 'בטל',
-                    onAction: () => {
-                      dispatch({ type: 'ADD_MEAL', date: dateOfMeal, meal: mealCopy });
-                    },
-                  });
-                }}
+                onDelete={() => setConfirmDeleteMeal({ meal: m, date: dateViewing })}
               />
             ))}
           </Card>
@@ -148,13 +140,45 @@ function NutritionScreen({ onNavigate }) {
       {goalsOpen && <NutritionGoalsDialog onClose={() => setGoalsOpen(false)} />}
       {editingMeal && <EditMealDialog date={editingMeal.date} meal={editingMeal.meal} onClose={() => setEditingMeal(null)} />}
       {searchOpen && <MealSearchDialog onClose={() => setSearchOpen(false)} onJumpToDate={(d) => { setDateViewing(d); setSearchOpen(false); }} />}
+
+      {/* QA4: meal delete confirmation, persona-aware */}
+      <ConfirmDialog
+        open={!!confirmDeleteMeal}
+        title="למחוק את הארוחה?"
+        message={confirmDeleteMeal
+          ? personaStr(state, 'confirm_delete_meal', 'הארוחה תימחק לצמיתות. להמשיך?')
+          : ''}
+        confirmLabel="מחק"
+        cancelLabel="ביטול"
+        danger
+        onConfirm={() => {
+          const { meal, date } = confirmDeleteMeal;
+          const mealCopy = { ...meal };
+          dispatch({ type: 'DELETE_MEAL', date, mealId: meal.id });
+          toast(personaStr(state, 'meal_deleted', 'ארוחה נמחקה'), {
+            type: 'info',
+            duration: 5000,
+            actionLabel: 'בטל',
+            onAction: () => {
+              dispatch({ type: 'ADD_MEAL', date, meal: mealCopy });
+            },
+          });
+          setConfirmDeleteMeal(null);
+        }}
+        onCancel={() => setConfirmDeleteMeal(null)}
+      />
     </div>
   );
 }
 
+// QA3: bumped width=auto + padding so explicit "‹ אתמול" / "מחר ›" labels fit.
+// The arrows are intentional decorations pointing INWARD toward the date —
+// readers parse the Hebrew word, not the arrow direction.
 const navBtn = {
-  width: 32, height: 32, borderRadius: 16, background: T.bgElev, color: T.ink,
-  border: 'none', cursor: 'pointer', fontSize: 18, fontFamily: T.mono,
+  height: 32, padding: '0 12px', borderRadius: 16,
+  background: T.bgElev, color: T.ink,
+  border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: T.font,
+  whiteSpace: 'nowrap', flexShrink: 0,
 };
 
 // ─── Rings ──────────────────────────────────────────────────────────
@@ -286,8 +310,22 @@ function AddMealDialog({ date, onClose }) {
   const [mode, setMode] = React.useState(hasFavorites ? 'favorites' : null);
   const [parsedResult, setParsedResult] = React.useState(null);
   const [photoThumb, setPhotoThumb] = React.useState(null);
+  // QA5: guard close when the user is in the middle of something
+  const [confirmCloseUnsaved, setConfirmCloseUnsaved] = React.useState(false);
 
   const reset = () => { setMode(hasFavorites ? 'favorites' : null); setParsedResult(null); setPhotoThumb(null); };
+
+  // "Has unsaved progress" = user has either parsed something (and is on
+  // review screen) or has switched to a non-default mode beyond the initial
+  // pick. Favorites mode is a no-op browse, so it doesn't count.
+  const hasUnsavedProgress =
+    !!parsedResult ||
+    (mode && mode !== 'favorites' && mode !== null);
+
+  const guardedClose = () => {
+    if (hasUnsavedProgress) setConfirmCloseUnsaved(true);
+    else onClose();
+  };
 
   return (
     <div style={{
@@ -303,7 +341,7 @@ function AddMealDialog({ date, onClose }) {
         <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>
           {parsedResult ? 'אשר את הערכים' : 'הוספת ארוחה'}
         </div>
-        <button onClick={onClose} style={iconBtn}>×</button>
+        <button onClick={guardedClose} style={iconBtn}>×</button>
       </div>
 
       {/* Mode tabs when not in review */}
@@ -330,6 +368,19 @@ function AddMealDialog({ date, onClose }) {
           onDone={onClose}
         />}
       </div>
+
+      {/* QA5: unsaved-changes guard */}
+      <ConfirmDialog
+        open={confirmCloseUnsaved}
+        title="לסגור בלי לשמור?"
+        message={personaStr(state, 'unsaved_changes_warning',
+          'יש שינויים שלא נשמרו. לסגור בכל זאת?')}
+        confirmLabel="סגור בלי לשמור"
+        cancelLabel="חזור"
+        danger
+        onConfirm={() => { setConfirmCloseUnsaved(false); onClose(); }}
+        onCancel={() => setConfirmCloseUnsaved(false)}
+      />
     </div>
   );
 }
@@ -718,23 +769,58 @@ function PhotoParseFlow({ onParsed }) {
 
 // ─── Manual entry flow ──────────────────────────────────────────────
 function ManualFlow({ onSubmit }) {
+  const { state } = useStore();
   const [desc, setDesc] = React.useState('');
   const [cal, setCal] = React.useState(0);
   const [p, setP] = React.useState(0);
   const [c, setC] = React.useState(0);
   const [f, setF] = React.useState(0);
+  // QA2: track whether the user pressed continue with invalid fields
+  // so we can show inline errors AFTER the first attempt (not before).
+  const [attempted, setAttempted] = React.useState(false);
 
-  const valid = desc.trim().length > 0 && cal > 0;
+  const descMissing = desc.trim().length === 0;
+  const calMissing = !(cal > 0);
+  const valid = !descMissing && !calMissing;
+
+  const handleContinue = () => {
+    setAttempted(true);
+    if (!valid) {
+      // Tactile feedback on mobile if available — not all browsers support it
+      try { if (navigator.vibrate) navigator.vibrate(80); } catch (_) {}
+      return;
+    }
+    onSubmit({
+      description: desc.trim(), calories: cal, protein: p, carbs: c, fat: f,
+      items: [], confidence: 'high', notes: '',
+    });
+  };
+
+  // Inline error border helper
+  const errBorder = (cond) => cond ? `1.5px solid ${T.rose}` : `1px solid ${T.stroke}`;
 
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>תיאור</div>
-      <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="למשל: ארוחת צהריים"
-        style={inputStyle} />
+      <input value={desc}
+        onChange={e => setDesc(e.target.value)}
+        placeholder="למשל: ארוחת צהריים"
+        style={{ ...inputStyle, border: errBorder(attempted && descMissing) }}
+      />
+      {attempted && descMissing && (
+        <div style={{ marginTop: 6, fontSize: 12, color: T.rose, lineHeight: 1.5 }}>
+          {personaStr(state, 'meal_desc_required', 'נא להזין תיאור לארוחה.')}
+        </div>
+      )}
 
       <div style={{ marginTop: 16 }}>
         <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
         <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="kcal" />
+        {attempted && calMissing && (
+          <div style={{ marginTop: 6, fontSize: 12, color: T.rose, lineHeight: 1.5 }}>
+            נא להזין מספר קלוריות (לפחות 1).
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -753,10 +839,9 @@ function ManualFlow({ onSubmit }) {
       </div>
 
       <div style={{ marginTop: 24 }}>
-        <Button onClick={() => onSubmit({
-          description: desc.trim(), calories: cal, protein: p, carbs: c, fat: f,
-          items: [], confidence: 'high', notes: '',
-        })} disabled={!valid}>המשך לאישור</Button>
+        {/* QA2: button stays clickable; failure now produces inline errors + vibrate
+            instead of silent disabled state. */}
+        <Button onClick={handleContinue}>המשך לאישור</Button>
       </div>
     </div>
   );
@@ -961,6 +1046,24 @@ function EditMealDialog({ date, meal, onClose }) {
   const [c, setC] = React.useState(meal.carbs || 0);
   const [f, setF] = React.useState(meal.fat || 0);
   const [time, setTime] = React.useState(meal.time || nowHHMM());
+  // QA4: confirm before deleting from edit dialog
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+  // QA5: track edits to warn on close
+  const [confirmCloseUnsaved, setConfirmCloseUnsaved] = React.useState(false);
+
+  // True if the user has touched any field beyond what was loaded
+  const hasUnsavedChanges =
+    desc !== (meal.description || '') ||
+    cal !== (meal.calories || 0) ||
+    p !== (meal.protein || 0) ||
+    c !== (meal.carbs || 0) ||
+    f !== (meal.fat || 0) ||
+    time !== (meal.time || nowHHMM());
+
+  const guardedClose = () => {
+    if (hasUnsavedChanges) setConfirmCloseUnsaved(true);
+    else onClose();
+  };
 
   const save = () => {
     dispatch({
@@ -971,7 +1074,7 @@ function EditMealDialog({ date, meal, onClose }) {
     onClose();
   };
 
-  const remove = () => {
+  const performRemove = () => {
     const mealCopy = { ...meal };
     dispatch({ type: 'DELETE_MEAL', date, mealId: meal.id });
     toast(personaStr(state, 'meal_deleted', 'ארוחה נמחקה'), {
@@ -991,7 +1094,7 @@ function EditMealDialog({ date, meal, onClose }) {
       display: 'flex', flexDirection: 'column', direction: 'rtl',
     }}>
       <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
-        <button onClick={onClose} style={iconBtn}>×</button>
+        <button onClick={guardedClose} style={iconBtn}>×</button>
         <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>עריכת ארוחה</div>
         <div style={{ width: 36 }} />
       </div>
@@ -1039,12 +1142,37 @@ function EditMealDialog({ date, meal, onClose }) {
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <button onClick={remove} style={{
+          <button onClick={() => setConfirmDelete(true)} style={{
             width: '100%', padding: 14, background: 'transparent', border: `1px solid ${T.rose}55`,
             borderRadius: T.radius, color: T.rose, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
           }}>מחק ארוחה זו</button>
         </div>
       </div>
+
+      {/* QA4: confirm before destructive delete */}
+      <ConfirmDialog
+        open={confirmDelete}
+        title="למחוק את הארוחה?"
+        message={personaStr(state, 'confirm_delete_meal', 'הארוחה תימחק לצמיתות. להמשיך?')}
+        confirmLabel="מחק"
+        cancelLabel="ביטול"
+        danger
+        onConfirm={() => { setConfirmDelete(false); performRemove(); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+
+      {/* QA5: unsaved-changes guard */}
+      <ConfirmDialog
+        open={confirmCloseUnsaved}
+        title="לסגור בלי לשמור?"
+        message={personaStr(state, 'unsaved_changes_warning',
+          'יש שינויים שלא נשמרו. לסגור בכל זאת?')}
+        confirmLabel="סגור בלי לשמור"
+        cancelLabel="חזור"
+        danger
+        onConfirm={() => { setConfirmCloseUnsaved(false); onClose(); }}
+        onCancel={() => setConfirmCloseUnsaved(false)}
+      />
     </div>
   );
 }

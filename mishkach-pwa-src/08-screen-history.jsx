@@ -163,8 +163,11 @@ function HistoryScreen({ onNavigate }) {
       <ConfirmDialog
         open={!!confirmDelete}
         title="למחוק שקילה?"
-        message={confirmDelete ? `${fmt.day(confirmDelete.date)} · ${fmt.kg(confirmDelete.weight, unit)} ${fmt.unitLabel(unit)}` : ''}
+        message={confirmDelete
+          ? `${fmt.day(confirmDelete.date)} · ${fmt.kg(confirmDelete.weight, unit)} ${fmt.unitLabel(unit)}\n\n${personaStr(state, 'confirm_delete_weight', 'השקילה תימחק לצמיתות. להמשיך?')}`
+          : ''}
         confirmLabel="מחק"
+        cancelLabel="ביטול"
         danger
         onConfirm={() => handleDelete(confirmDelete.date)}
         onCancel={() => setConfirmDelete(null)}
