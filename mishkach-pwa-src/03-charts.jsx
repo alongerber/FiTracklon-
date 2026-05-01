@@ -186,6 +186,124 @@ function RingGauge({ pct = 50, size = 120, stroke = 10, color = T.lime, track = 
   );
 }
 
+// ─── Workout volume bar chart (4-week buckets) ──────────────────────
+// Expects buckets = [{ label, volume }, ...] oldest→newest.
+// Highlights the LAST bucket (current week) with T.ink, like BarHistogram.
+function WorkoutVolumeChart({ buckets, width = 340, height = 110, color = T.lime }) {
+  const w = width, h = height;
+  if (!buckets || buckets.length === 0) return null;
+
+  const padT = 14, padB = 22; // padB leaves room for x-axis labels
+  const chartH = h - padT - padB;
+  const vols = buckets.map(b => b.volume);
+  const hi = Math.max(...vols, 1);
+
+  const slot = w / buckets.length;
+  const barW = Math.max(8, slot * 0.55);
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} style={{ display: 'block' }}>
+      {/* Subtle baseline */}
+      <line x1="0" x2={w} y1={h - padB + 1} y2={h - padB + 1} stroke={T.stroke} />
+
+      {buckets.map((b, i) => {
+        const isLast = i === buckets.length - 1;
+        const x = i * slot + (slot - barW) / 2;
+        const ratio = b.volume / hi;
+        const barH = Math.max(2, ratio * chartH);
+        const y = h - padB - barH;
+
+        return (
+          <g key={i}>
+            <rect
+              x={x} y={y} width={barW} height={barH}
+              rx={Math.min(3, barW / 2)}
+              fill={isLast ? T.ink : color}
+              opacity={isLast ? 1 : 0.7}
+            />
+            {b.volume > 0 && (
+              <text
+                x={x + barW / 2} y={y - 4} textAnchor="middle"
+                fill={isLast ? T.ink : T.inkSub}
+                style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600 }}
+              >
+                {b.volume >= 1000 ? `${(b.volume / 1000).toFixed(1)}k` : b.volume}
+              </text>
+            )}
+            <text
+              x={x + barW / 2} y={h - 6} textAnchor="middle"
+              fill={isLast ? T.ink : T.inkMute}
+              style={{ fontFamily: T.font, fontSize: 10, fontWeight: isLast ? 700 : 500 }}
+            >
+              {b.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Workout frequency stacked horizontal bar (by category) ─────────
+// Expects items = [{ id, label, color, count }] only with count > 0.
+function WorkoutFrequencyChart({ items, width = 340, barHeight = 18 }) {
+  if (!items || items.length === 0) return null;
+  const total = items.reduce((s, x) => s + x.count, 0);
+  if (total === 0) return null;
+
+  // Build segments with explicit x offsets in % so stroke between segments is clean
+  let acc = 0;
+  const segs = items.map(it => {
+    const pct = (it.count / total) * 100;
+    const seg = { ...it, x: acc, w: pct };
+    acc += pct;
+    return seg;
+  });
+
+  const w = width;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Stacked bar */}
+      <svg viewBox={`0 0 ${w} ${barHeight}`} width="100%" height={barHeight} style={{ display: 'block' }}>
+        <rect x="0" y="0" width={w} height={barHeight} rx={barHeight / 2} fill={T.bgElev2} />
+        <clipPath id={`mk-freq-clip-${React.useId().replace(/:/g, '')}`}>
+          <rect x="0" y="0" width={w} height={barHeight} rx={barHeight / 2} />
+        </clipPath>
+        {segs.map((s, i) => (
+          <rect
+            key={s.id}
+            x={(s.x / 100) * w}
+            y="0"
+            width={Math.max(2, (s.w / 100) * w)}
+            height={barHeight}
+            fill={s.color}
+            opacity="0.9"
+          />
+        ))}
+      </svg>
+
+      {/* Legend */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 14px',
+      }}>
+        {items.map(it => (
+          <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              width: 10, height: 10, borderRadius: 5, background: it.color, flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 12, color: T.inkSub, flex: 1, minWidth: 0,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{it.label}</span>
+            <span style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono }}>
+              {it.count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ArcGauge({ value = 0.5, min = -1, max = 1, size = 220, color = T.lime }) {
   const t = (value - min) / (max - min);
   const tc = Math.max(0, Math.min(1, t));

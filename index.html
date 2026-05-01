@@ -1228,6 +1228,124 @@ function RingGauge({ pct = 50, size = 120, stroke = 10, color = T.lime, track = 
   );
 }
 
+// ─── Workout volume bar chart (4-week buckets) ──────────────────────
+// Expects buckets = [{ label, volume }, ...] oldest→newest.
+// Highlights the LAST bucket (current week) with T.ink, like BarHistogram.
+function WorkoutVolumeChart({ buckets, width = 340, height = 110, color = T.lime }) {
+  const w = width, h = height;
+  if (!buckets || buckets.length === 0) return null;
+
+  const padT = 14, padB = 22; // padB leaves room for x-axis labels
+  const chartH = h - padT - padB;
+  const vols = buckets.map(b => b.volume);
+  const hi = Math.max(...vols, 1);
+
+  const slot = w / buckets.length;
+  const barW = Math.max(8, slot * 0.55);
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} style={{ display: 'block' }}>
+      {/* Subtle baseline */}
+      <line x1="0" x2={w} y1={h - padB + 1} y2={h - padB + 1} stroke={T.stroke} />
+
+      {buckets.map((b, i) => {
+        const isLast = i === buckets.length - 1;
+        const x = i * slot + (slot - barW) / 2;
+        const ratio = b.volume / hi;
+        const barH = Math.max(2, ratio * chartH);
+        const y = h - padB - barH;
+
+        return (
+          <g key={i}>
+            <rect
+              x={x} y={y} width={barW} height={barH}
+              rx={Math.min(3, barW / 2)}
+              fill={isLast ? T.ink : color}
+              opacity={isLast ? 1 : 0.7}
+            />
+            {b.volume > 0 && (
+              <text
+                x={x + barW / 2} y={y - 4} textAnchor="middle"
+                fill={isLast ? T.ink : T.inkSub}
+                style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600 }}
+              >
+                {b.volume >= 1000 ? `${(b.volume / 1000).toFixed(1)}k` : b.volume}
+              </text>
+            )}
+            <text
+              x={x + barW / 2} y={h - 6} textAnchor="middle"
+              fill={isLast ? T.ink : T.inkMute}
+              style={{ fontFamily: T.font, fontSize: 10, fontWeight: isLast ? 700 : 500 }}
+            >
+              {b.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Workout frequency stacked horizontal bar (by category) ─────────
+// Expects items = [{ id, label, color, count }] only with count > 0.
+function WorkoutFrequencyChart({ items, width = 340, barHeight = 18 }) {
+  if (!items || items.length === 0) return null;
+  const total = items.reduce((s, x) => s + x.count, 0);
+  if (total === 0) return null;
+
+  // Build segments with explicit x offsets in % so stroke between segments is clean
+  let acc = 0;
+  const segs = items.map(it => {
+    const pct = (it.count / total) * 100;
+    const seg = { ...it, x: acc, w: pct };
+    acc += pct;
+    return seg;
+  });
+
+  const w = width;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Stacked bar */}
+      <svg viewBox={`0 0 ${w} ${barHeight}`} width="100%" height={barHeight} style={{ display: 'block' }}>
+        <rect x="0" y="0" width={w} height={barHeight} rx={barHeight / 2} fill={T.bgElev2} />
+        <clipPath id={`mk-freq-clip-${React.useId().replace(/:/g, '')}`}>
+          <rect x="0" y="0" width={w} height={barHeight} rx={barHeight / 2} />
+        </clipPath>
+        {segs.map((s, i) => (
+          <rect
+            key={s.id}
+            x={(s.x / 100) * w}
+            y="0"
+            width={Math.max(2, (s.w / 100) * w)}
+            height={barHeight}
+            fill={s.color}
+            opacity="0.9"
+          />
+        ))}
+      </svg>
+
+      {/* Legend */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 14px',
+      }}>
+        {items.map(it => (
+          <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              width: 10, height: 10, borderRadius: 5, background: it.color, flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 12, color: T.inkSub, flex: 1, minWidth: 0,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{it.label}</span>
+            <span style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono }}>
+              {it.count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ArcGauge({ value = 0.5, min = -1, max = 1, size = 220, color = T.lime }) {
   const t = (value - min) / (max - min);
   const tc = Math.max(0, Math.min(1, t));
@@ -5446,7 +5564,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v2.5
+          מִשְׁקַלּוּת · v2.6
         </div>
       </div>
 
@@ -12552,6 +12670,179 @@ function fmtMinutes(min) {
   return m === 0 ? `${h}ש׳` : `${h}ש׳ ${m}ד׳`;
 }
 
+// ─── Weekly volume buckets (last `weeks` weeks ending today) ────────
+// Returns [{ weekIdx, label, volume }] oldest→newest, length === weeks.
+function weeklyVolumeBuckets(sessions, weeks = 4) {
+  const today = todayISO();
+  const buckets = [];
+  for (let w = weeks - 1; w >= 0; w--) {
+    const end = addDaysISO(today, -7 * w);
+    const start = addDaysISO(end, -6);
+    let vol = 0;
+    Object.keys(sessions).forEach(date => {
+      if (date < start || date > end) return;
+      (sessions[date] || []).forEach(workout => {
+        vol += workoutVolume(workout);
+      });
+    });
+    const label = w === 0 ? 'השבוע' : w === 1 ? 'שעבר' : `לפני ${w} שב׳`;
+    buckets.push({ weekIdx: w, label, volume: vol, start, end });
+  }
+  return buckets;
+}
+
+// ─── Frequency by workout type (last `days` days) ───────────────────
+// Returns [{ id, label, color, count }] sorted by count desc, only types with count > 0.
+function workoutFrequencyByType(sessions, days = 30) {
+  const cutoff = addDaysISO(todayISO(), -(days - 1));
+  const today = todayISO();
+  const counts = {};
+  Object.keys(sessions).forEach(date => {
+    if (date < cutoff || date > today) return;
+    (sessions[date] || []).forEach(w => {
+      const id = w.type || 'other';
+      counts[id] = (counts[id] || 0) + 1;
+    });
+  });
+  return WORKOUT_TYPES
+    .map(t => ({ id: t.id, label: t.label, color: t.color, count: counts[t.id] || 0 }))
+    .filter(x => x.count > 0)
+    .sort((a, b) => b.count - a.count);
+}
+
+// ─── Personal Records ───────────────────────────────────────────────
+// Walk every workout, group sets by exerciseId (or normalized name for
+// custom exercises), and compute per-exercise records:
+//   - maxWeight: heaviest single set { weight, reps, date }
+//   - maxReps:   most reps in a single set { reps, weight, date }
+//   - maxVolume: max sum(weight*reps) for that exercise within ONE workout { volume, date }
+// Only exercises with >= MIN_OCCURRENCES distinct workout sessions get a PR
+// (avoids "first time = PR" noise).
+const PR_MIN_OCCURRENCES = 3;
+
+function _exerciseKey(ex) {
+  // Catalog exercises share id; custom exercises share normalized name
+  return ex.exerciseId || `custom::${(ex.name || '').trim().toLowerCase()}`;
+}
+
+// Build PR map from sessions, optionally excluding workouts on a given date+id
+// (so we can ask "what would the PRs be WITHOUT this workout").
+function computePRsByExercise(sessions, exclude = null) {
+  // Per-exercise aggregation
+  const byEx = {}; // key -> { name, isDuration, hasWeight, occurrences:Set<date>, sets:[{weight,reps,date,volume}] }
+
+  Object.entries(sessions).forEach(([date, dayList]) => {
+    (dayList || []).forEach(workout => {
+      if (exclude && exclude.date === date && exclude.workoutId === workout.id) return;
+      (workout.exercises || []).forEach(ex => {
+        if (ex.isDuration) return; // PRs don't apply to time-based exercises
+        const key = _exerciseKey(ex);
+        if (!byEx[key]) {
+          byEx[key] = {
+            key,
+            name: ex.name,
+            hasWeight: ex.hasWeight !== false,
+            occurrences: new Set(),
+            sets: [],
+            sessionVolumes: [], // {volume, date}
+          };
+        }
+        byEx[key].occurrences.add(`${date}::${workout.id}`);
+        let sessionVol = 0;
+        (ex.sets || []).forEach(s => {
+          const reps = s.reps || 0;
+          const weight = s.weight || 0;
+          if (reps === 0) return;
+          byEx[key].sets.push({ weight, reps, date, volume: weight * reps });
+          sessionVol += weight * reps;
+        });
+        if (sessionVol > 0) byEx[key].sessionVolumes.push({ volume: sessionVol, date });
+      });
+    });
+  });
+
+  // Reduce to records — only for exercises with enough occurrences
+  const prs = {};
+  Object.values(byEx).forEach(agg => {
+    if (agg.occurrences.size < PR_MIN_OCCURRENCES) return;
+    if (agg.sets.length === 0) return;
+
+    let maxW = null, maxR = null, maxV = null;
+    agg.sets.forEach(s => {
+      if (agg.hasWeight && (maxW === null || s.weight > maxW.weight)) {
+        maxW = { weight: s.weight, reps: s.reps, date: s.date };
+      }
+      if (maxR === null || s.reps > maxR.reps) {
+        maxR = { reps: s.reps, weight: s.weight, date: s.date };
+      }
+    });
+    agg.sessionVolumes.forEach(v => {
+      if (maxV === null || v.volume > maxV.volume) {
+        maxV = { volume: Math.round(v.volume), date: v.date };
+      }
+    });
+
+    prs[agg.key] = {
+      key: agg.key,
+      name: agg.name,
+      hasWeight: agg.hasWeight,
+      occurrences: agg.occurrences.size,
+      maxWeight: maxW,
+      maxReps: maxR,
+      maxVolume: (maxV && maxV.volume > 0) ? maxV : null,
+    };
+  });
+
+  return prs;
+}
+
+// Given a single workout, return PRs that THIS workout broke versus the
+// rest of history. Returns [{ exerciseName, kinds: [{kind, value, prevValue}] }].
+// kind: 'weight' | 'reps' | 'volume'
+function findNewPRs(sessions, date, workout) {
+  if (!workout || !(workout.exercises || []).length) return [];
+  const prevPRs = computePRsByExercise(sessions, { date, workoutId: workout.id });
+  const broken = [];
+
+  workout.exercises.forEach(ex => {
+    if (ex.isDuration) return;
+    const key = _exerciseKey(ex);
+    const prev = prevPRs[key];
+    // Need a baseline: the exercise must already have history (>= MIN occurrences)
+    if (!prev) return;
+
+    let bestSet = null;        // heaviest single set in this workout
+    let mostReps = null;
+    let sessionVol = 0;
+    (ex.sets || []).forEach(s => {
+      const reps = s.reps || 0;
+      const weight = s.weight || 0;
+      if (reps === 0) return;
+      sessionVol += weight * reps;
+      if (ex.hasWeight !== false && (bestSet === null || weight > bestSet.weight)) {
+        bestSet = { weight, reps };
+      }
+      if (mostReps === null || reps > mostReps.reps) {
+        mostReps = { reps, weight };
+      }
+    });
+
+    const kinds = [];
+    if (prev.maxWeight && bestSet && bestSet.weight > prev.maxWeight.weight) {
+      kinds.push({ kind: 'weight', value: bestSet.weight, prevValue: prev.maxWeight.weight });
+    }
+    if (prev.maxReps && mostReps && mostReps.reps > prev.maxReps.reps) {
+      kinds.push({ kind: 'reps', value: mostReps.reps, prevValue: prev.maxReps.reps });
+    }
+    if (prev.maxVolume && sessionVol > prev.maxVolume.volume) {
+      kinds.push({ kind: 'volume', value: Math.round(sessionVol), prevValue: prev.maxVolume.volume });
+    }
+    if (kinds.length) broken.push({ exerciseName: ex.name, kinds });
+  });
+
+  return broken;
+}
+
 
 // ════════════════════════════════════════════════════════════════════
 // 22-screen-workout.jsx — Workout main screen + dialogs
@@ -12563,6 +12854,7 @@ function WorkoutScreen() {
   const [dateViewing, setDateViewing] = React.useState(todayISO());
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(null); // { workout, date }
+  const [showPRs, setShowPRs] = React.useState(false);
 
   const sessions = state.workouts?.sessions || {};
   const workoutsToday = sessions[dateViewing] || [];
@@ -12570,14 +12862,27 @@ function WorkoutScreen() {
   const weekCount = workoutCountLastDays(sessions, 7);
   const weekMinutes = workoutMinutesLastDays(sessions, 7);
 
+  // Analytics — only show charts if there's at least one workout in last 30d
+  const monthCount = workoutCountLastDays(sessions, 30);
+  const showAnalytics = monthCount > 0;
+  const volumeBuckets = React.useMemo(() => weeklyVolumeBuckets(sessions, 4), [sessions]);
+  const freqItems = React.useMemo(() => workoutFrequencyByType(sessions, 30), [sessions]);
+  const hasAnyVolume = volumeBuckets.some(b => b.volume > 0);
+
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       {/* Header */}
-      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>WORKOUT</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>אימון · {fmt.relativeDay(dateViewing)}</div>
         </div>
+        <button onClick={() => setShowPRs(true)} aria-label="שיאים אישיים" style={{
+          width: 34, height: 34, borderRadius: 17, background: T.bgElev,
+          border: `1px solid ${T.stroke}`, color: T.amber, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, padding: 0,
+        }}>🏆</button>
         {streak >= 2 && (
           <div style={{
             padding: '4px 10px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
@@ -12619,6 +12924,32 @@ function WorkoutScreen() {
           </div>
         </Card>
 
+        {/* Analytics — volume + frequency, only if there's any workout in last 30d */}
+        {showAnalytics && (
+          <Card padding={14} style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>נפח שבועי</div>
+              <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>4 שב׳ · ק״ג×חזר׳</div>
+            </div>
+            {hasAnyVolume
+              ? <WorkoutVolumeChart buckets={volumeBuckets} />
+              : <div style={{ fontSize: 11, color: T.inkMute, padding: '12px 4px', textAlign: 'center' }}>
+                  אין נפח לחישוב (אין סטים עם משקל × חזרות)
+                </div>
+            }
+
+            {freqItems.length > 0 && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.stroke}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>תדירות לפי סוג</div>
+                  <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>30 ימים · {monthCount} אימונים</div>
+                </div>
+                <WorkoutFrequencyChart items={freqItems} />
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* Workouts list */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
@@ -12655,6 +12986,7 @@ function WorkoutScreen() {
 
       {newOpen && <NewWorkoutDialog date={dateViewing} onClose={() => setNewOpen(false)} />}
       {editing && <WorkoutDetailDialog date={editing.date} workout={editing.workout} onClose={() => setEditing(null)} />}
+      {showPRs && <PersonalRecordsScreen onClose={() => setShowPRs(false)} />}
     </div>
   );
 }
@@ -13228,6 +13560,11 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
   const t = getWorkoutType(workout.type || 'other');
   const totalSets = (workout.exercises || []).reduce((s, e) => s + (e.sets?.length || 0), 0);
   const volume = workoutVolume(workout);
+  const sessions = state.workouts?.sessions || {};
+  const newPRs = React.useMemo(
+    () => findNewPRs(sessions, date, workout),
+    [sessions, date, workout]
+  );
 
   const handleDelete = () => {
     const workoutCopy = { ...workout };
@@ -13262,6 +13599,9 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+        {/* PR banner — shows broken records, if any */}
+        {newPRs.length > 0 && <PRBanner prs={newPRs} />}
+
         {/* Header card */}
         <Card padding={14} style={{ marginBottom: 12, background: `${t.color}10`, border: `1px solid ${t.color}44` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
@@ -13349,6 +13689,158 @@ const workoutInputStyle = {
   fontSize: 13, fontFamily: T.mono, outline: 'none',
   direction: 'ltr', textAlign: 'center', boxSizing: 'border-box',
 };
+
+// ════════════════════════════════════════════════════════════════════
+// PR banner — shows when this workout broke one or more records
+// ════════════════════════════════════════════════════════════════════
+function PRBanner({ prs }) {
+  if (!prs || prs.length === 0) return null;
+  const labelFor = (kind) => kind === 'weight' ? 'משקל' : kind === 'reps' ? 'חזרות' : 'נפח';
+  const fmtVal = (k) => k.kind === 'volume' ? `${k.value} ק״ג` : k.kind === 'weight' ? `${k.value} ק״ג` : `${k.value}`;
+  const fmtPrev = (k) => k.kind === 'volume' ? `${k.prevValue} ק״ג` : k.kind === 'weight' ? `${k.prevValue} ק״ג` : `${k.prevValue}`;
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 12,
+      background: `linear-gradient(135deg, ${T.amber}25 0%, ${T.amber}10 100%)`,
+      border: `1px solid ${T.amber}66`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 22 }}>🏆</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.amber }}>שיא חדש!</div>
+          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
+            {prs.length} {prs.length === 1 ? 'תרגיל שבר שיא' : 'תרגילים שברו שיא'}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {prs.map((pr, i) => (
+          <div key={i} style={{
+            padding: '8px 10px', background: T.bg, borderRadius: 8,
+            display: 'flex', flexDirection: 'column', gap: 4,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{pr.exerciseName}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {pr.kinds.map((k, j) => (
+                <div key={j} style={{
+                  fontSize: 11, fontFamily: T.mono, color: T.inkSub,
+                  padding: '3px 8px', background: T.bgElev,
+                  border: `1px solid ${T.amber}55`, borderRadius: 6,
+                }}>
+                  {labelFor(k.kind)}: <span style={{ color: T.amber, fontWeight: 700 }}>{fmtVal(k)}</span>
+                  <span style={{ color: T.inkMute }}> (היה {fmtPrev(k)})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Personal Records screen — full list of per-exercise PRs
+// ════════════════════════════════════════════════════════════════════
+function PersonalRecordsScreen({ onClose }) {
+  const { state } = useStore();
+  const sessions = state.workouts?.sessions || {};
+
+  const prs = React.useMemo(() => computePRsByExercise(sessions), [sessions]);
+  const list = Object.values(prs).sort((a, b) => {
+    const aw = a.maxWeight?.weight || 0;
+    const bw = b.maxWeight?.weight || 0;
+    if (bw !== aw) return bw - aw;
+    return (b.maxVolume?.volume || 0) - (a.maxVolume?.volume || 0);
+  });
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 830,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>RECORDS · שיאים</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>🏆 שיאים אישיים</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
+        {list.length === 0 ? (
+          <div style={{ padding: '60px 12px', textAlign: 'center' }}>
+            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>🏋️</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
+              אין עדיין שיאים
+            </div>
+            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
+              שיא נחשב אחרי שתרגיל מופיע ב-{PR_MIN_OCCURRENCES} אימונים שונים לפחות.
+              תמשיך לתעד — יופיעו פה אוטומטית.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+              {list.length} תרגילים · מינ׳ {PR_MIN_OCCURRENCES} אימונים לתרגיל
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {list.map(pr => <PRRow key={pr.key} pr={pr} />)}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PRRow({ pr }) {
+  return (
+    <Card padding={12}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.ink }}>{pr.name}</div>
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>{pr.occurrences} אימונים</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        <PRStat label="משקל" value={pr.maxWeight ? `${pr.maxWeight.weight}` : '—'}
+          unit={pr.maxWeight ? 'ק״ג' : ''}
+          sub={pr.maxWeight ? `× ${pr.maxWeight.reps}` : ''}
+          color={T.amber}
+        />
+        <PRStat label="חזרות" value={pr.maxReps ? `${pr.maxReps.reps}` : '—'}
+          unit=""
+          sub={pr.maxReps && pr.maxReps.weight > 0 ? `${pr.maxReps.weight}ק״ג` : ''}
+          color={T.lime}
+        />
+        <PRStat label="נפח" value={pr.maxVolume ? (pr.maxVolume.volume >= 1000 ? `${(pr.maxVolume.volume/1000).toFixed(1)}k` : `${pr.maxVolume.volume}`) : '—'}
+          unit={pr.maxVolume ? 'ק״ג' : ''}
+          sub=""
+          color={T.cyan}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function PRStat({ label, value, unit, sub, color }) {
+  return (
+    <div style={{
+      padding: '8px 6px', background: T.bg, borderRadius: 8, textAlign: 'center',
+      border: `1px solid ${T.stroke}`,
+    }}>
+      <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 3, marginTop: 3 }}>
+        <span style={{ fontFamily: T.mono, fontSize: 17, fontWeight: 700, color }}>{value}</span>
+        {unit && <span style={{ fontSize: 9, color: T.inkMute }}>{unit}</span>}
+      </div>
+      {sub && <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
 
 
 // ════════════════════════════════════════════════════════════════════

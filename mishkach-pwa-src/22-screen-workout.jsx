@@ -8,6 +8,7 @@ function WorkoutScreen() {
   const [dateViewing, setDateViewing] = React.useState(todayISO());
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(null); // { workout, date }
+  const [showPRs, setShowPRs] = React.useState(false);
 
   const sessions = state.workouts?.sessions || {};
   const workoutsToday = sessions[dateViewing] || [];
@@ -15,14 +16,27 @@ function WorkoutScreen() {
   const weekCount = workoutCountLastDays(sessions, 7);
   const weekMinutes = workoutMinutesLastDays(sessions, 7);
 
+  // Analytics — only show charts if there's at least one workout in last 30d
+  const monthCount = workoutCountLastDays(sessions, 30);
+  const showAnalytics = monthCount > 0;
+  const volumeBuckets = React.useMemo(() => weeklyVolumeBuckets(sessions, 4), [sessions]);
+  const freqItems = React.useMemo(() => workoutFrequencyByType(sessions, 30), [sessions]);
+  const hasAnyVolume = volumeBuckets.some(b => b.volume > 0);
+
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       {/* Header */}
-      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>WORKOUT</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>אימון · {fmt.relativeDay(dateViewing)}</div>
         </div>
+        <button onClick={() => setShowPRs(true)} aria-label="שיאים אישיים" style={{
+          width: 34, height: 34, borderRadius: 17, background: T.bgElev,
+          border: `1px solid ${T.stroke}`, color: T.amber, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, padding: 0,
+        }}>🏆</button>
         {streak >= 2 && (
           <div style={{
             padding: '4px 10px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
@@ -64,6 +78,32 @@ function WorkoutScreen() {
           </div>
         </Card>
 
+        {/* Analytics — volume + frequency, only if there's any workout in last 30d */}
+        {showAnalytics && (
+          <Card padding={14} style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>נפח שבועי</div>
+              <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>4 שב׳ · ק״ג×חזר׳</div>
+            </div>
+            {hasAnyVolume
+              ? <WorkoutVolumeChart buckets={volumeBuckets} />
+              : <div style={{ fontSize: 11, color: T.inkMute, padding: '12px 4px', textAlign: 'center' }}>
+                  אין נפח לחישוב (אין סטים עם משקל × חזרות)
+                </div>
+            }
+
+            {freqItems.length > 0 && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.stroke}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>תדירות לפי סוג</div>
+                  <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>30 ימים · {monthCount} אימונים</div>
+                </div>
+                <WorkoutFrequencyChart items={freqItems} />
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* Workouts list */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
@@ -100,6 +140,7 @@ function WorkoutScreen() {
 
       {newOpen && <NewWorkoutDialog date={dateViewing} onClose={() => setNewOpen(false)} />}
       {editing && <WorkoutDetailDialog date={editing.date} workout={editing.workout} onClose={() => setEditing(null)} />}
+      {showPRs && <PersonalRecordsScreen onClose={() => setShowPRs(false)} />}
     </div>
   );
 }
@@ -673,6 +714,11 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
   const t = getWorkoutType(workout.type || 'other');
   const totalSets = (workout.exercises || []).reduce((s, e) => s + (e.sets?.length || 0), 0);
   const volume = workoutVolume(workout);
+  const sessions = state.workouts?.sessions || {};
+  const newPRs = React.useMemo(
+    () => findNewPRs(sessions, date, workout),
+    [sessions, date, workout]
+  );
 
   const handleDelete = () => {
     const workoutCopy = { ...workout };
@@ -707,6 +753,9 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+        {/* PR banner — shows broken records, if any */}
+        {newPRs.length > 0 && <PRBanner prs={newPRs} />}
+
         {/* Header card */}
         <Card padding={14} style={{ marginBottom: 12, background: `${t.color}10`, border: `1px solid ${t.color}44` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
@@ -794,3 +843,155 @@ const workoutInputStyle = {
   fontSize: 13, fontFamily: T.mono, outline: 'none',
   direction: 'ltr', textAlign: 'center', boxSizing: 'border-box',
 };
+
+// ════════════════════════════════════════════════════════════════════
+// PR banner — shows when this workout broke one or more records
+// ════════════════════════════════════════════════════════════════════
+function PRBanner({ prs }) {
+  if (!prs || prs.length === 0) return null;
+  const labelFor = (kind) => kind === 'weight' ? 'משקל' : kind === 'reps' ? 'חזרות' : 'נפח';
+  const fmtVal = (k) => k.kind === 'volume' ? `${k.value} ק״ג` : k.kind === 'weight' ? `${k.value} ק״ג` : `${k.value}`;
+  const fmtPrev = (k) => k.kind === 'volume' ? `${k.prevValue} ק״ג` : k.kind === 'weight' ? `${k.prevValue} ק״ג` : `${k.prevValue}`;
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 12,
+      background: `linear-gradient(135deg, ${T.amber}25 0%, ${T.amber}10 100%)`,
+      border: `1px solid ${T.amber}66`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 22 }}>🏆</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.amber }}>שיא חדש!</div>
+          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
+            {prs.length} {prs.length === 1 ? 'תרגיל שבר שיא' : 'תרגילים שברו שיא'}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {prs.map((pr, i) => (
+          <div key={i} style={{
+            padding: '8px 10px', background: T.bg, borderRadius: 8,
+            display: 'flex', flexDirection: 'column', gap: 4,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{pr.exerciseName}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {pr.kinds.map((k, j) => (
+                <div key={j} style={{
+                  fontSize: 11, fontFamily: T.mono, color: T.inkSub,
+                  padding: '3px 8px', background: T.bgElev,
+                  border: `1px solid ${T.amber}55`, borderRadius: 6,
+                }}>
+                  {labelFor(k.kind)}: <span style={{ color: T.amber, fontWeight: 700 }}>{fmtVal(k)}</span>
+                  <span style={{ color: T.inkMute }}> (היה {fmtPrev(k)})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Personal Records screen — full list of per-exercise PRs
+// ════════════════════════════════════════════════════════════════════
+function PersonalRecordsScreen({ onClose }) {
+  const { state } = useStore();
+  const sessions = state.workouts?.sessions || {};
+
+  const prs = React.useMemo(() => computePRsByExercise(sessions), [sessions]);
+  const list = Object.values(prs).sort((a, b) => {
+    const aw = a.maxWeight?.weight || 0;
+    const bw = b.maxWeight?.weight || 0;
+    if (bw !== aw) return bw - aw;
+    return (b.maxVolume?.volume || 0) - (a.maxVolume?.volume || 0);
+  });
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 830,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>RECORDS · שיאים</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>🏆 שיאים אישיים</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
+        {list.length === 0 ? (
+          <div style={{ padding: '60px 12px', textAlign: 'center' }}>
+            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>🏋️</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
+              אין עדיין שיאים
+            </div>
+            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
+              שיא נחשב אחרי שתרגיל מופיע ב-{PR_MIN_OCCURRENCES} אימונים שונים לפחות.
+              תמשיך לתעד — יופיעו פה אוטומטית.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+              {list.length} תרגילים · מינ׳ {PR_MIN_OCCURRENCES} אימונים לתרגיל
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {list.map(pr => <PRRow key={pr.key} pr={pr} />)}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PRRow({ pr }) {
+  return (
+    <Card padding={12}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.ink }}>{pr.name}</div>
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>{pr.occurrences} אימונים</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        <PRStat label="משקל" value={pr.maxWeight ? `${pr.maxWeight.weight}` : '—'}
+          unit={pr.maxWeight ? 'ק״ג' : ''}
+          sub={pr.maxWeight ? `× ${pr.maxWeight.reps}` : ''}
+          color={T.amber}
+        />
+        <PRStat label="חזרות" value={pr.maxReps ? `${pr.maxReps.reps}` : '—'}
+          unit=""
+          sub={pr.maxReps && pr.maxReps.weight > 0 ? `${pr.maxReps.weight}ק״ג` : ''}
+          color={T.lime}
+        />
+        <PRStat label="נפח" value={pr.maxVolume ? (pr.maxVolume.volume >= 1000 ? `${(pr.maxVolume.volume/1000).toFixed(1)}k` : `${pr.maxVolume.volume}`) : '—'}
+          unit={pr.maxVolume ? 'ק״ג' : ''}
+          sub=""
+          color={T.cyan}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function PRStat({ label, value, unit, sub, color }) {
+  return (
+    <div style={{
+      padding: '8px 6px', background: T.bg, borderRadius: 8, textAlign: 'center',
+      border: `1px solid ${T.stroke}`,
+    }}>
+      <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 3, marginTop: 3 }}>
+        <span style={{ fontFamily: T.mono, fontSize: 17, fontWeight: 700, color }}>{value}</span>
+        {unit && <span style={{ fontSize: 9, color: T.inkMute }}>{unit}</span>}
+      </div>
+      {sub && <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
