@@ -78,6 +78,22 @@ const initialState = {
       weighTime: '08:00',
       pushSubscription: null,
     },
+    // Last-used preferences for the personal report generator.
+    // Pre-populated as smart defaults next time the user opens the report flow.
+    reportPrefs: {
+      recipient: 'self',          // 'self' | 'doctor' | 'trainer' | 'friend' | 'other'
+      customRecipient: '',        // free-text, used when recipient === 'other'
+      period: 'month',            // 'week' | 'month' | 'quarter' | 'all' | 'custom'
+      customFromDate: null,       // YYYY-MM-DD, used when period === 'custom'
+      customToDate: null,
+      includes: {
+        weight: true,
+        nutrition: true,
+        workouts: true,
+        ai_insights: true,
+        notes: false,             // off by default; auto-on when recipient === 'self'
+      },
+    },
   },
   meta: {
     createdAt: null,

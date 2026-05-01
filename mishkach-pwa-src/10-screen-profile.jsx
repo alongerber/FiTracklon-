@@ -12,6 +12,7 @@ function ProfileScreen({ onNavigate }) {
   const [showTips, setShowTips] = React.useState(false);
   const [showPersona, setShowPersona] = React.useState(false);
   const [showNotifications, setShowNotifications] = React.useState(false);
+  const [showReport, setShowReport] = React.useState(false);
   const currentPersona = state.settings.persona || 'neutral';
   const personaLabel = PERSONAS[currentPersona]?.name || 'ישיר';
 
@@ -147,6 +148,12 @@ function ProfileScreen({ onNavigate }) {
             value={`${CREATIVE_TIPS.length} תובנות × 5 קולות`} onClick={() => setShowTips(true)} />
         </Section>
 
+        {/* Personal report */}
+        <Section title="דוחות">
+          <RowItem icon={<TabIcon name="share" size={18} />} label="📄 צור דוח אישי"
+            value="לרופא · למאמן · לעצמי" onClick={() => setShowReport(true)} />
+        </Section>
+
         {/* Settings */}
         <Section title="הגדרות">
           <RowItem icon={<TabIcon name="ruler" size={18} />} label="יחידת מדידה" right={
@@ -168,7 +175,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v2.7
+          מִשְׁקַלּוּת · v2.8
         </div>
       </div>
 
@@ -178,6 +185,7 @@ function ProfileScreen({ onNavigate }) {
       {showTips && <CreativeTipsLibrary onClose={() => setShowTips(false)} />}
       {showPersona && <PersonaPickerDialog onClose={() => setShowPersona(false)} />}
       {showNotifications && <NotificationsSettingsDialog onClose={() => setShowNotifications(false)} />}
+      {showReport && <ReportScreen onClose={() => setShowReport(false)} />}
 
       <ConfirmDialog
         open={confirmReset}

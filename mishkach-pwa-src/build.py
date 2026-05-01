@@ -29,6 +29,7 @@ JSX_FILES = [
     '17-notifications.jsx',
     '21-workout-catalog.jsx',  # NEW: Hebrew exercise catalog + helpers
     '22-screen-workout.jsx',   # NEW: Workout tracking screen
+    '23-screen-report.jsx',    # NEW: AI-powered personal report (PDF + WhatsApp)
     '11-app.jsx',
 ]
 

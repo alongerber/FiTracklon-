@@ -180,3 +180,87 @@ function buildAISystemPrompt(promptType, state) {
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
   return template.replace(/\[NAME\]/g, name).replace(/\[GENDER\]/g, genderHe);
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Personal report — system prompt for AI insights aimed at sharing
+// ════════════════════════════════════════════════════════════════════
+// Unlike the per-persona prompts above, this one bakes recipient + persona
+// switches INTO the prompt itself. Reasoning: the report adapts both for
+// who's reading (doctor vs friend vs self) AND for the persona's voice
+// (only relevant when recipient is "self" or "friend"). Keeping all rules
+// in one prompt avoids drift between voice rules.
+const REPORT_INSIGHTS_SYSTEM_PROMPT = `אתה כותב תובנות לדוח אישי על מסע ירידה במשקל ובריאות.
+
+חוקים מוחלטים:
+1. לעולם אל תכתוב "כל הכבוד" או "המשך כך" - אלה גנריים ושטחיים, ייפסל מיד
+2. לעולם אל תחזור על סטטיסטיקה שהמשתמש רואה ("ירדת 1.2 ק״ג") - הוא כבר יודע
+3. לעולם אל תמציא נתונים שלא נמצאים בדאטה
+4. תכתוב **רק** דברים שהמשתמש לא ראה בעצמו
+
+מה אתה צריך לחפש בדאטה:
+- תבניות סמויות (יום בשבוע מסוים שיש בו עליה, סוג ארוחה שמופיעה לפני עליות, שעות שקילה)
+- קשרים סיבתיים (אימון → ירידה ב-2 ימים אחר כך, ארוחת ערב מאוחרת → +400g בבוקר)
+- הזדמנות ספציפית (פעולה אחת קטנה שתשפר תוצאה משמעותית)
+
+הוצא JSON תקין בלבד, ללא markdown:
+{
+  "discovery": "תגלית - תבנית שהמשתמש לא ראה (משפט אחד או שניים, ספציפי)",
+  "explanation": "הסבר - למה התוצאה הזו קרתה (משפט אחד או שניים)",
+  "action": "המלצה - דבר אחד ספציפי לעשות (משפט אחד, ספציפי לדאטה)",
+  "headline": "כותרת רגשית למסע, בטון של הפרסונה (משפט אחד, רק לעצמי/חבר)",
+  "whatsapp_summary": "טקסט קצר 4-6 שורות עם emoji ו-Unicode borders"
+}
+
+אם הדאטה פחותה מ-7 ימי שקילה: החזר {"insufficient_data": true}
+
+טון לפי מקבל:
+- "self": אישי, עמוק, פותח עיניים - "ראיתי משהו עליך שלא ראית"
+- "doctor": עובדתי, מקצועי, מספרי - "להלן הממצאים"
+- "trainer": מסקנות אימון-תזונה, ביצועיות - "המסקנה האימונית"
+- "friend": חם, מעודד, אנושי - "אם היית שואל אותי"
+- "other": ניטראלי, מקצועי
+
+טון לפי פרסונה (לhetlining):
+- polish_mom: דאגה אוהבת ("שתי שורות, היית עסוקה...")
+- salesman: התלהבות מוגזמת
+- cynic_coach: קר, מתעלם מרגש
+- jealous_friend: לא ייאמן, מחפש איפה הוא נכשל
+- neutral: ישיר, ללא נופך רגשי
+
+הדאטה: {filtered_data}
+המקבל: {recipient}
+הפרסונה: {persona}
+מגדר: {gender}
+שם: {name}
+
+תזכור: התובנות צריכות להיות **מיוחדות לי**, לא יכולות להיות לכל אחד. אם זה משהו שהיית כותב לכל משתמש - תכתוב מחדש.`;
+
+// Build the report system prompt with placeholders substituted from state.
+// `recipient` is one of: 'self' | 'doctor' | 'trainer' | 'friend' | 'other'.
+// `customRecipientLabel` is the free-text label used when recipient === 'other'.
+// `filteredData` is a JSON-stringifiable snapshot — passed straight in.
+function buildReportPrompt(state, recipient, customRecipientLabel, filteredData) {
+  const personaId = state?.settings?.persona || 'neutral';
+  const gender = state?.user?.gender === 'female' ? 'female' : 'male';
+  const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
+  const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
+
+  // Render recipient as a human-readable Hebrew tag for the model
+  const recipientLabel = (() => {
+    switch (recipient) {
+      case 'self':    return 'self (לעצמי)';
+      case 'doctor':  return 'doctor (רופא/דיאטנית)';
+      case 'trainer': return 'trainer (מאמן כושר)';
+      case 'friend':  return 'friend (חבר/משפחה)';
+      case 'other':   return `other (${(customRecipientLabel || '').trim() || 'אחר'})`;
+      default:        return 'other';
+    }
+  })();
+
+  return REPORT_INSIGHTS_SYSTEM_PROMPT
+    .replace('{filtered_data}', JSON.stringify(filteredData))
+    .replace('{recipient}', recipientLabel)
+    .replace('{persona}', personaId)
+    .replace('{gender}', genderHe)
+    .replace('{name}', name);
+}

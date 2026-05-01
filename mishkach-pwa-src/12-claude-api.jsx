@@ -22,6 +22,7 @@ const MODEL_BY_FEATURE = {
   weekly_insight:     'claude-opus-4-7',     // reasoning quality critical
   plateau_analysis:   'claude-opus-4-7',
   goal_calibration:   'claude-opus-4-7',
+  report_insights:    'claude-opus-4-7',     // pattern-finding for personal report
 };
 
 const DEFAULT_MODEL = 'claude-opus-4-7';
@@ -391,4 +392,21 @@ async function generateGoalCalibration(snapshot, config, onUsage, state) {
     onUsage,
   });
   return text.trim();
+}
+
+// ─── Personal report insights (Opus) ────────────────────────────────
+// Returns parsed JSON: { discovery, explanation, action, headline, whatsapp_summary }
+// or { insufficient_data: true } if the model determines there's not enough.
+// `recipient` is one of: 'self' | 'doctor' | 'trainer' | 'friend' | 'other'.
+async function generateReportInsights(snapshot, recipient, customRecipientLabel, config, onUsage, state) {
+  const system = buildReportPrompt(state, recipient, customRecipientLabel, snapshot);
+  const { text } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.report_insights,
+    system,
+    messages: [{ role: 'user', content: 'הוצא JSON תקין לפי הסכמה.' }],
+    maxTokens: 900,
+    onUsage,
+  });
+  return extractJSON(text);
 }
