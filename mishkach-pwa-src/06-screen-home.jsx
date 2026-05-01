@@ -18,14 +18,40 @@ function HomeHeader({ compact = false, onNavigate }) {
   const hour = new Date().getHours();
   const greet = hour < 6 ? 'לילה טוב' : hour < 12 ? 'בוקר טוב' : hour < 18 ? 'צהריים טובים' : 'ערב טוב';
   return (
-    <div style={{ padding: '14px 18px 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ padding: '14px 18px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
       <AvatarDot letter={letter} size={compact ? 28 : 32} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 11, color: T.inkMute }}>{greet}</div>
         <div style={{ fontSize: 15, fontWeight: 700 }}>{name}</div>
       </div>
+      <WorkoutStreakBadge onNavigate={onNavigate} />
       <StreakBadge days={stats.streak} />
     </div>
+  );
+}
+
+// ─── Workout streak badge — only shown when streak >= 2 ─────────────
+function WorkoutStreakBadge({ onNavigate }) {
+  const { state } = useStore();
+  const sessions = state.workouts?.sessions || {};
+  const days = workoutStreak(sessions);
+  if (days < 2) return null;
+  return (
+    <button
+      onClick={() => onNavigate?.('workout')}
+      aria-label={`רצף אימון ${days} ימים`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '4px 10px 4px 8px', borderRadius: 999,
+        background: `${T.cyan}22`, color: T.cyan,
+        border: `1px solid ${T.cyan}55`,
+        fontFamily: T.mono, fontSize: 12, fontWeight: 700,
+        cursor: 'pointer',
+      }}
+    >
+      <TabIcon name="dumbbell" size={13} />
+      {days} ימים
+    </button>
   );
 }
 
@@ -198,8 +224,9 @@ function HomeV2({ onNavigate }) {
 
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
-      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1, fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>MISHKACH · VELOCITY</div>
+        <WorkoutStreakBadge onNavigate={onNavigate} />
         <StreakBadge days={stats.streak} />
         <AvatarDot letter={(state.user.name || 'U')[0]} size={28} />
       </div>
@@ -393,13 +420,14 @@ function HomeV3({ onNavigate }) {
 
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
-      <div style={{ padding: '12px 18px 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ padding: '12px 18px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1.5 }}>THE JOURNEY · המסע שלך</div>
           <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>
             יום {stats.streak} · {fmt.kg(Math.abs(startWeight - curW), unit)} ק״ג {startWeight > curW ? 'מאחורה' : 'מעל ההתחלה'}
           </div>
         </div>
+        <WorkoutStreakBadge onNavigate={onNavigate} />
         <AvatarDot letter={(state.user.name || 'U')[0]} size={32} />
       </div>
 

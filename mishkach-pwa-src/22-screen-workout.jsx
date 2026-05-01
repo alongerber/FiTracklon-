@@ -9,6 +9,9 @@ function WorkoutScreen() {
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(null); // { workout, date }
   const [showPRs, setShowPRs] = React.useState(false);
+  const [showSearch, setShowSearch] = React.useState(false);
+  const [showRoutines, setShowRoutines] = React.useState(false);
+  const [prefill, setPrefill] = React.useState(null); // { name, type, exercises, routineId? } when opening NewWorkoutDialog from a routine
 
   const sessions = state.workouts?.sessions || {};
   const workoutsToday = sessions[dateViewing] || [];
@@ -23,28 +26,34 @@ function WorkoutScreen() {
   const freqItems = React.useMemo(() => workoutFrequencyByType(sessions, 30), [sessions]);
   const hasAnyVolume = volumeBuckets.some(b => b.volume > 0);
 
+  const headerBtn = {
+    width: 34, height: 34, borderRadius: 17, background: T.bgElev,
+    border: `1px solid ${T.stroke}`, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 15, padding: 0, flexShrink: 0,
+  };
+
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       {/* Header */}
-      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>WORKOUT</div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>אימון · {fmt.relativeDay(dateViewing)}</div>
+          <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            אימון · {fmt.relativeDay(dateViewing)}
+          </div>
         </div>
-        <button onClick={() => setShowPRs(true)} aria-label="שיאים אישיים" style={{
-          width: 34, height: 34, borderRadius: 17, background: T.bgElev,
-          border: `1px solid ${T.stroke}`, color: T.amber, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, padding: 0,
-        }}>🏆</button>
+        <button onClick={() => setShowSearch(true)} aria-label="חיפוש באימונים" style={{ ...headerBtn, color: T.ink }}>🔍</button>
+        <button onClick={() => setShowRoutines(true)} aria-label="הרוטינות שלי" style={{ ...headerBtn, color: T.cyan }}>📋</button>
+        <button onClick={() => setShowPRs(true)} aria-label="שיאים אישיים" style={{ ...headerBtn, color: T.amber }}>🏆</button>
         {streak >= 2 && (
           <div style={{
-            padding: '4px 10px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
-            borderRadius: 999, fontSize: 11, color: T.amber, fontFamily: T.mono, fontWeight: 700,
-            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '4px 8px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
+            borderRadius: 999, fontSize: 10, color: T.amber, fontFamily: T.mono, fontWeight: 700,
+            display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
           }}>
-            <TabIcon name="flame" size={12} />
-            {streak} ימים
+            <TabIcon name="flame" size={11} />
+            {streak}
           </div>
         )}
       </div>
@@ -138,9 +147,32 @@ function WorkoutScreen() {
         </div>
       </div>
 
-      {newOpen && <NewWorkoutDialog date={dateViewing} onClose={() => setNewOpen(false)} />}
+      {newOpen && <NewWorkoutDialog
+        date={dateViewing}
+        prefill={prefill}
+        onClose={() => { setNewOpen(false); setPrefill(null); }}
+      />}
       {editing && <WorkoutDetailDialog date={editing.date} workout={editing.workout} onClose={() => setEditing(null)} />}
       {showPRs && <PersonalRecordsScreen onClose={() => setShowPRs(false)} />}
+      {showSearch && <WorkoutSearchDialog
+        onClose={() => setShowSearch(false)}
+        onJumpToDate={(d, wid) => { setDateViewing(d); setShowSearch(false); }}
+      />}
+      {showRoutines && <RoutinesDialog
+        onClose={() => setShowRoutines(false)}
+        onStartRoutine={(routine) => {
+          dispatch({ type: 'TRACK_ROUTINE_USE', routineId: routine.id });
+          setPrefill({
+            name: routine.name,
+            type: routine.type || 'strength',
+            duration: routine.durationMin || 30,
+            exercises: (routine.exercises || []).map(ex => ({ ...ex, id: uid() })),
+            routineId: routine.id,
+          });
+          setShowRoutines(false);
+          setNewOpen(true);
+        }}
+      />}
     </div>
   );
 }
@@ -178,15 +210,16 @@ function WorkoutRow({ workout, isLast, onClick }) {
 // ════════════════════════════════════════════════════════════════════
 // New workout dialog — pick type, exercises, sets, save
 // ════════════════════════════════════════════════════════════════════
-function NewWorkoutDialog({ date, onClose }) {
+function NewWorkoutDialog({ date, prefill, onClose }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
-  const [step, setStep] = React.useState(0); // 0=type, 1=exercises, 2=review
-  const [name, setName] = React.useState('');
-  const [type, setType] = React.useState('strength');
-  const [duration, setDuration] = React.useState(30);
+  // If a prefill is supplied (from a routine), jump straight to the review step
+  const [step, setStep] = React.useState(prefill ? 2 : 0); // 0=type, 1=exercises, 2=review
+  const [name, setName] = React.useState(prefill?.name || '');
+  const [type, setType] = React.useState(prefill?.type || 'strength');
+  const [duration, setDuration] = React.useState(prefill?.duration || 30);
   const [notes, setNotes] = React.useState('');
-  const [exercises, setExercises] = React.useState([]); // [{ exerciseId, name, sets, notes }]
+  const [exercises, setExercises] = React.useState(prefill?.exercises || []); // [{ exerciseId, name, sets, notes }]
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
   const handleAddExercise = (catalogEx) => {
@@ -710,6 +743,7 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [saveAsRoutine, setSaveAsRoutine] = React.useState(false);
 
   const t = getWorkoutType(workout.type || 'other');
   const totalSets = (workout.exercises || []).reduce((s, e) => s + (e.sets?.length || 0), 0);
@@ -719,6 +753,7 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
     () => findNewPRs(sessions, date, workout),
     [sessions, date, workout]
   );
+  const hasExercises = (workout.exercises || []).length > 0;
 
   const handleDelete = () => {
     const workoutCopy = { ...workout };
@@ -814,8 +849,19 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
           </Card>
         )}
 
+        {/* Save as routine — only useful if there are exercises to template */}
+        {hasExercises && (
+          <div style={{ marginTop: 20 }}>
+            <button onClick={() => setSaveAsRoutine(true)} style={{
+              width: '100%', padding: 14, background: T.bgElev, border: `1px solid ${T.cyan}55`,
+              borderRadius: 10, color: T.cyan, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>💾 שמור כרוטינה</button>
+          </div>
+        )}
+
         {/* Delete button */}
-        <div style={{ marginTop: 24 }}>
+        <div style={{ marginTop: 12 }}>
           <button onClick={() => setConfirmDelete(true)} style={{
             width: '100%', padding: 14, background: 'transparent', border: `1px solid ${T.rose}55`,
             borderRadius: 10, color: T.rose, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
@@ -832,6 +878,12 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(false)}
       />
+
+      {saveAsRoutine && <SaveAsRoutineDialog
+        defaultName={workout.name || ''}
+        workout={workout}
+        onClose={() => setSaveAsRoutine(false)}
+      />}
     </div>
   );
 }
@@ -993,5 +1045,299 @@ function PRStat({ label, value, unit, sub, color }) {
       </div>
       {sub && <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, marginTop: 2 }}>{sub}</div>}
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// WorkoutSearchDialog — search across all workouts ever recorded
+// ════════════════════════════════════════════════════════════════════
+function WorkoutSearchDialog({ onClose, onJumpToDate }) {
+  const { state } = useStore();
+  const [query, setQuery] = React.useState('');
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (inputRef.current) inputRef.current.focus();
+  }, []);
+
+  // Flatten every workout, attach date + computed search blob
+  const allWorkouts = React.useMemo(() => {
+    const out = [];
+    const sessions = state.workouts?.sessions || {};
+    Object.keys(sessions).forEach(date => {
+      (sessions[date] || []).forEach(w => {
+        const typeLabel = (getWorkoutType(w.type || 'other')).label || '';
+        const exerciseNames = (w.exercises || []).map(e => e.name || '').join(' ');
+        const blob = `${w.name || ''} ${typeLabel} ${w.notes || ''} ${exerciseNames}`.toLowerCase();
+        out.push({ ...w, _date: date, _blob: blob });
+      });
+    });
+    out.sort((a, b) => {
+      if (a._date !== b._date) return b._date.localeCompare(a._date);
+      return (b.time || '').localeCompare(a.time || '');
+    });
+    return out;
+  }, [state.workouts?.sessions]);
+
+  const filtered = query.trim()
+    ? allWorkouts.filter(w => w._blob.includes(query.toLowerCase()))
+    : allWorkouts.slice(0, 50);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 825,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>SEARCH · חיפוש</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>בכל האימונים</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '14px 18px 8px' }}>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="חפש לפי שם, סוג, תרגיל, או הערה..."
+          style={{
+            width: '100%', padding: '12px 16px', background: T.bgElev,
+            border: `1px solid ${T.stroke}`, borderRadius: 10,
+            color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
+            direction: 'rtl', textAlign: 'right',
+          }}
+        />
+      </div>
+
+      <div style={{ padding: '4px 18px', fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
+        {query.trim() ? `${filtered.length} תוצאות` : `${filtered.length} אימונים אחרונים`}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: 14, color: T.inkMute }}>
+            {query.trim() ? 'אין אימונים שמתאימים' : 'עדיין לא נרשמו אימונים'}
+          </div>
+        ) : (
+          filtered.map(w => {
+            const tp = getWorkoutType(w.type || 'other');
+            const exCount = (w.exercises || []).length;
+            const exNames = (w.exercises || []).map(e => e.name).filter(Boolean).slice(0, 3).join(' · ');
+            return (
+              <Card key={`${w._date}-${w.id}`} padding={12} style={{ marginBottom: 8, cursor: 'pointer' }}
+                onClick={() => onJumpToDate(w._date, w.id)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 0.5 }}>
+                    {fmt.day(w._date)} · {w.time}
+                  </div>
+                  <div style={{ fontSize: 10, color: tp.color, fontFamily: T.mono, letterSpacing: 0.5 }}>
+                    {tp.icon} {tp.label}
+                  </div>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: T.ink, lineHeight: 1.4 }}>
+                  {w.name || tp.label}
+                </div>
+                <div style={{ fontSize: 11, color: T.inkSub, marginTop: 4, fontFamily: T.mono }}>
+                  {fmtMinutes(w.durationMin || 0)}
+                  {exCount > 0 && ` · ${exCount} תרגילים`}
+                  {exNames && <span style={{ color: T.inkMute }}> · {exNames}{exCount > 3 ? '...' : ''}</span>}
+                </div>
+              </Card>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SaveAsRoutineDialog — small modal asking for a routine name
+// ════════════════════════════════════════════════════════════════════
+function SaveAsRoutineDialog({ defaultName, workout, onClose }) {
+  const { dispatch } = useStore();
+  const toast = useToast();
+  const [name, setName] = React.useState(defaultName || '');
+
+  const save = () => {
+    const finalName = name.trim() || defaultName.trim() || 'רוטינה ללא שם';
+    // Strip per-set tracking so the routine is a clean template:
+    // keep exerciseId/name/muscle/hasWeight/isDuration + the structure of sets
+    // (reps/weight defaults, durationSec defaults), but forget the actual values
+    // entered for THIS specific workout.
+    const exTemplate = (workout.exercises || []).map(ex => ({
+      exerciseId: ex.exerciseId || null,
+      name: ex.name,
+      muscle: ex.muscle || null,
+      hasWeight: ex.hasWeight !== false,
+      isDuration: !!ex.isDuration,
+      sets: (ex.sets || []).map(s => ex.isDuration
+        ? { durationSec: s.durationSec || 60, distanceM: s.distanceM || 0 }
+        : { reps: s.reps || 10, weight: ex.hasWeight ? (s.weight || 0) : null }
+      ),
+      notes: '',
+    }));
+    dispatch({
+      type: 'SAVE_ROUTINE',
+      routine: {
+        name: finalName,
+        type: workout.type || 'strength',
+        durationMin: workout.durationMin || 30,
+        exercises: exTemplate,
+      },
+    });
+    toast('נשמר כרוטינה', { type: 'success' });
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 900,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 360, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>שמור כרוטינה</div>
+        <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.5, marginBottom: 14 }}>
+          תרגילים והסטים יישמרו כתבנית. תוכל להתחיל אימון חדש מהרוטינה בלחיצה אחת.
+        </div>
+
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שם הרוטינה</div>
+        <input
+          autoFocus
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="למשל: יום A · חזה וכתפיים"
+          style={{
+            width: '100%', padding: '12px 14px', background: T.bg, border: `1px solid ${T.stroke}`,
+            borderRadius: 10, color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
+            direction: 'rtl', textAlign: 'right', boxSizing: 'border-box',
+          }}
+        />
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <Button variant="ghost" onClick={onClose}>ביטול</Button>
+          <Button onClick={save}>שמור</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// RoutinesDialog — list of saved routines, start or delete
+// ════════════════════════════════════════════════════════════════════
+function RoutinesDialog({ onClose, onStartRoutine }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const routines = state.workouts?.routines || {};
+  const list = Object.values(routines).sort((a, b) => {
+    return (b.lastUsed || '').localeCompare(a.lastUsed || '')
+        || (b.useCount || 0) - (a.useCount || 0);
+  });
+
+  const handleDelete = (routine) => {
+    const routineCopy = { ...routine };
+    dispatch({ type: 'DELETE_ROUTINE', routineId: routine.id });
+    toast('הרוטינה נמחקה', {
+      type: 'info',
+      duration: 5000,
+      actionLabel: 'בטל',
+      onAction: () => {
+        dispatch({ type: 'SAVE_ROUTINE', routine: routineCopy });
+      },
+    });
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 830,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ROUTINES · רוטינות</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>📋 הרוטינות שלי</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
+        {list.length === 0 ? (
+          <div style={{ padding: '60px 12px', textAlign: 'center' }}>
+            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>📋</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
+              אין עדיין רוטינות
+            </div>
+            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
+              פתח אימון קיים → "💾 שמור כרוטינה" → תופיע כאן.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+              {list.length} רוטינות
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {list.map(r => <RoutineRow key={r.id} routine={r}
+                onStart={() => onStartRoutine(r)}
+                onDelete={() => handleDelete(r)}
+              />)}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RoutineRow({ routine, onStart, onDelete }) {
+  const tp = getWorkoutType(routine.type || 'strength');
+  const exCount = (routine.exercises || []).length;
+  const setCount = (routine.exercises || []).reduce((s, e) => s + (e.sets?.length || 0), 0);
+  return (
+    <Card padding={12} style={{ background: `${tp.color}10`, border: `1px solid ${tp.color}33` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+          background: `${tp.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 18,
+        }}>{tp.icon}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {routine.name}
+          </div>
+          <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2, fontFamily: T.mono }}>
+            {tp.label} · {exCount} תרגילים · {setCount} סטים
+          </div>
+        </div>
+        <button onClick={onDelete} aria-label="מחק רוטינה" style={{
+          background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
+          padding: 6, fontSize: 16,
+        }}>🗑</button>
+      </div>
+
+      {routine.useCount > 0 && (
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginBottom: 8 }}>
+          נעשה {routine.useCount} פעמים{routine.lastUsed ? ` · ${fmt.relativeDay(routine.lastUsed.slice(0, 10))}` : ''}
+        </div>
+      )}
+
+      <button onClick={onStart} style={{
+        width: '100%', padding: 10, background: tp.color, color: T.bg,
+        border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+        fontFamily: T.font, cursor: 'pointer',
+      }}>▶ התחל אימון מהרוטינה</button>
+    </Card>
   );
 }
