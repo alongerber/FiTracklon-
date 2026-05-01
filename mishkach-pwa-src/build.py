@@ -1,5 +1,25 @@
-"""Assemble all JSX source files into the final single-file PWA index.html."""
-import os, shutil, sys
+"""Assemble all JSX source files into the final single-file PWA index.html.
+
+v3.0+ pipeline:
+  1. Concatenate all JSX files in a known order → one large .jsx blob.
+  2. Run esbuild on it (transform-only, no bundling) to:
+        - convert JSX to React.createElement(...) calls
+        - minify the output
+        - target ES2020 for broad mobile support
+  3. Drop the minified JS into the index.html template (no Babel runtime).
+  4. Copy supporting assets (sw.js, manifest, icons, api/claude.mjs).
+
+This replaces the v2.x flow that shipped raw JSX + Babel Standalone, which
+forced the browser to compile ~900KB of JSX on every cold start (2-4 seconds
+of white screen on mid-range mobile). After v3.0 the browser runs ready-to-go
+JS immediately.
+
+Requirements:
+  - Python 3
+  - Node.js (any recent version)
+  - esbuild — installed locally: cd mishkach-pwa-src && npm install
+"""
+import os, shutil, subprocess, sys, tempfile
 
 # Make stdout UTF-8 even on Windows console (cp1252 default) — otherwise
 # the final ✓ print blows up with UnicodeEncodeError.
@@ -40,15 +60,61 @@ JSX_FILES = [
     '11-app.jsx',
 ]
 
-# Concatenate all jsx
+# ─── 1) Concatenate JSX sources ─────────────────────────────────────
 body = []
 for f in JSX_FILES:
     path = os.path.join(SRC, f)
     with open(path, 'r', encoding='utf-8') as fp:
         body.append(fp.read())
-
 combined_jsx = '\n\n'.join(body)
+combined_jsx_size = len(combined_jsx.encode('utf-8'))
 
+# ─── 2) Run esbuild → minified JS ───────────────────────────────────
+# We write the concat to a temp .jsx file so esbuild can infer the loader
+# from the extension; --loader=jsx as a CLI flag only works with stdin.
+with tempfile.TemporaryDirectory() as tmpdir:
+    jsx_path = os.path.join(tmpdir, 'combined.jsx')
+    js_path  = os.path.join(tmpdir, 'combined.js')
+    with open(jsx_path, 'w', encoding='utf-8') as fp:
+        fp.write(combined_jsx)
+
+    # Locate the esbuild Node entrypoint inside the local install. Calling
+    # `node bin/esbuild` works on every OS — avoids platform-specific shims
+    # (.cmd on Windows, shell wrapper on POSIX).
+    esbuild_bin = os.path.join(SRC, 'node_modules', 'esbuild', 'bin', 'esbuild')
+    if not os.path.exists(esbuild_bin):
+        sys.stderr.write(
+            "✗ esbuild not found at {}\n".format(esbuild_bin) +
+            "  Run: cd mishkach-pwa-src && npm install\n"
+        )
+        sys.exit(1)
+
+    cmd = [
+        'node', esbuild_bin, jsx_path,
+        '--target=es2020',
+        '--jsx-factory=React.createElement',
+        '--jsx-fragment=React.Fragment',
+        '--minify',
+        '--legal-comments=none',
+        '--charset=utf8',           # keep Hebrew strings inline, don't escape to \uXXXX
+        '--outfile=' + js_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+    # esbuild prints summary + warnings to stderr even on success
+    if result.stderr:
+        # Filter to lines that look meaningful (warnings/errors); skip empty
+        for line in result.stderr.splitlines():
+            if line.strip():
+                sys.stderr.write('  ' + line + '\n')
+    if result.returncode != 0:
+        sys.stderr.write("✗ esbuild failed (exit {})\n".format(result.returncode))
+        sys.exit(result.returncode)
+
+    with open(js_path, 'r', encoding='utf-8') as fp:
+        compiled_js = fp.read()
+compiled_js_size = len(compiled_js.encode('utf-8'))
+
+# ─── 3) Wrap in HTML (no Babel runtime, plain <script>) ─────────────
 HTML = '''<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
@@ -164,35 +230,34 @@ HTML = '''<!DOCTYPE html>
     setTimeout(function() {
       var boot = document.querySelector('.boot');
       if (boot && boot.parentNode) {
-        boot.innerHTML = '<div style="text-align:center;padding:20px;color:#f4f6f2;font-family:system-ui;direction:rtl">\
-          <div style="font-size:40px;margin-bottom:10px">⚠️</div>\
-          <div style="font-size:16px;font-weight:700;margin-bottom:8px">טעינה נכשלה</div>\
-          <div style="font-size:12px;color:#999">אולי אין חיבור לרשת. נסה לטעון מחדש.</div>\
-          <button onclick="location.reload()" style="margin-top:20px;padding:10px 20px;background:#c6ff3d;color:#0b0d0c;border:none;border-radius:10px;font-weight:700;cursor:pointer">טען מחדש</button>\
+        boot.innerHTML = '<div style="text-align:center;padding:20px;color:#f4f6f2;font-family:system-ui;direction:rtl">\\
+          <div style="font-size:40px;margin-bottom:10px">⚠️</div>\\
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px">טעינה נכשלה</div>\\
+          <div style="font-size:12px;color:#999">אולי אין חיבור לרשת. נסה לטעון מחדש.</div>\\
+          <button onclick="location.reload()" style="margin-top:20px;padding:10px 20px;background:#c6ff3d;color:#0b0d0c;border:none;border-radius:10px;font-weight:700;cursor:pointer">טען מחדש</button>\\
         </div>';
       }
     }, 10000);
   </script>
 
-  <!-- React 18 + Babel standalone (cached by service worker after first load) -->
+  <!-- React 18 UMD only — JSX is pre-compiled at build time, no Babel runtime -->
   <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
 
-  <script type="text/babel" data-presets="env,react" data-type="module">
+  <script>
 /* ════════════════════════════════════════════════════════════════════
-   FiTracklon PWA
+   FiTracklon PWA — pre-compiled by esbuild at build time.
    Hebrew weight + nutrition tracker with Claude Opus 4.7 insights.
    All data in localStorage. No telemetry.
    ════════════════════════════════════════════════════════════════════ */
 
-''' + combined_jsx + '''
+''' + compiled_js + '''
   </script>
 </body>
 </html>
 '''
 
-# Write final index.html
+# ─── 4) Write final index.html ──────────────────────────────────────
 out_html = os.path.join(OUT, 'index.html')
 with open(out_html, 'w', encoding='utf-8') as fp:
     fp.write(HTML)
@@ -237,17 +302,28 @@ with open(vercel_json, 'w') as fp:
 }
 ''')
 
-# Walk all files for size report
+# ─── 5) Size report ─────────────────────────────────────────────────
 def walk_files(root):
     for dp, _, files in os.walk(root):
+        # Skip nested source/build directories so the totals match the
+        # files Vercel actually serves from the repo root.
+        rel = os.path.relpath(dp, root)
+        if rel.startswith('mishkach-pwa-src') or rel.startswith('node_modules') or rel.startswith('.git'):
+            continue
         for f in files:
             yield os.path.join(dp, f)
 
-total = sum(os.path.getsize(p) for p in walk_files(OUT))
+def kb(n): return f"{n//1024} KB" if n >= 1024 else f"{n} B"
+
 html_size = os.path.getsize(out_html)
-print(f"✓ index.html → {html_size//1024} KB")
-print(f"✓ Total bundle → {total//1024} KB")
+total = sum(os.path.getsize(p) for p in walk_files(OUT))
+
+print(f"✓ Source JSX (raw)        → {kb(combined_jsx_size)}")
+print(f"✓ Compiled JS (minified)  → {kb(compiled_js_size)}")
+print(f"✓ index.html              → {kb(html_size)}")
+print(f"✓ Total bundle (root)     → {kb(total)}")
+print()
 for p in sorted(walk_files(OUT)):
     rel = os.path.relpath(p, OUT)
     sz = os.path.getsize(p)
-    print(f"  - {rel:35s} {sz//1024 if sz >= 1024 else sz:>6} {'KB' if sz >= 1024 else 'B'}")
+    print(f"  - {rel:35s} {kb(sz):>10}")

@@ -1,0 +1,20 @@
+# Build artifacts (intermediates only — final index.html IS committed)
+mishkach-pwa-src/node_modules/
+node_modules/
+
+# npm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code session state
+.claude/
+
+# Tmp build outputs
+*.tmp

@@ -1,0 +1,16 @@
+{
+  "name": "mishkach-pwa-src",
+  "version": "1.0.0",
+  "description": "זה ה-**source** של האפליקציה. כל קבצי ה-JSX מתאחדים ל-`index.html` יחיד דרך `build.py`.",
+  "main": "api-claude.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}

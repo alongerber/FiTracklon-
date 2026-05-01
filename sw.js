@@ -1,8 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v2.9 — offline-first, auto-invalidate cache
+// מִשְׁקַלּוּת Service Worker v3.0 — offline-first, auto-invalidate cache
 // ════════════════════════════════════════════════════════════════════
+// v3.0 cache bump is critical: index.html structure changed dramatically
+// (JSX raw + Babel runtime → pre-compiled minified JS). Old cached
+// index.html will not work with the new sw.js.
 
-const CACHE = 'mishkalut-v29';
+const CACHE = 'mishkalut-v30';
 const CORE = [
   './',
   './index.html',
