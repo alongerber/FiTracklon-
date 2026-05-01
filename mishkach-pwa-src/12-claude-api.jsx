@@ -23,6 +23,7 @@ const MODEL_BY_FEATURE = {
   plateau_analysis:   'claude-opus-4-7',
   goal_calibration:   'claude-opus-4-7',
   report_insights:    'claude-opus-4-7',     // pattern-finding for personal report
+  workout_voice:      'claude-sonnet-4-6',   // structured Hebrew→JSON, Sonnet handles fine
 };
 
 const DEFAULT_MODEL = 'claude-opus-4-7';
@@ -392,6 +393,34 @@ async function generateGoalCalibration(snapshot, config, onUsage, state) {
     onUsage,
   });
   return text.trim();
+}
+
+// ─── Voice → workout parser (Sonnet) ────────────────────────────────
+// Takes a Hebrew transcript from Web Speech API and returns:
+//   { exerciseId, exerciseName, reps, durationSec, weight, confidence,
+//     needsConfirmation }
+// Throws on network/auth errors; caller handles them via personaErrorFromException.
+async function parseWorkoutFromVoice(transcriptText, config, onUsage) {
+  const system = buildWorkoutVoiceParserPrompt();
+  const { text } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.workout_voice,
+    system,
+    messages: [{ role: 'user', content: 'המשתמש אמר: "' + (transcriptText || '').trim() + '"' }],
+    maxTokens: 250,
+    onUsage,
+  });
+  const parsed = extractJSON(text);
+  // Normalize types so the form code can trust them
+  return {
+    exerciseId: parsed.exerciseId || null,
+    exerciseName: (parsed.exerciseName || '').trim(),
+    reps: Math.max(0, parseInt(parsed.reps) || 0),
+    durationSec: Math.max(0, parseInt(parsed.durationSec) || 0),
+    weight: parsed.weight && parsed.weight > 0 ? parseFloat(parsed.weight) : null,
+    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+    needsConfirmation: !!parsed.needsConfirmation,
+  };
 }
 
 // ─── Personal report insights (Opus) ────────────────────────────────

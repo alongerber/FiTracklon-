@@ -492,6 +492,31 @@ const STRINGS = {
     },
   },
 
+  // ─── Quick log save toast (used by QuickLogDialog) ────────────────
+  // Vars: {EX} = exercise name (Hebrew), {REPS} = reps OR minutes
+  quick_log_saved: {
+    polish_mom: {
+      male: 'אלון יקירי, נרשם. {REPS} {EX}? אבל אתה אכלת מספיק לפני?',
+      female: 'מירב יקירה, נרשם. {REPS} {EX}? אבל את אכלת מספיק לפני?',
+    },
+    salesman: {
+      male: 'QUICK SAVE 💪 {REPS} {EX} בכיס. KEEP CRUSHING!',
+      female: 'QUICK SAVE 💪 {REPS} {EX} בכיס. KEEP CRUSHING!',
+    },
+    cynic_coach: {
+      male: '{REPS} {EX}. רשמתי.',
+      female: '{REPS} {EX}. רשמתי.',
+    },
+    jealous_friend: {
+      male: '{REPS} {EX}? אני עשיתי יותר אתמול. סתם, לא רשמתי.',
+      female: '{REPS} {EX}? אני עשיתי יותר אתמול. סתם, לא רשמתי.',
+    },
+    neutral: {
+      male: 'נשמר: {REPS} {EX}',
+      female: 'נשמר: {REPS} {EX}',
+    },
+  },
+
   // ─── Workout reminder notification (used by 17-notifications.jsx) ──
   // Two-line format expected: title || body (split on '||' at runtime)
   workout_reminder: {

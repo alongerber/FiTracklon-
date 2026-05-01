@@ -182,6 +182,57 @@ function buildAISystemPrompt(promptType, state) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// Voice → workout parser (Web Speech transcript → structured workout)
+// ════════════════════════════════════════════════════════════════════
+// The transcript comes from Web Speech API in he-IL. We send it along with
+// a compact view of the catalog (id + Hebrew name + flags) so Claude can
+// pick the right exerciseId. Confidence < 0.7 → caller opens QuickLog
+// pre-filled instead of saving directly.
+
+const WORKOUT_VOICE_PARSER_PROMPT = `אתה מפרסר רישום קולי של אימון בעברית לפורמט JSON.
+
+המשתמש מקליט משפט קצר על אימון שעשה. תפקידך לזהות:
+- איזה תרגיל (במידת האפשר מהקטלוג, אחרת custom)
+- כמה חזרות, או כמה זמן (לתרגילי משך)
+- כמה משקל (אם רלוונטי)
+
+הקטלוג: {catalog}
+
+חוקים:
+1. אם התרגיל קיים בקטלוג — exerciseId הוא הid המדויק (למשל "pushup", "squat", "walking").
+2. אם לא נמצא בקטלוג — exerciseId הוא null, exerciseName הוא הטקסט שאמר המשתמש.
+3. מספרים בעברית: "שלושים" = 30, "חמישים" = 50, "מאה" = 100, "חצי שעה" = 1800 שניות.
+4. תרגילים נפוצים במשתמע: "שכיבות שמיכה" = "שכיבות סמיכה" → exerciseId: "pushup".
+5. confidence: 0-1. אם זיהית בוודאות → 0.9+. אם ניחוש מושכל → 0.5-0.8. אם לא ברור → 0.3-.
+6. אם confidence < 0.7 → needsConfirmation: true.
+
+דוגמאות:
+- "שלושים שכיבות שמיכה" →
+  {"exerciseId":"pushup","exerciseName":"שכיבות סמיכה","reps":30,"durationSec":0,"weight":null,"confidence":0.95,"needsConfirmation":false}
+- "הליכה חצי שעה" →
+  {"exerciseId":"walking","exerciseName":"הליכה","reps":0,"durationSec":1800,"weight":null,"confidence":0.95,"needsConfirmation":false}
+- "סקוואט שמונים קילו עשר חזרות" →
+  {"exerciseId":"squat","exerciseName":"סקוואט (מוט)","reps":10,"durationSec":0,"weight":80,"confidence":0.95,"needsConfirmation":false}
+- "פלאנק דקה" →
+  {"exerciseId":"plank","exerciseName":"פלאנק","reps":0,"durationSec":60,"weight":null,"confidence":0.9,"needsConfirmation":false}
+- "עשיתי ספורט" →
+  {"exerciseId":null,"exerciseName":"ספורט","reps":1,"durationSec":0,"weight":null,"confidence":0.3,"needsConfirmation":true}
+
+החזר JSON תקין בלבד, ללא markdown, ללא טקסט נוסף.`;
+
+// Build the voice parser system prompt with the catalog interpolated
+function buildWorkoutVoiceParserPrompt() {
+  // Compact catalog: just what the model needs to map text → id
+  const catalog = (typeof EXERCISE_CATALOG !== 'undefined' ? EXERCISE_CATALOG : []).map(ex => ({
+    id: ex.id,
+    name: ex.name,
+    isDuration: !!ex.isDuration,
+    hasWeight: !!ex.hasWeight,
+  }));
+  return WORKOUT_VOICE_PARSER_PROMPT.replace('{catalog}', JSON.stringify(catalog));
+}
+
+// ════════════════════════════════════════════════════════════════════
 // Personal report — system prompt for AI insights aimed at sharing
 // ════════════════════════════════════════════════════════════════════
 // Unlike the per-persona prompts above, this one bakes recipient + persona

@@ -11,6 +11,7 @@ function WorkoutScreen() {
   const [showPRs, setShowPRs] = React.useState(false);
   const [showSearch, setShowSearch] = React.useState(false);
   const [showRoutines, setShowRoutines] = React.useState(false);
+  const [showQuickLog, setShowQuickLog] = React.useState(false);
   const [prefill, setPrefill] = React.useState(null); // { name, type, exercises, routineId? } when opening NewWorkoutDialog from a routine
 
   const sessions = state.workouts?.sessions || {};
@@ -144,9 +145,22 @@ function WorkoutScreen() {
           </Card>
         )}
 
-        {/* Add button */}
-        <div style={{ marginTop: 16 }}>
-          <Button onClick={() => setNewOpen(true)}>+ אימון חדש</Button>
+        {/* Add buttons — Quick Log (primary, fast) + Full workout (secondary) */}
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button onClick={() => setShowQuickLog(true)} style={{
+            width: '100%', padding: 14, background: T.lime, color: T.bg,
+            border: 'none', borderRadius: 12,
+            fontSize: 15, fontWeight: 800, fontFamily: T.font,
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            boxShadow: `0 6px 20px ${T.lime}40`,
+          }}>⚡ רישום מהיר</button>
+          <button onClick={() => setNewOpen(true)} style={{
+            width: '100%', padding: 12, background: T.bgElev,
+            color: T.ink, border: `1px solid ${T.stroke}`, borderRadius: 12,
+            fontSize: 13, fontWeight: 700, fontFamily: T.font,
+            cursor: 'pointer',
+          }}>+ אימון מורכב (מספר תרגילים)</button>
         </div>
       </PullToRefresh>
 
@@ -176,6 +190,7 @@ function WorkoutScreen() {
           setNewOpen(true);
         }}
       />}
+      {showQuickLog && <QuickLogDialog onClose={() => setShowQuickLog(false)} />}
     </div>
   );
 }
@@ -265,7 +280,12 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
 
   const handleSave = () => {
     if (!type) return;
-    const finalName = name.trim() || getWorkoutType(type).label;
+    // N4: name is truly optional. Priority: user input → first exercise name
+    // → workout type label. If the user chose multiple exercises, the first
+    // one's name is more useful than a generic "כוח".
+    const finalName = name.trim()
+      || (exercises[0]?.name)
+      || getWorkoutType(type).label;
     dispatch({
       type: 'ADD_WORKOUT',
       date,
@@ -334,11 +354,11 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
               ))}
             </div>
 
-            <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>שם (אופציונלי)</div>
+            <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>שם (אופציונלי — לאימון מורכב)</div>
             <input
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="למשל: רגליים + ישבן"
+              placeholder="ריק → ייקרא לפי התרגיל הראשון"
               style={{
                 width: '100%', padding: '12px 14px', background: T.bgElev,
                 border: `1px solid ${T.stroke}`, borderRadius: 10, color: T.ink,
@@ -405,6 +425,7 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
             name={name}
             type={type}
             duration={duration}
+            setDuration={setDuration}
             notes={notes}
             exercises={exercises}
           />
@@ -696,21 +717,57 @@ function SetRow({ index, set, isDuration, hasWeight, canRemove, onUpdate, onRemo
 }
 
 // ─── Review screen ─────────────────────────────────────────────────
-function ReviewWorkout({ name, type, duration, notes, exercises }) {
+// `setDuration` (optional) enables the auto-calculate button. When omitted
+// the duration row is read-only.
+function ReviewWorkout({ name, type, duration, setDuration, notes, exercises }) {
   const t = getWorkoutType(type);
   const totalSets = exercises.reduce((s, e) => s + e.sets.length, 0);
+
+  // Display name follows the same rule as handleSave — first exercise wins
+  // when the user left the name blank.
+  const displayName = name.trim() || (exercises[0]?.name) || t.label;
+
+  // N5 auto-duration: each set is roughly (reps × 3s) + 60s rest, or the
+  // direct duration for time-based exercises. Caps at 1 minute minimum.
+  const autoDurationMin = React.useMemo(() => {
+    let secs = 0;
+    exercises.forEach(ex => {
+      (ex.sets || []).forEach(s => {
+        if (ex.isDuration) {
+          secs += (s.durationSec || 0);
+        } else {
+          secs += (s.reps || 0) * 3 + 60;
+        }
+      });
+    });
+    return Math.max(1, Math.round(secs / 60));
+  }, [exercises]);
+
+  const canAutoCalc = !!setDuration && exercises.length > 0 && autoDurationMin !== duration;
+
   return (
     <div>
       <Card padding={14} style={{ marginBottom: 12, background: `${t.color}10`, border: `1px solid ${t.color}44` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <div style={{ fontSize: 24 }}>{t.icon}</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{name.trim() || t.label}</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{displayName}</div>
             <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono }}>
               {t.label} · {fmtMinutes(duration)} · {exercises.length} תרגילים · {totalSets} סטים
             </div>
           </div>
         </div>
+        {/* N5: auto-duration suggestion */}
+        {canAutoCalc && (
+          <button onClick={() => setDuration(autoDurationMin)} style={{
+            marginTop: 8, width: '100%', padding: '8px 12px',
+            background: 'transparent', border: `1px dashed ${t.color}88`,
+            borderRadius: 8, color: t.color, fontSize: 12, fontWeight: 700,
+            cursor: 'pointer', fontFamily: T.font,
+          }}>
+            🔄 חשב אוטומטית · ~{fmtMinutes(autoDurationMin)}
+          </button>
+        )}
       </Card>
 
       {exercises.map((ex, idx) => (
@@ -1344,3 +1401,621 @@ function RoutineRow({ routine, onStart, onDelete }) {
     </Card>
   );
 }
+
+// ════════════════════════════════════════════════════════════════════
+// QuickLogDialog — single-screen spontaneous workout entry (~10s flow)
+// ════════════════════════════════════════════════════════════════════
+//
+// Use case: "I just did 30 push-ups." Instead of the 3-step NewWorkoutDialog
+// the user picks an exercise from a single dropdown, types reps (and optionally
+// weight), picks "now/earlier/yesterday", hits save. Done.
+//
+// Optional voice input: 🎤 button only renders when Web Speech API is available
+// (per UX decision in N1: hidden if unsupported, no scolding "not available").
+
+function _isSpeechSupported() {
+  if (typeof window === 'undefined') return false;
+  return !!(window.webkitSpeechRecognition || window.SpeechRecognition);
+}
+
+function QuickLogDialog({ onClose, prefill }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+
+  // ── form state (everything in this dialog) ──────────────────────────
+  const [exerciseId, setExerciseId] = React.useState(prefill?.exerciseId || '');
+  const [customName, setCustomName] = React.useState(prefill?.customName || '');
+  const [reps, setReps] = React.useState(prefill?.reps || 10);
+  const [durationSec, setDurationSec] = React.useState(prefill?.durationSec || 60);
+  const [weight, setWeight] = React.useState(prefill?.weight || 0);
+  const [whenChoice, setWhenChoice] = React.useState('now');
+  const [customDate, setCustomDate] = React.useState(todayISO());
+  const [customTime, setCustomTime] = React.useState(nowHHMM());
+  const [showVoice, setShowVoice] = React.useState(false);
+
+  // ── derived from exerciseId ─────────────────────────────────────────
+  const isCustom = exerciseId === '__custom__';
+  const catalogEx = exerciseId && !isCustom ? getExercise(exerciseId) : null;
+  const isDuration = !!(catalogEx?.isDuration);
+  const hasWeight = !!(catalogEx?.hasWeight);
+  // Display name used in toast & saved workout
+  const displayName = isCustom ? customName.trim() : (catalogEx?.name || '');
+
+  const speechAvailable = React.useMemo(() => _isSpeechSupported(), []);
+
+  // ── compute the actual date+time for save ──────────────────────────
+  const resolvedWhen = React.useMemo(() => {
+    const now = new Date();
+    if (whenChoice === 'now')      return { date: todayISO(), time: nowHHMM() };
+    if (whenChoice === 'morning')  return { date: todayISO(), time: '08:00' };
+    if (whenChoice === 'yesterday') return { date: addDaysISO(todayISO(), -1), time: '08:00' };
+    if (whenChoice === 'hour_ago') {
+      const t = new Date(now.getTime() - 60 * 60 * 1000);
+      const date = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+      const time = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+      return { date, time };
+    }
+    // custom
+    return { date: customDate, time: customTime };
+  }, [whenChoice, customDate, customTime]);
+
+  // ── validation ──────────────────────────────────────────────────────
+  const valid = (() => {
+    if (!exerciseId) return false;
+    if (isCustom && !customName.trim()) return false;
+    if (isDuration && (!durationSec || durationSec <= 0)) return false;
+    if (!isDuration && (!reps || reps <= 0)) return false;
+    return true;
+  })();
+
+  // ── save → ADD_WORKOUT, persona-aware toast, close ──────────────────
+  const handleSave = () => {
+    if (!valid) return;
+    const { date, time } = resolvedWhen;
+
+    // Determine workout type from exercise category, falling back to 'other'
+    const wType = catalogEx?.category
+      || (isCustom ? 'other' : 'other');
+
+    // Auto-estimate duration: each rep ~3s + 60s rest, or use durationSec directly
+    const durationMin = isDuration
+      ? Math.max(1, Math.round(durationSec / 60))
+      : Math.max(1, Math.round((reps * 3 + 60) / 60));
+
+    const oneSet = isDuration
+      ? { durationSec, distanceM: 0 }
+      : { reps, weight: (hasWeight || (isCustom && weight > 0)) ? weight : null };
+
+    dispatch({
+      type: 'ADD_WORKOUT',
+      date,
+      workout: {
+        time,
+        name: '',  // quick logs don't need a name; row will show exercise name
+        type: wType,
+        durationMin,
+        notes: '',
+        exercises: [{
+          id: uid(),
+          exerciseId: isCustom ? null : exerciseId,
+          name: displayName,
+          muscle: catalogEx?.muscle || null,
+          hasWeight: hasWeight || (isCustom && weight > 0),
+          isDuration: isDuration,
+          sets: [oneSet],
+          notes: '',
+        }],
+      },
+    });
+
+    // Persona toast — vars: {EX} = exercise name, {REPS} = reps or minutes
+    const repsForVar = isDuration ? Math.round(durationSec / 60) : reps;
+    const fallback = isDuration
+      ? `נשמר: ${repsForVar} דקות ${displayName}`
+      : `נשמר: ${repsForVar} ${displayName}`;
+    toast(personaStr(state, 'quick_log_saved', fallback, { EX: displayName, REPS: repsForVar }),
+      { type: 'success', duration: 3500 });
+
+    onClose();
+  };
+
+  // ── voice integration: parsed result → fills the form ───────────────
+  const handleVoiceResult = (parsed, transcriptText) => {
+    setShowVoice(false);
+    if (!parsed) return;
+    // Map AI result → form state. exerciseId may be a catalog id, or null
+    // (custom). When null, fall back to exerciseName from the parser.
+    if (parsed.exerciseId && getExercise(parsed.exerciseId)) {
+      setExerciseId(parsed.exerciseId);
+      setCustomName('');
+    } else if (parsed.exerciseName) {
+      setExerciseId('__custom__');
+      setCustomName(parsed.exerciseName);
+    }
+    if (parsed.reps && parsed.reps > 0) setReps(parsed.reps);
+    if (parsed.durationSec && parsed.durationSec > 0) setDurationSec(parsed.durationSec);
+    if (parsed.weight && parsed.weight > 0) setWeight(parsed.weight);
+    // No auto-save — user always reviews + clicks save (per N2 UX decision)
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 835,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      {/* Header */}
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} aria-label="סגור" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>QUICK LOG</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>⚡ רישום מהיר</div>
+        </div>
+        {speechAvailable && (
+          <button onClick={() => setShowVoice(true)} aria-label="הקלטה" style={{
+            background: `${T.lime}22`, color: T.lime, border: `1px solid ${T.lime}55`,
+            padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+            cursor: 'pointer', fontFamily: T.font, display: 'flex', alignItems: 'center', gap: 6,
+          }}>🎤 דבר</button>
+        )}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 18px 24px' }}>
+        {/* Exercise selector */}
+        <Label>תרגיל</Label>
+        <select value={exerciseId} onChange={e => setExerciseId(e.target.value)} style={selectStyle}>
+          <option value="">בחר תרגיל...</option>
+          {MUSCLE_GROUPS.map(mg => (
+            <optgroup key={mg.id} label={mg.label}>
+              {EXERCISE_CATALOG.filter(ex => ex.muscle === mg.id).map(ex => (
+                <option key={ex.id} value={ex.id}>{ex.name}</option>
+              ))}
+            </optgroup>
+          ))}
+          <option value="__custom__">— תרגיל מותאם —</option>
+        </select>
+
+        {isCustom && (
+          <>
+            <Label style={{ marginTop: 14 }}>שם התרגיל</Label>
+            <input
+              value={customName}
+              onChange={e => setCustomName(e.target.value)}
+              placeholder="למשל: סקייטבורד, פעולות גן"
+              style={textInputStyle}
+              autoFocus
+            />
+          </>
+        )}
+
+        {/* Reps OR duration */}
+        {exerciseId && (
+          <>
+            <Label style={{ marginTop: 14 }}>{isDuration ? 'משך' : 'חזרות'}</Label>
+            {isDuration
+              ? <NumberStepper value={Math.round(durationSec / 60)}
+                  onChange={(min) => setDurationSec(min * 60)}
+                  min={1} max={300} step={5} unit="דק׳" />
+              : <NumberStepper value={reps}
+                  onChange={setReps}
+                  min={1} max={500} step={1} unit="חזרות" />
+            }
+          </>
+        )}
+
+        {/* Weight (only if catalog says hasWeight, or for custom) */}
+        {exerciseId && (hasWeight || isCustom) && !isDuration && (
+          <>
+            <Label style={{ marginTop: 14 }}>
+              משקל {isCustom ? <span style={{ color: T.inkMute, fontWeight: 400 }}>· אופציונלי</span> : null}
+            </Label>
+            <NumberStepper value={weight} onChange={setWeight}
+              min={0} max={500} step={2.5} unit="ק״ג" />
+          </>
+        )}
+
+        {/* Date/time selector (N6) */}
+        {exerciseId && (
+          <>
+            <Label style={{ marginTop: 18 }}>מתי?</Label>
+            <select value={whenChoice} onChange={e => setWhenChoice(e.target.value)} style={selectStyle}>
+              <option value="now">עכשיו</option>
+              <option value="hour_ago">לפני שעה</option>
+              <option value="morning">היום בבוקר</option>
+              <option value="yesterday">אתמול</option>
+              <option value="custom">תאריך אחר...</option>
+            </select>
+
+            {whenChoice === 'custom' && (
+              <div style={{
+                marginTop: 10, padding: 12, background: T.bgElev,
+                border: `1px solid ${T.stroke}`, borderRadius: 10,
+                display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10,
+              }}>
+                <div>
+                  <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginBottom: 4 }}>תאריך</div>
+                  <input type="date" value={customDate}
+                    onChange={e => setCustomDate(e.target.value)}
+                    max={todayISO()}
+                    style={dateTimeInputStyle} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginBottom: 4 }}>שעה</div>
+                  <input type="time" value={customTime}
+                    onChange={e => setCustomTime(e.target.value)}
+                    style={dateTimeInputStyle} />
+                </div>
+              </div>
+            )}
+
+            {/* Inline preview of resolved time, so user sees what'll be saved */}
+            {whenChoice !== 'now' && (
+              <div style={{ marginTop: 8, fontSize: 11, color: T.inkMute, fontFamily: T.mono, textAlign: 'center' }}>
+                ייכתב כ: {fmt.day(resolvedWhen.date)} · {resolvedWhen.time}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Save bar (sticky bottom) */}
+      <div style={{
+        padding: '12px 18px', borderTop: `1px solid ${T.stroke}`, background: T.bg,
+      }}>
+        <button onClick={handleSave} disabled={!valid} style={{
+          width: '100%', padding: 14,
+          background: valid ? T.lime : T.bgElev2,
+          color: valid ? T.bg : T.inkMute,
+          border: 'none', borderRadius: 12,
+          fontSize: 15, fontWeight: 800, fontFamily: T.font,
+          cursor: valid ? 'pointer' : 'not-allowed',
+        }}>
+          {valid ? `שמור · ${displayName}` : 'בחר תרגיל'}
+        </button>
+      </div>
+
+      {showVoice && <VoiceInputDialog
+        onClose={() => setShowVoice(false)}
+        onResult={handleVoiceResult}
+      />}
+    </div>
+  );
+}
+
+// Small label helper used inside QuickLog
+function Label({ children, style }) {
+  return (
+    <div style={{
+      fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6,
+      ...style,
+    }}>{children}</div>
+  );
+}
+
+const selectStyle = {
+  width: '100%', padding: '12px 14px', background: T.bgElev,
+  border: `1px solid ${T.stroke}`, borderRadius: 10,
+  color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
+  direction: 'rtl', textAlign: 'right', boxSizing: 'border-box',
+  appearance: 'none', WebkitAppearance: 'none',
+  // Caret arrow on the LEFT (since RTL); use a tiny inline SVG so we don't hit a font
+  backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M5 6L0 0h10z' fill='%23a4a8a3'/></svg>")`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: '12px center',
+  paddingLeft: 30,
+};
+const textInputStyle = {
+  width: '100%', padding: '12px 14px', background: T.bgElev,
+  border: `1px solid ${T.stroke}`, borderRadius: 10,
+  color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
+  direction: 'rtl', textAlign: 'right', boxSizing: 'border-box',
+};
+const dateTimeInputStyle = {
+  width: '100%', padding: '10px 12px', background: T.bg,
+  border: `1px solid ${T.stroke}`, borderRadius: 8,
+  color: T.ink, fontSize: 13, fontFamily: T.mono, outline: 'none',
+  direction: 'ltr', textAlign: 'left', boxSizing: 'border-box',
+};
+
+// ════════════════════════════════════════════════════════════════════
+// VoiceInputDialog — Web Speech API → Claude parser → fills QuickLog
+// ════════════════════════════════════════════════════════════════════
+//
+// Flow:
+//   idle → user taps "🎤 התחל" → 'recording' → user taps "סיים"
+//      → 'transcribed' (3 buttons: ✓ שלח / ✏️ ערוך / 🎤 שוב)
+//      → ✓: 'parsing' → onResult(parsed, text)
+//      → ✏️: onResult({}, text) — opens QuickLog with raw text only
+//      → 🎤: back to 'recording'
+//
+// If parsed.confidence < 0.7 OR parsed.needsConfirmation, we still call
+// onResult so QuickLog opens for review (no silent low-confidence saves).
+
+function VoiceInputDialog({ onClose, onResult }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+
+  const [phase, setPhase] = React.useState('idle'); // idle|recording|transcribed|parsing|error
+  const [transcript, setTranscript] = React.useState('');
+  const [errorMsg, setErrorMsg] = React.useState('');
+
+  const recognitionRef = React.useRef(null);
+
+  // Build a recognition instance lazily and track it via ref so callbacks
+  // can stop it. We don't put it in state — it's an imperative object.
+  const startRecording = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setErrorMsg('זיהוי קולי לא זמין בדפדפן הזה.');
+      setPhase('error');
+      return;
+    }
+    setTranscript('');
+    setErrorMsg('');
+    try {
+      const rec = new SR();
+      rec.lang = 'he-IL';
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+
+      rec.onresult = (event) => {
+        let text = '';
+        for (let i = 0; i < event.results.length; i++) {
+          text += event.results[i][0].transcript;
+        }
+        setTranscript(text.trim());
+      };
+      rec.onerror = (e) => {
+        // Common values: 'no-speech', 'aborted', 'not-allowed', 'network'
+        const msg = e.error === 'not-allowed'
+          ? 'הרשאת מיקרופון נדחתה. אפשר אותה בהגדרות הדפדפן.'
+          : e.error === 'no-speech'
+          ? 'לא שמעתי כלום. תנסה שוב.'
+          : 'שגיאה בזיהוי קולי. תנסה שוב.';
+        setErrorMsg(msg);
+        setPhase('error');
+      };
+      rec.onend = () => {
+        // Move to transcribed only if we actually got something
+        setPhase(prev => {
+          if (prev !== 'recording') return prev;
+          // Use a microtask to read the latest transcript via setState callback
+          return 'transcribed';
+        });
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+      setPhase('recording');
+    } catch (e) {
+      setErrorMsg('לא הצלחנו להפעיל את המיקרופון.');
+      setPhase('error');
+    }
+  };
+
+  const stopRecording = () => {
+    const rec = recognitionRef.current;
+    if (rec) {
+      try { rec.stop(); } catch (_) {}
+    }
+  };
+
+  // Cleanup if user closes mid-recording
+  React.useEffect(() => {
+    return () => {
+      const rec = recognitionRef.current;
+      if (rec) {
+        try { rec.abort(); } catch (_) {}
+      }
+    };
+  }, []);
+
+  // ✓ שלח → Claude parse
+  const handleSend = async () => {
+    if (!transcript.trim()) return;
+    if (!apiReady(state.apiConfig)) {
+      toast('הגדר API בפרופיל לזיהוי תרגיל מהקול', { type: 'error' });
+      return;
+    }
+    setPhase('parsing');
+    try {
+      const parsed = await parseWorkoutFromVoice(transcript, state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({ type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+          feature: 'workout_voice', costUSD: cost,
+        });
+      });
+      // Always pass through to QuickLog — no silent saves, even on high confidence.
+      // QuickLog still requires explicit "save" button click.
+      onResult(parsed, transcript);
+    } catch (e) {
+      const msg = personaErrorFromException(state, e);
+      toast(msg, { type: 'error' });
+      setPhase('transcribed'); // back to review state
+    }
+  };
+
+  // ✏️ ערוך → open QuickLog with no parse, just the raw text in customName
+  const handleEdit = () => {
+    onResult({ exerciseName: transcript }, transcript);
+  };
+
+  // 🎤 שוב → reset and re-record
+  const handleRetry = () => {
+    setTranscript('');
+    setErrorMsg('');
+    setPhase('idle');
+    // Auto-start
+    setTimeout(startRecording, 100);
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 950,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(6px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 24, maxWidth: 380, width: '100%', direction: 'rtl', textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 2, marginBottom: 6 }}>
+          VOICE · קול
+        </div>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 18 }}>
+          {phase === 'idle'        && 'מה עשית?'}
+          {phase === 'recording'   && 'מקשיב...'}
+          {phase === 'transcribed' && 'שמעתי:'}
+          {phase === 'parsing'     && 'מבין...'}
+          {phase === 'error'       && '🚫 בעיה'}
+        </div>
+
+        {/* IDLE — start button */}
+        {phase === 'idle' && (
+          <>
+            <button onClick={startRecording} style={micButton(T.lime, T.bg)}>🎤</button>
+            <div style={{ marginTop: 14, fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
+              לחץ והגד למשל:<br/>
+              <span style={{ color: T.ink, fontFamily: T.mono }}>"שלושים שכיבות שמיכה"</span><br/>
+              <span style={{ color: T.ink, fontFamily: T.mono }}>"הליכה חצי שעה"</span>
+            </div>
+          </>
+        )}
+
+        {/* RECORDING — animated waves + stop button */}
+        {phase === 'recording' && (
+          <>
+            <_VoiceWaves />
+            <button onClick={stopRecording} style={{
+              marginTop: 18, padding: '12px 24px',
+              background: T.rose, color: T.ink, border: 'none', borderRadius: 12,
+              fontSize: 14, fontWeight: 700, fontFamily: T.font, cursor: 'pointer',
+            }}>סיים</button>
+            {transcript && (
+              <div style={{ marginTop: 14, fontSize: 14, color: T.inkSub, fontStyle: 'italic', lineHeight: 1.5, minHeight: 40 }}>
+                "{transcript}"
+              </div>
+            )}
+          </>
+        )}
+
+        {/* TRANSCRIBED — show text + 3 buttons */}
+        {phase === 'transcribed' && (
+          <>
+            <div style={{
+              padding: 14, background: T.bg, borderRadius: 10,
+              fontSize: 16, color: T.ink, lineHeight: 1.5, marginBottom: 16, fontWeight: 600,
+            }}>
+              {transcript || <span style={{ color: T.inkMute, fontWeight: 400 }}>לא שמעתי כלום</span>}
+            </div>
+            {transcript ? (
+              <>
+                <button onClick={handleSend} style={voiceActionBtn(T.lime, T.bg)}>
+                  ✓ שלח לזיהוי
+                </button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button onClick={handleEdit} style={voiceActionBtnSmall}>
+                    ✏️ ערוך ידנית
+                  </button>
+                  <button onClick={handleRetry} style={voiceActionBtnSmall}>
+                    🎤 הקלט שוב
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button onClick={handleRetry} style={voiceActionBtn(T.lime, T.bg)}>
+                🎤 נסה שוב
+              </button>
+            )}
+          </>
+        )}
+
+        {/* PARSING — loading state */}
+        {phase === 'parsing' && (
+          <>
+            <div style={{
+              padding: 14, background: T.bg, borderRadius: 10,
+              fontSize: 14, color: T.ink, lineHeight: 1.5, marginBottom: 16, fontStyle: 'italic',
+            }}>
+              "{transcript}"
+            </div>
+            <SkeletonLines lines={2} />
+          </>
+        )}
+
+        {/* ERROR */}
+        {phase === 'error' && (
+          <>
+            <div style={{ fontSize: 13, color: T.rose, marginBottom: 16 }}>
+              {errorMsg || 'שגיאה לא ידועה'}
+            </div>
+            <button onClick={handleRetry} style={voiceActionBtn(T.lime, T.bg)}>
+              נסה שוב
+            </button>
+          </>
+        )}
+
+        {/* Close link */}
+        {phase !== 'parsing' && (
+          <button onClick={onClose} style={{
+            marginTop: 14, background: 'transparent', border: 'none',
+            color: T.inkMute, fontSize: 12, cursor: 'pointer', fontFamily: T.font,
+          }}>ביטול</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Animated 5-bar voice waves while recording
+function _VoiceWaves() {
+  return (
+    <>
+      <style>{`
+        @keyframes mk-voice-wave {
+          0%, 100% { transform: scaleY(0.3); }
+          50%      { transform: scaleY(1.0); }
+        }
+      `}</style>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 6, height: 80, padding: 12,
+      }}>
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{
+            width: 8, height: 60, background: T.lime, borderRadius: 4,
+            animation: `mk-voice-wave 0.9s ease-in-out infinite`,
+            animationDelay: `${i * 0.12}s`,
+          }} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function micButton(bg, fg) {
+  return {
+    width: 110, height: 110, borderRadius: 55,
+    background: bg, color: fg, border: 'none',
+    fontSize: 48, cursor: 'pointer',
+    boxShadow: `0 8px 32px ${T.lime}55`,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  };
+}
+function voiceActionBtn(bg, fg) {
+  return {
+    width: '100%', padding: 14,
+    background: bg, color: fg, border: 'none', borderRadius: 12,
+    fontSize: 14, fontWeight: 800, fontFamily: T.font, cursor: 'pointer',
+  };
+}
+const voiceActionBtnSmall = {
+  flex: 1, padding: 10,
+  background: T.bgElev2, color: T.ink,
+  border: `1px solid ${T.stroke}`, borderRadius: 10,
+  fontSize: 12, fontWeight: 700, fontFamily: T.font, cursor: 'pointer',
+};
