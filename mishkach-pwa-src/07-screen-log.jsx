@@ -42,6 +42,16 @@ function LogScreen({ onClose, onSaved }) {
     const weightKg = unit === 'lb' ? wNum / 2.20462 : wNum;
     const rounded = Math.round(weightKg * 10) / 10;
 
+    // Extreme weight sanity check (always evaluated in kg, after unit conversion)
+    if (rounded < 30) {
+      toast(personaError(state, 'weight_too_low', 'המשקל נמוך מהטווח הסביר'), { type: 'error', duration: 4500 });
+      return;
+    }
+    if (rounded > 300) {
+      toast(personaError(state, 'weight_too_high', 'המשקל גבוה מהטווח הסביר'), { type: 'error', duration: 4500 });
+      return;
+    }
+
     dispatch({
       type: 'UPSERT_ENTRY',
       date: today,

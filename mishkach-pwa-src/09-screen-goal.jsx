@@ -110,8 +110,110 @@ function GoalScreen({ onClose }) {
           })}
         </Col>
 
+        {state.goal.weight !== null && !stats.empty && (
+          <GoalCalibrationCard />
+        )}
+
         <Button onClick={save}>שמור יעד</Button>
       </div>
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Goal calibration card — AI-driven recommendation based on actual pace
+// ════════════════════════════════════════════════════════════════════
+function GoalCalibrationCard() {
+  const { state, stats, dispatch } = useStore();
+  const toast = useToast();
+  const [loading, setLoading] = React.useState(false);
+  const cached = state.insights.calibration;
+  const hasKey = apiReady(state.apiConfig);
+
+  const isStale = cached && (Date.now() - new Date(cached.generatedAt).getTime()) > 7 * 24 * 3600 * 1000;
+
+  const calibrate = async () => {
+    if (!hasKey) {
+      toast('הגדר API בפרופיל', { type: 'error' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const snapshot = buildInsightSnapshot(state, stats, 21); // 3 weeks for pace context
+      const text = await generateGoalCalibration(snapshot, state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({
+          type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          feature: 'goal_calibration',
+          costUSD: cost,
+        });
+      }, state);
+      dispatch({
+        type: 'SET_INSIGHT', kind: 'calibration',
+        payload: { text, generatedAt: new Date().toISOString() },
+      });
+    } catch (e) {
+      toast(personaErrorFromException(state, e), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 18, marginTop: 4,
+      background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+      border: `1px solid ${cached ? T.strokeHi : T.stroke}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 14,
+          background: `${T.lime}25`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 14,
+        }}>✨</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>כיול יעד · AI</div>
+          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
+            השוואה בין הקצב המתוכנן לקצב בפועל
+          </div>
+        </div>
+        {cached && !loading && (
+          <button onClick={calibrate} style={{
+            background: 'transparent', border: `1px solid ${T.stroke}`, color: T.inkSub,
+            padding: '5px 10px', borderRadius: 8, fontSize: 11, fontFamily: T.mono,
+            cursor: 'pointer',
+          }}>רענן</button>
+        )}
+      </div>
+
+      {loading ? (
+        <LoadingPersona message="מכייל את היעד שלך..." />
+      ) : cached ? (
+        <>
+          <div style={{ fontSize: 13, lineHeight: 1.7, color: T.ink, whiteSpace: 'pre-wrap', marginTop: 4 }}>
+            {cached.text}
+          </div>
+          <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, marginTop: 10, textAlign: 'left', direction: 'ltr' }}>
+            {fmt.relativeDay(cached.generatedAt.slice(0, 10))} · {isStale ? 'ישן' : 'עדכני'}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 12 }}>
+            המנוע יבדוק את הקצב המתוכנן מול הקצב בפועל ב-3 השבועות האחרונים, ויציע התאמה למספר הקלוריות או ללוח הזמנים.
+          </div>
+          <button onClick={calibrate} disabled={!hasKey} style={{
+            background: hasKey ? T.lime : T.bgElev2, color: hasKey ? T.bg : T.inkMute,
+            border: 'none', padding: '10px 16px', borderRadius: 10,
+            fontSize: 13, fontWeight: 700, fontFamily: T.font,
+            cursor: hasKey ? 'pointer' : 'not-allowed', width: '100%',
+          }}>
+            {hasKey ? 'כייל בעזרת AI' : 'הגדר API בפרופיל'}
+          </button>
+        </>
+      )}
+    </Card>
   );
 }

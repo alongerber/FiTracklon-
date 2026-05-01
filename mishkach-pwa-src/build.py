@@ -1,8 +1,10 @@
 """Assemble all JSX source files into the final single-file PWA index.html."""
 import os, shutil
 
-SRC = '/home/claude/mishkach-pwa-src'
-OUT = '/mnt/user-data/outputs/mishkach-pwa'
+# Resolve paths relative to this script's location, so the build works from
+# anywhere (cd to repo root, cd to mishkach-pwa-src/, IDE play button, etc).
+SRC = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.abspath(os.path.join(SRC, '..'))  # repo root — what Vercel serves
 
 os.makedirs(OUT, exist_ok=True)
 
