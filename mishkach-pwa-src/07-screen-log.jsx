@@ -1,15 +1,36 @@
 // ════════════════════════════════════════════════════════════════════
 // 07-screen-log.jsx — Weight entry with actual save to state
 // ════════════════════════════════════════════════════════════════════
+//
+// v3.2 added back-date support: 4 quick chips (today/yesterday/two days
+// ago/custom) + persona-aware overwrite confirmation if there's already
+// a weight on the chosen date. Milestone toasts (goal reached, new low,
+// trend) only fire for today's entries — back-filled days don't make
+// sense to celebrate.
 
 function LogScreen({ onClose, onSaved }) {
   const { state, stats, dispatch } = useStore();
   const toast = useToast();
   const unit = state.settings.unit;
   const today = todayISO();
-  const existing = state.entries[today];
 
-  // If today has an entry, start with it; else use last entry as reference
+  // ── Target date selector state ──────────────────────────────────────
+  const [whenChoice, setWhenChoice] = React.useState('today'); // today | yesterday | twodays | custom
+  const [customDate, setCustomDate] = React.useState(today);
+
+  // Resolve which date the user is actually saving to
+  const targetDate = React.useMemo(() => {
+    if (whenChoice === 'today')     return today;
+    if (whenChoice === 'yesterday') return addDaysISO(today, -1);
+    if (whenChoice === 'twodays')   return addDaysISO(today, -2);
+    return customDate;
+  }, [whenChoice, customDate, today]);
+
+  const isToday = targetDate === today;
+  const existing = state.entries[targetDate];
+
+  // ── Weight input — re-init only when targetDate changes (prevents the
+  // input from snapping back while the user is typing) ────────────────
   const initialWeight = existing
     ? fmt.kg(existing.weight, unit)
     : stats.current !== null && stats.current !== undefined
@@ -19,6 +40,16 @@ function LogScreen({ onClose, onSaved }) {
   const [weight, setWeight] = React.useState(initialWeight);
   const [note, setNote] = React.useState(existing?.note || '');
   const [showNote, setShowNote] = React.useState(!!existing?.note);
+  // Confirm-dialog visibility for the overwrite warning
+  const [confirmOverwrite, setConfirmOverwrite] = React.useState(false);
+
+  // When the date changes, reload weight + note from whatever's there
+  React.useEffect(() => {
+    setWeight(initialWeight);
+    setNote(existing?.note || '');
+    setShowNote(!!existing?.note);
+    // intentionally not depending on initialWeight (derived) — only on date
+  }, [targetDate]);
 
   const handleKey = (k) => {
     if (k === '⌫') return setWeight(w => w.length > 1 ? w.slice(0, -1) : '0');
@@ -31,14 +62,18 @@ function LogScreen({ onClose, onSaved }) {
   const wNum = parseFloat(weight);
   const valid = !isNaN(wNum) && wNum > 20 && wNum < 400;
 
-  const deltaFromPrev = valid && stats.current !== null && !existing
-    ? wNum - stats.current
-    : valid && existing
-      ? wNum - (stats.previous !== null ? stats.previous : stats.current)
-      : null;
+  // Delta vs previous reference — only meaningful when saving today
+  const deltaFromPrev = !isToday ? null : (
+    valid && stats.current !== null && !existing
+      ? wNum - stats.current
+      : valid && existing
+        ? wNum - (stats.previous !== null ? stats.previous : stats.current)
+        : null
+  );
 
-  const handleSave = () => {
-    if (!valid) return;
+  // ── Save logic — split so the confirm dialog can call the actual save
+  // after the user clicks "החלף" ─────────────────────────────────────
+  const performSave = () => {
     const weightKg = unit === 'lb' ? wNum / 2.20462 : wNum;
     const rounded = Math.round(weightKg * 10) / 10;
 
@@ -52,23 +87,36 @@ function LogScreen({ onClose, onSaved }) {
       return;
     }
 
+    // Time field: keep existing if editing, else "now" for today, else 08:00 default
+    const timeForSave = existing?.time
+      || (isToday ? nowHHMM() : '08:00');
+
     dispatch({
       type: 'UPSERT_ENTRY',
-      date: today,
+      date: targetDate,
       weight: rounded,
-      time: nowHHMM(),
+      time: timeForSave,
       note: note.trim(),
     });
 
-    // Immediate toast for the save event
+    // Save toast — three branches: edited / today new / back-dated new
     if (existing) {
-      toast('השקילה של היום עודכנה (רק אחת נשמרת ביום)', { type: 'success' });
-    } else {
+      const dateLabel = fmt.day(targetDate);
+      toast(`השקילה של ${dateLabel} עודכנה`, { type: 'success' });
+    } else if (isToday) {
       toast(personaStr(state, 'first_weight', 'נשמר!'), { type: 'success' });
+    } else {
+      // Back-dated, brand new entry — persona-aware
+      toast(personaStr(state, 'weight_saved_backdated',
+        `השקילה נרשמה ל-${fmt.day(targetDate)}.`,
+        { DATE: fmt.day(targetDate) }
+      ), { type: 'success' });
     }
 
-    // ─── Milestone checks (only on new entries, not edits) ──────────
-    if (!existing) {
+    // ─── Milestone checks — only when saving TODAY for the first time ──
+    // Back-dated entries don't trigger goal/PR/trend toasts because the
+    // "current" stats are still anchored to the latest real day.
+    if (!existing && isToday) {
       const goalKg = state.goal?.weight;
       const alreadyReached = state.settings.goalReachedAt;
       const startKg = state.user?.startWeight;
@@ -79,7 +127,6 @@ function LogScreen({ onClose, onSaved }) {
         const reached = wantingToLose ? rounded <= goalKg : rounded >= goalKg;
         if (reached) {
           dispatch({ type: 'SET_SETTING', key: 'goalReachedAt', value: today });
-          // Delayed toast so the first one doesn't get stomped
           setTimeout(() => {
             toast(personaStr(state, 'goal_reached', 'הגעת ליעד! 🎯'), { type: 'success', duration: 6000 });
           }, 1500);
@@ -92,7 +139,6 @@ function LogScreen({ onClose, onSaved }) {
       if (isLossJourney) {
         if (prevLow === null || rounded < prevLow) {
           dispatch({ type: 'SET_SETTING', key: 'lastLowWeight', value: rounded });
-          // Only celebrate if there was a previous low (not the very first entry)
           if (prevLow !== null && prevLow - rounded >= 0.1) {
             setTimeout(() => {
               toast(personaStr(state, 'new_low_weight', 'שיא חדש למטה!'), { type: 'success', duration: 5000 });
@@ -103,7 +149,7 @@ function LogScreen({ onClose, onSaved }) {
 
       // 3) WEIGHT TREND — small up/down toast (significant delta only, >0.2 kg)
       const prevWeight = stats.current;
-      if (prevWeight !== null && !existing) {
+      if (prevWeight !== null) {
         const delta = rounded - prevWeight;
         if (delta <= -0.2) {
           setTimeout(() => {
@@ -119,7 +165,6 @@ function LogScreen({ onClose, onSaved }) {
       // Bump persona interaction counter + check for sincerity moment
       dispatch({ type: 'INCREMENT_PERSONA_INTERACTIONS' });
       const newCount = (state.settings.personaInteractions || 0) + 1;
-      // Check sincerity on the NEW count (counter is 1-indexed for the 20th interaction)
       if (newCount > 0 && newCount % 20 === 0) {
         const sincereLine = getSincerityLine({
           ...state,
@@ -136,6 +181,24 @@ function LogScreen({ onClose, onSaved }) {
     onSaved?.();
   };
 
+  // Top-level save handler — gates on overwrite confirmation
+  const handleSave = () => {
+    if (!valid) return;
+    if (existing) {
+      setConfirmOverwrite(true); // open confirm dialog; performSave() runs on confirm
+      return;
+    }
+    performSave();
+  };
+
+  // Header label — depends on the chosen date
+  const headerTitle = (() => {
+    if (existing && isToday)        return 'עדכון שקילה של היום';
+    if (existing && !isToday)       return `עדכון שקילה · ${fmt.day(targetDate)}`;
+    if (!existing && isToday)       return 'הזנת משקל';
+    return `הזנת משקל · ${fmt.day(targetDate)}`;
+  })();
+
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '12px 18px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -144,18 +207,76 @@ function LogScreen({ onClose, onSaved }) {
           border: 'none', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1, textAlign: 'center', fontSize: 14, fontWeight: 700 }}>
-          {existing ? 'עדכון שקילה של היום' : 'הזנת משקל'}
+          {headerTitle}
         </div>
         <div style={{ width: 36 }} />
       </div>
 
-      <div style={{ padding: '16px 24px 0', textAlign: 'center' }}>
+      <div style={{ padding: '12px 18px 0', textAlign: 'center' }}>
         <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
-          {fmt.day(today)} · {nowHHMM()}
+          {fmt.day(targetDate)}{isToday ? ` · ${nowHHMM()}` : ''}
         </div>
+      </div>
+
+      {/* Date chip selector */}
+      <div style={{ padding: '10px 14px 0' }}>
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+          {[
+            { k: 'today',     label: 'היום' },
+            { k: 'yesterday', label: 'אתמול' },
+            { k: 'twodays',   label: 'שלשום' },
+            { k: 'custom',    label: 'אחר...' },
+          ].map(opt => {
+            const on = whenChoice === opt.k;
+            // Show a tiny dot if there's already an entry on that date
+            const dateForChip = opt.k === 'today'     ? today
+                              : opt.k === 'yesterday' ? addDaysISO(today, -1)
+                              : opt.k === 'twodays'   ? addDaysISO(today, -2)
+                              : null;
+            const hasEntry = dateForChip ? !!state.entries[dateForChip] : false;
+            return (
+              <button key={opt.k} onClick={() => setWhenChoice(opt.k)} style={{
+                position: 'relative',
+                padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+                background: on ? T.lime : T.bgElev,
+                color: on ? T.bg : T.inkSub,
+                border: `1px solid ${on ? T.lime : T.stroke}`,
+                fontSize: 12, fontWeight: 700, fontFamily: T.font,
+                whiteSpace: 'nowrap',
+              }}>
+                {opt.label}
+                {hasEntry && !on && (
+                  <span style={{
+                    position: 'absolute', top: 4, left: 6,
+                    width: 6, height: 6, borderRadius: 3, background: T.amber,
+                  }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Custom date picker — only when "אחר..." chosen */}
+        {whenChoice === 'custom' && (
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center' }}>
+            <input
+              type="date"
+              value={customDate}
+              max={today}
+              onChange={e => setCustomDate(e.target.value)}
+              style={{
+                padding: '8px 12px', background: T.bgElev,
+                border: `1px solid ${T.stroke}`, borderRadius: 10,
+                color: T.ink, fontSize: 13, fontFamily: T.mono, outline: 'none',
+                direction: 'ltr', textAlign: 'left',
+              }}
+            />
+          </div>
+        )}
+
         {existing && (
-          <div style={{ marginTop: 6, fontSize: 10, color: T.amber, fontFamily: T.mono }}>
-            יש שקילה קיימת · שמירה תדרוס
+          <div style={{ marginTop: 8, fontSize: 10, color: T.amber, fontFamily: T.mono, textAlign: 'center' }}>
+            יש שקילה קיימת ב{isToday ? 'יום הזה' : `-${fmt.day(targetDate)}`} · {fmt.kg(existing.weight, unit)} {fmt.unitLabel(unit)}
           </div>
         )}
       </div>
@@ -214,6 +335,25 @@ function LogScreen({ onClose, onSaved }) {
           </Button>
         </div>
       </div>
+
+      {/* Overwrite confirmation — persona-aware */}
+      <ConfirmDialog
+        open={confirmOverwrite}
+        title="להחליף את הקיים?"
+        message={existing
+          ? personaStr(state, 'weight_overwrite_warning',
+              `קיימת שקילה ב-${fmt.day(targetDate)}: ${fmt.kg(existing.weight, unit)} ק״ג. החלפה תדרוס את הקיים.`,
+              { DATE: fmt.day(targetDate), OLD: fmt.kg(existing.weight, unit) }
+            )
+          : ''}
+        confirmLabel="החלף"
+        cancelLabel="ביטול"
+        onConfirm={() => {
+          setConfirmOverwrite(false);
+          performSave();
+        }}
+        onCancel={() => setConfirmOverwrite(false)}
+      />
     </div>
   );
 }

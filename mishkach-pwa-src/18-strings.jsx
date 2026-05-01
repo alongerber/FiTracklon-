@@ -492,6 +492,50 @@ const STRINGS = {
     },
   },
 
+  // ─── Weight overwrite warning (used by LogScreen confirm dialog) ──
+  // Vars: {DATE} = formatted date (e.g. "ש׳ · 14.5"), {OLD} = existing weight
+  weight_overwrite_warning: {
+    polish_mom: {
+      male: 'אלון, יש לי כבר רישום ל-{DATE} עם {OLD} ק״ג. אתה בטוח שאתה רוצה לשנות?',
+      female: 'מותק, יש לי כבר רישום ל-{DATE} עם {OLD} ק״ג. את בטוחה שאת רוצה לשנות?',
+    },
+    salesman: {
+      male: 'יש לך כבר נתון ל-{DATE}: {OLD} ק״ג. החלפה = data overwrite. ממשיך?',
+      female: 'יש לך כבר נתון ל-{DATE}: {OLD} ק״ג. החלפה = data overwrite. ממשיכה?',
+    },
+    cynic_coach: {
+      male: 'כבר רשמת {OLD} ק״ג ב-{DATE}. החלפה = החלפה. בלי דרמה.',
+      female: 'כבר רשמת {OLD} ק״ג ב-{DATE}. החלפה = החלפה. בלי דרמה.',
+    },
+    jealous_friend: {
+      male: 'אה, ב-{DATE} כבר היה {OLD}. רוצה להעלים ראיות, אה?',
+      female: 'אה, ב-{DATE} כבר היה {OLD}. רוצה להעלים ראיות, אה?',
+    },
+    neutral: {
+      male: 'קיימת שקילה ב-{DATE}: {OLD} ק״ג. החלפה תדרוס את הקיים.',
+      female: 'קיימת שקילה ב-{DATE}: {OLD} ק״ג. החלפה תדרוס את הקיים.',
+    },
+  },
+
+  // ─── Saved a back-dated weight (LogScreen toast, no overwrite) ───
+  // Vars: {DATE} = formatted date
+  weight_saved_backdated: {
+    polish_mom: {
+      male: 'נרשם ל-{DATE}. אבל מה היה? למה לא שקלת אז?',
+      female: 'נרשם ל-{DATE}. אבל מה היה? למה לא שקלת אז?',
+    },
+    salesman: {
+      male: 'BACKFILL נרשם ל-{DATE}. הPipeline שלך מעודכן.',
+      female: 'BACKFILL נרשם ל-{DATE}. הPipeline שלך מעודכן.',
+    },
+    cynic_coach: { male: 'נרשם ל-{DATE}.', female: 'נרשם ל-{DATE}.' },
+    jealous_friend: {
+      male: 'אהה, מילאת ל-{DATE} בדיעבד. נראה לך טוב יותר עכשיו?',
+      female: 'אהה, מילאת ל-{DATE} בדיעבד. נראה לך טוב יותר עכשיו?',
+    },
+    neutral: { male: 'השקילה נרשמה ל-{DATE}.', female: 'השקילה נרשמה ל-{DATE}.' },
+  },
+
   // ─── Quick log save toast (used by QuickLogDialog) ────────────────
   // Vars: {EX} = exercise name (Hebrew), {REPS} = reps OR minutes
   quick_log_saved: {
