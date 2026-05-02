@@ -92,6 +92,10 @@ const initialState = {
     // Dismissed UI surfaces — single-shot dismissals tracked by their natural key.
     dismissedDayBanner: null,     // YYYY-MM-DD — date the user closed the day banner
     dismissedMonthlyRecap: null,  // YYYY-MM — month whose recap was acknowledged
+    // v3.11 boot flow
+    splashSeenToday: null,        // YYYY-MM-DD — splash plays once per day
+    installDeclined: 0,           // count of "ignore" presses on install prompt;
+                                  // suppress prompt after 3 declines (give up)
     // Last-used preferences for the personal report generator.
     // Pre-populated as smart defaults next time the user opens the report flow.
     reportPrefs: {
