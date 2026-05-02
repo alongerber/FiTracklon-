@@ -30,7 +30,7 @@ function NutritionScreen({ onNavigate }) {
     return (
       <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
         <div style={{ padding: '14px 18px' }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>NUTRITION · תזונה</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>תזונה</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>יעדים יומיים</div>
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -46,7 +46,7 @@ function NutritionScreen({ onNavigate }) {
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>NUTRITION</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>תזונה</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>תזונה · {fmt.relativeDay(dateViewing)}</div>
         </div>
         {nStreak >= 2 && (
@@ -195,7 +195,7 @@ function NutritionRings({ totals, goals }) {
         <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>/ {goals.calories}</div>
       </RingGauge>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות · CALORIES</div>
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
         <div style={{ fontFamily: T.mono, fontSize: 32, fontWeight: 700, letterSpacing: -1, color: T.ink, marginTop: 4 }}>
           {remaining >= 0 ? remaining : 0}
         </div>
@@ -603,7 +603,7 @@ function ModeSelector({ onPick }) {
       </div>
       {!hasAI && (
         <div style={{ padding: '12px 14px', background: `${T.amber}15`, border: `1px solid ${T.amber}44`, borderRadius: 10, fontSize: 12, color: T.amber, marginBottom: 16 }}>
-          ⚠️ תובנות AI לא הוגדרו. טקסט ותמונה דורשים חיבור. הזנה ידנית עובדת בלעדיו.
+          ⚠️ המערכת החכמה לא הוגדרה. טקסט ותמונה דורשים חיבור. הזנה ידנית עובדת בלעדיה.
         </div>
       )}
       <Col gap={10}>
@@ -685,7 +685,7 @@ function TextParseFlow({ onParsed }) {
         }}
       />
       <div style={{ fontSize: 11, color: T.inkMute, marginTop: 8, lineHeight: 1.5 }}>
-        מנוע AI מעריך ומציע. תוכל לערוך בשלב הבא.
+        המערכת מעריכה ומציעה. תוכל לערוך בשלב הבא.
       </div>
       {error && <div style={{ marginTop: 12, padding: '10px 14px', background: `${T.rose}15`, border: `1px solid ${T.rose}44`, borderRadius: 10, fontSize: 12, color: T.rose }}>{error}</div>}
       <div style={{ marginTop: 20 }}>
@@ -1237,7 +1237,7 @@ function MealSearchDialog({ onClose, onJumpToDate }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>SEARCH · חיפוש</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>חיפוש</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>בכל הארוחות</div>
         </div>
       </div>

@@ -4696,7 +4696,7 @@ function CreativeTipsLibrary({ onClose }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>TIPS · ספרייה</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>טיפים</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>{CREATIVE_TIPS.length} תובנות</div>
         </div>
       </div>

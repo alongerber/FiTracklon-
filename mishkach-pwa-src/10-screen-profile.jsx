@@ -85,7 +85,7 @@ function ProfileScreen({ onNavigate }) {
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '14px 18px 6px' }}>
-        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>PROFILE</div>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>פרופיל</div>
         <div style={{ fontSize: 18, fontWeight: 700 }}>פרופיל והגדרות</div>
       </div>
 
@@ -124,7 +124,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         {/* AI */}
-        <Section title="תובנות AI">
+        <Section title="תובנות חכמות">
           <RowItem icon={<TabIcon name="key" size={18} />} label="מפתח / קוד גישה"
             value={apiRowValue} onClick={() => setShowApiConfig(true)} />
           <RowItem icon={<TabIcon name="wallet" size={18} />} label="שימוש החודש"
@@ -161,9 +161,9 @@ function ProfileScreen({ onNavigate }) {
 
         {/* Personal report */}
         <Section title="דוחות">
-          <RowItem icon={<TabIcon name="share" size={18} />} label="📄 צור דוח אישי"
+          <RowItem icon={<TabIcon name="share" size={18} />} label="צור דוח אישי"
             value="לרופא · למאמן · לעצמי" onClick={() => setShowReport(true)} />
-          <RowItem icon={<TabIcon name="chart" size={18} />} label="📊 סיכומים חודשיים"
+          <RowItem icon={<TabIcon name="chart" size={18} />} label="סיכומים חודשיים"
             value="ארכיון" onClick={() => setShowMonthlyArchive(true)} />
         </Section>
 
@@ -188,7 +188,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.9
+          מִשְׁקַלּוּת · v3.10
         </div>
       </div>
 
@@ -386,7 +386,7 @@ function ApiConfigDialog({ onClose }) {
         background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
         padding: 22, maxWidth: 400, width: '100%', direction: 'rtl', maxHeight: '85vh', overflowY: 'auto',
       }}>
-        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>תובנות AI</div>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>תובנות חכמות</div>
         <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 16, lineHeight: 1.6 }}>
           שני מצבים: שימוש במפתח אישי שלך, או שימוש משותף עם קוד גישה.
         </div>

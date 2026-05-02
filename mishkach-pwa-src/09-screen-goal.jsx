@@ -174,7 +174,7 @@ function GoalCalibrationCard() {
           fontSize: 14,
         }}>✨</div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>כיול יעד · AI</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>כיול יעד חכם</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
             השוואה בין הקצב המתוכנן לקצב בפועל
           </div>

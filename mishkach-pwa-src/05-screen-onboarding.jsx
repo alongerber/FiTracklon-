@@ -449,7 +449,7 @@ function AiSetupStep({ mode, setMode, sharedPw, setSharedPw, apiKey, setApiKey, 
 
   return (
     <div style={{ paddingTop: 20 }}>
-      <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>אחרון · AI</div>
+      <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>אחרון · מערכת חכמה</div>
       <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>תובנות חכמות</div>
       <div style={{ fontSize: 13, color: T.inkSub, marginTop: 8, lineHeight: 1.6 }}>
         הוסף ארוחות מתיאור או תמונה, קבל ניתוחי שבוע אישיים.
@@ -543,12 +543,12 @@ function AiSetupStep({ mode, setMode, sharedPw, setSharedPw, apiKey, setApiKey, 
       {mode === 'skip' && (
         <div style={{ marginTop: 20, padding: 16, background: T.bgElev, borderRadius: T.radius, border: `1px solid ${T.stroke}` }}>
           <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7 }}>
-            אין בעיה. ללא AI עדיין יש לך:
+            אין בעיה. ללא המערכת החכמה עדיין יש לך:
             <br />• מעקב משקל יומי מלא
             <br />• הזנת ארוחות ידנית
             <br />• גרפים וסטטיסטיקות
             <br /><br />
-            בכל רגע תוכל להפעיל מהפרופיל → <span style={{ color: T.lime }}>תובנות AI</span>.
+            בכל רגע תוכל להפעיל מהפרופיל → <span style={{ color: T.lime }}>תובנות חכמות</span>.
           </div>
         </div>
       )}

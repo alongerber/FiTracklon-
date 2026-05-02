@@ -309,7 +309,7 @@ function HomeV1({ onNavigate }) {
         {goal === null && (
           <Card padding={14} style={{ background: `${T.amber}10`, border: `1px solid ${T.amber}44`, cursor: 'pointer' }} onClick={() => onNavigate('goal')}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ fontSize: 22 }}>🎯</div>
+              <div style={{ color: T.amber, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22 }}><TabIcon name="target" size={22} /></div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>הגדר יעד</div>
                 <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>כדי לראות התקדמות ו-ETA</div>
@@ -898,7 +898,7 @@ function MonthlyRecapButton({ onNavigate }) {
 
   const monthLabel = HEBREW_MONTH_NAMES[parseInt(ym.split('-')[1], 10) - 1];
   const buttonText = personaStr(state, 'monthly_recap_button',
-    `📅 סיכום חודש ${monthLabel}`,
+    `סיכום חודש ${monthLabel}`,
     { MONTH: monthLabel }
   );
 
@@ -913,7 +913,10 @@ function MonthlyRecapButton({ onNavigate }) {
           cursor: 'pointer', textAlign: 'right', direction: 'rtl',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
         }}>
-          <span>{buttonText}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TabIcon name="calendar" size={16} />
+            {buttonText}
+          </span>
           <span style={{ fontSize: 18, color: T.cyan }}>›</span>
         </button>
       </div>
@@ -984,9 +987,10 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>RECAP · סיכום חודשי</div>
-          <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            📅 {monthStats.monthName}
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>סיכום חודשי</div>
+          <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: T.cyan, flexShrink: 0, display: 'inline-flex' }}><TabIcon name="calendar" size={16} /></span>
+            {monthStats.monthName}
           </div>
         </div>
       </div>
@@ -1027,8 +1031,9 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
         {/* Achievements (AI > auto fallback) */}
         {achievements.length > 0 && (
           <Card padding={14} style={{ marginBottom: 14, background: `${T.lime}10`, border: `1px solid ${T.lime}30` }}>
-            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10 }}>
-              ✨ הישגים{aiLoading ? ' (טוען...)' : ''}
+            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="sparkle" size={12} />
+              הישגים{aiLoading ? ' (טוען...)' : ''}
             </div>
             {achievements.map((a, i) => (
               <div key={i} style={{
@@ -1043,8 +1048,9 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
         {/* AI next-steps */}
         {(aiResult?.next_steps || aiLoading) && (
           <Card padding={14} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
-              🎯 מה הלאה
+            <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="target" size={12} />
+              מה הלאה
             </div>
             {aiLoading && !aiResult ? (
               <SkeletonLines lines={2} />
@@ -1111,7 +1117,7 @@ function MonthlyArchiveDialog({ onClose }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ARCHIVE · ארכיון</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ארכיון</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>📊 סיכומים חודשיים</div>
         </div>
       </div>
@@ -1228,7 +1234,8 @@ function CorrelationsCard() {
     }
   };
 
-  const title = personaStr(state, 'correlations_title', '🔍 תבניות שזיהיתי');
+  // v3.10: emoji removed from STRINGS keys; the SVG below is the only icon.
+  const title = personaStr(state, 'correlations_title', 'תבניות שזיהיתי');
 
   return (
     <Card padding={14} style={{
@@ -1237,6 +1244,9 @@ function CorrelationsCard() {
       border: `1px solid ${cached ? T.strokeHi : T.stroke}`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ color: T.lime, flexShrink: 0 }}>
+          <TabIcon name="search" size={20} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{title}</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
@@ -1281,8 +1291,9 @@ function CorrelationsCard() {
                     </div>
                   )}
                   {c.action && (
-                    <div style={{ fontSize: 11, color: T.inkSub, fontStyle: 'italic', lineHeight: 1.5 }}>
-                      💡 {c.action}
+                    <div style={{ fontSize: 11, color: T.inkSub, fontStyle: 'italic', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                      <span style={{ flexShrink: 0, paddingTop: 2, color: T.amber }}><TabIcon name="lightbulb" size={12} /></span>
+                      <span>{c.action}</span>
                     </div>
                   )}
                 </div>
@@ -1302,7 +1313,7 @@ function CorrelationsCard() {
         // First-time generate
         <>
           <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 12 }}>
-            יש מספיק דאטה. ה-AI יחפש תבניות חבויות (משהו ספציפי, לא "תאכל פחות").
+            יש מספיק נתונים. המערכת תחפש תבניות חבויות (משהו ספציפי, לא "תאכל פחות").
           </div>
           <button onClick={generate} disabled={!hasKey} style={{
             background: hasKey ? T.lime : T.bgElev2, color: hasKey ? T.bg : T.inkMute,
@@ -1374,7 +1385,8 @@ function WhatIfCard() {
     }
   };
 
-  const title = personaStr(state, 'what_if_title', '🎯 מה אם...');
+  // v3.10: emoji removed from STRINGS keys; the SVG below is the only icon.
+  const title = personaStr(state, 'what_if_title', 'מה אם...');
 
   return (
     <Card padding={14} style={{
@@ -1383,6 +1395,9 @@ function WhatIfCard() {
       border: `1px solid ${T.stroke}`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ color: T.cyan, flexShrink: 0 }}>
+          <TabIcon name="target" size={20} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{title}</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>

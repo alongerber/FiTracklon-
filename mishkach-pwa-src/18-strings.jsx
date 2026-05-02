@@ -495,22 +495,25 @@ const STRINGS = {
   // mood_card_title + mood_saved removed in v3.6 (mood feature retired).
 
   // ─── F1 — auto-correlations card (HomeV1) ───────────────────────
+  // v3.10: emoji removed from titles — the card already shows an SVG icon
+  // next to the title at render time, so duplicating here was visual noise.
+  // English-as-tone (PATTERNS DETECTED) translated to Hebrew salesman speak.
   correlations_title: {
-    polish_mom: { male: '👀 שמתי לב למשהו', female: '👀 שמתי לב למשהו' },
-    salesman: { male: '📊 PATTERNS DETECTED', female: '📊 PATTERNS DETECTED' },
-    cynic_coach: { male: '🔍 תבניות', female: '🔍 תבניות' },
-    jealous_friend: { male: '🕵️ מצאתי משהו עליך', female: '🕵️ מצאתי משהו עליך' },
-    neutral: { male: '🔍 תבניות שזיהיתי', female: '🔍 תבניות שזיהיתי' },
+    polish_mom: { male: 'שמתי לב למשהו', female: 'שמתי לב למשהו' },
+    salesman: { male: 'תבניות שזיהיתי בנתונים', female: 'תבניות שזיהיתי בנתונים' },
+    cynic_coach: { male: 'תבניות', female: 'תבניות' },
+    jealous_friend: { male: 'מצאתי משהו עליך', female: 'מצאתי משהו עליך' },
+    neutral: { male: 'תבניות שזיהיתי', female: 'תבניות שזיהיתי' },
   },
   // Vars: {DAYS} = days_logged, {NEED} = days short
   correlations_insufficient: {
     polish_mom: {
-      male: 'אלון, יש לי רק {DAYS} ימי דאטה. תרשום עוד {NEED} ואני אגלה לך מה אתה לא רואה.',
-      female: 'מותק, יש לי רק {DAYS} ימי דאטה. תרשמי עוד {NEED} ואני אגלה לך מה את לא רואה.',
+      male: 'אלון, יש לי רק {DAYS} ימי נתונים. תרשום עוד {NEED} ואני אגלה לך מה אתה לא רואה.',
+      female: 'מותק, יש לי רק {DAYS} ימי נתונים. תרשמי עוד {NEED} ואני אגלה לך מה את לא רואה.',
     },
     salesman: {
-      male: '{DAYS} ימים בתיק. עוד {NEED} ולAI יש מספיק כדי למצוא PATTERNS אמיתיים.',
-      female: '{DAYS} ימים בתיק. עוד {NEED} ולAI יש מספיק כדי למצוא PATTERNS אמיתיים.',
+      male: '{DAYS} ימים בתיק. עוד {NEED} ולמערכת יש מספיק כדי למצוא תבניות אמיתיות.',
+      female: '{DAYS} ימים בתיק. עוד {NEED} ולמערכת יש מספיק כדי למצוא תבניות אמיתיות.',
     },
     cynic_coach: {
       male: '{DAYS} ימים. צריך עוד {NEED} כדי שיהיה מה לנתח.',
@@ -528,11 +531,11 @@ const STRINGS = {
 
   // ─── F2 — what-if card (HomeV1) ──────────────────────────────────
   what_if_title: {
-    polish_mom: { male: '🤔 ובא נראה מה אם...', female: '🤔 ובא נראה מה אם...' },
-    salesman: { male: '🎯 SCENARIO MODELING', female: '🎯 SCENARIO MODELING' },
-    cynic_coach: { male: '🤷 מה אם', female: '🤷 מה אם' },
-    jealous_friend: { male: '😏 בוא נחלום', female: '😏 בוא נחלום' },
-    neutral: { male: '🎯 מה אם...', female: '🎯 מה אם...' },
+    polish_mom: { male: 'ובוא נראה מה אם...', female: 'ובואי נראה מה אם...' },
+    salesman: { male: 'תרחישים — מה אם...', female: 'תרחישים — מה אם...' },
+    cynic_coach: { male: 'מה אם', female: 'מה אם' },
+    jealous_friend: { male: 'בוא נחלום', female: 'בואי נחלום' },
+    neutral: { male: 'מה אם...', female: 'מה אם...' },
   },
 
   // ─── QA2 — meal description required (ManualFlow inline error) ────
@@ -722,26 +725,29 @@ const STRINGS = {
 
   // ─── Monthly recap CTA (used by HomeScreen button) ────────────────
   // Vars: {MONTH} = Hebrew month name (e.g. "אפריל")
+  // v3.10: removed leading 📅 from each string — the button itself shows
+  // an SVG calendar icon next to the label, so duplicating was visual noise.
+  // Salesman REPORT/QUARTER → Hebrew salesman speak.
   monthly_recap_button: {
     polish_mom: {
-      male: '📅 {MONTH} סוף סוף נגמר. בוא נראה איך הלך.',
-      female: '📅 {MONTH} סוף סוף נגמר. בואי נראה איך הלך.',
+      male: '{MONTH} סוף סוף נגמר. בוא נראה איך הלך.',
+      female: '{MONTH} סוף סוף נגמר. בואי נראה איך הלך.',
     },
     salesman: {
-      male: '📅 {MONTH} REPORT — סקור את הQUARTER הקטן שלך',
-      female: '📅 {MONTH} REPORT — סקרי את הQUARTER הקטן שלך',
+      male: '{MONTH} — סקור את הרבעון הקטן שלך',
+      female: '{MONTH} — סקרי את הרבעון הקטן שלך',
     },
     cynic_coach: {
-      male: '📅 סיכום {MONTH}. נראה אם משהו השתנה.',
-      female: '📅 סיכום {MONTH}. נראה אם משהו השתנה.',
+      male: 'סיכום {MONTH}. נראה אם משהו השתנה.',
+      female: 'סיכום {MONTH}. נראה אם משהו השתנה.',
     },
     jealous_friend: {
-      male: '📅 {MONTH} — נראה אם הגזמת.',
-      female: '📅 {MONTH} — נראה אם הגזמת.',
+      male: '{MONTH} — נראה אם הגזמת.',
+      female: '{MONTH} — נראה אם הגזמת.',
     },
     neutral: {
-      male: '📅 סיכום חודש {MONTH}',
-      female: '📅 סיכום חודש {MONTH}',
+      male: 'סיכום חודש {MONTH}',
+      female: 'סיכום חודש {MONTH}',
     },
   },
 

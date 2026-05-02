@@ -191,14 +191,15 @@ function ReportScreen({ onClose }) {
 }
 
 // ─── Header (shared across all steps) ───────────────────────────────
+// v3.10: emoji titles → SVG icons via TabIcon. Tags translated to Hebrew.
 function ReportHeader({ step, onClose, onBack }) {
   const titles = {
-    recipient: { tag: 'STEP 1/3', title: '📄 למי הדוח?' },
-    period:    { tag: 'STEP 2/3', title: '📅 איזה תקופה?' },
-    includes:  { tag: 'STEP 3/3', title: '✓ מה לכלול?' },
-    loading:   { tag: 'GENERATING', title: 'בונה את הדוח...' },
-    insufficient: { tag: 'NEED MORE DATA', title: 'אסוף עוד מעט נתונים' },
-    display:   { tag: 'REPORT', title: 'הדוח מוכן' },
+    recipient:    { tag: 'שלב 1/3',  title: 'למי הדוח?',           iconName: 'share' },
+    period:       { tag: 'שלב 2/3',  title: 'איזה תקופה?',         iconName: 'calendar' },
+    includes:     { tag: 'שלב 3/3',  title: 'מה לכלול?',           iconName: 'check-circle' },
+    loading:      { tag: 'מייצר',    title: 'בונה את הדוח...',     iconName: null },
+    insufficient: { tag: 'צריך עוד נתונים', title: 'אסוף עוד מעט נתונים', iconName: 'info' },
+    display:      { tag: 'דוח',      title: 'הדוח מוכן',           iconName: 'check-circle' },
   };
   const t = titles[step] || titles.recipient;
   return (
@@ -209,7 +210,14 @@ function ReportHeader({ step, onClose, onBack }) {
       }}>×</button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{t.tag}</div>
-        <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+        <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {t.iconName && (
+            <span style={{ color: T.lime, display: 'inline-flex', flexShrink: 0 }}>
+              <TabIcon name={t.iconName} size={16} />
+            </span>
+          )}
+          {t.title}
+        </div>
       </div>
       {onBack && (
         <button onClick={onBack} style={{
@@ -356,7 +364,7 @@ function ReportIncludesStep({ includes, setIncludes, recipient, customRecipient,
     { key: 'weight',      label: 'משקל',          desc: 'גרף + ממוצעים' },
     { key: 'nutrition',   label: 'תזונה',         desc: 'ממוצעים + 5 ארוחות נפוצות' },
     { key: 'workouts',    label: 'אימונים',       desc: 'תדירות + שיאים' },
-    { key: 'ai_insights', label: 'תובנות AI',     desc: 'תגלית + הסבר + המלצה' },
+    { key: 'ai_insights', label: 'תובנות חכמות', desc: 'תגלית + הסבר + המלצה' },
   ];
 
   const personalNote = recipient === 'self';
@@ -432,8 +440,9 @@ function ReportIncludesStep({ includes, setIncludes, recipient, customRecipient,
               background: `${T.cyan}12`, border: `1px solid ${T.cyan}44`,
               borderRadius: 10,
             }}>
-              <div style={{ fontSize: 12, color: T.cyan, lineHeight: 1.5, marginBottom: 8 }}>
-                💡 {h.text}
+              <div style={{ fontSize: 12, color: T.cyan, lineHeight: 1.5, marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                <span style={{ flexShrink: 0, paddingTop: 2 }}><TabIcon name="lightbulb" size={14} /></span>
+                <span>{h.text}</span>
               </div>
               <button onClick={h.action} style={{
                 background: T.cyan, color: T.bg, border: 'none',
@@ -454,8 +463,8 @@ function ReportIncludesStep({ includes, setIncludes, recipient, customRecipient,
         {daysWithData} ימי שקילה בתקופה
         {includes.ai_insights && (
           daysWithData < REPORT_MIN_DAYS
-            ? ` · נדרשים ${REPORT_MIN_DAYS} לפחות לתובנות AI`
-            : hasApi ? ' · AI פעיל' : ' · ⚠️ AI לא הוגדר בפרופיל'
+            ? ` · נדרשים ${REPORT_MIN_DAYS} לפחות לתובנות חכמות`
+            : hasApi ? ' · המערכת פעילה' : ' · ⚠️ המערכת לא הוגדרה בפרופיל'
         )}
       </div>
 
@@ -492,12 +501,14 @@ function Checkmark({ on }) {
 function ReportLoadingStep() {
   return (
     <div style={{ padding: '60px 24px', textAlign: 'center' }}>
-      <div style={{ fontSize: 44, marginBottom: 16, animation: 'mk-fadein 600ms' }}>📄</div>
+      <div style={{ marginBottom: 16, animation: 'mk-fadein 600ms', color: T.lime, display: 'flex', justifyContent: 'center' }}>
+        <TabIcon name="share" size={44} />
+      </div>
       <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 8 }}>
         בונה את הדוח האישי שלך...
       </div>
       <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
-        ה-AI מחפש תבניות בדאטה שלך — תבניות שאתה לא ראית
+        המערכת מחפשת תבניות בנתונים שלך — תבניות שאתה לא ראית
       </div>
       <div style={{ marginTop: 24, maxWidth: 280, margin: '24px auto 0' }}>
         <SkeletonLines lines={5} />
@@ -749,11 +760,11 @@ function ReportDisplay({ snapshot, ai, recipient, customRecipient, includes, per
     <div style={{ padding: '14px 0 100px' }}>
       {/* Share bar — sticky at top of scroll */}
       <div style={{ padding: '0 18px 14px', display: 'flex', gap: 10 }}>
-        <button onClick={handlePDF} disabled={exporting} style={shareBtnPrimary(exporting)}>
-          {exporting ? 'מכין...' : '📄 PDF להורדה'}
+        <button onClick={handlePDF} disabled={exporting} style={{ ...shareBtnPrimary(exporting), display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {exporting ? 'מכין...' : <><TabIcon name="download-inv" size={16} /> PDF להורדה</>}
         </button>
-        <button onClick={handleTextShare} disabled={sharing} style={shareBtnSecondary(sharing)}>
-          {sharing ? '...' : '💬 שלח כטקסט'}
+        <button onClick={handleTextShare} disabled={sharing} style={{ ...shareBtnSecondary(sharing), display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {sharing ? '...' : <><TabIcon name="chat" size={16} /> שלח כטקסט</>}
         </button>
       </div>
 
@@ -818,7 +829,7 @@ function ReportCoverPage({ snapshot, recipientLabel, periodLabel, headline, date
       borderRadius: 8, textAlign: 'center',
     }}>
       <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 3, marginBottom: 8 }}>
-        מִשְׁקַלּוּת · PERSONAL REPORT
+        מִשְׁקַלּוּת · דוח אישי
       </div>
       <div style={{ fontSize: 26, fontWeight: 800, color: T.ink, marginBottom: 6, lineHeight: 1.3 }}>
         מסע אישי · {name}
@@ -847,14 +858,14 @@ function ReportCoverPage({ snapshot, recipientLabel, periodLabel, headline, date
 
 function ReportInsightsPage({ ai }) {
   const cards = [
-    { tag: 'תגלית', title: '🔍 משהו שלא ראית', body: ai.discovery, color: T.lime },
-    { tag: 'הסבר', title: '🧩 למה זה קרה', body: ai.explanation, color: T.cyan },
-    { tag: 'המלצה', title: '🎯 צעד אחד עכשיו', body: ai.action, color: T.amber },
+    { tag: 'תגלית', title: 'משהו שלא ראית', body: ai.discovery, color: T.lime },
+    { tag: 'הסבר', title: 'למה זה קרה', body: ai.explanation, color: T.cyan },
+    { tag: 'המלצה', title: 'צעד אחד עכשיו', body: ai.action, color: T.amber },
   ].filter(c => c.body);
   if (cards.length === 0) return null;
   return (
     <div style={ReportPageStyle}>
-      <div style={ReportPageTagStyle}>INSIGHTS · תובנות AI</div>
+      <div style={ReportPageTagStyle}>תובנות</div>
       <div style={ReportPageTitleStyle}>3 תובנות שספציפיות לך</div>
       <Col gap={12}>
         {cards.map((c, i) => (
@@ -897,7 +908,7 @@ function ReportWeightPage({ snapshot, includeNotes }) {
 
   return (
     <div style={ReportPageStyle}>
-      <div style={ReportPageTagStyle}>WEIGHT · משקל</div>
+      <div style={ReportPageTagStyle}>משקל</div>
       <div style={ReportPageTitleStyle}>תנועה במשקל</div>
 
       {/* KPIs */}
@@ -950,7 +961,7 @@ function ReportNutritionPage({ snapshot }) {
   const a = snapshot.nutrition_avg_per_day;
   return (
     <div style={ReportPageStyle}>
-      <div style={ReportPageTagStyle}>NUTRITION · תזונה</div>
+      <div style={ReportPageTagStyle}>תזונה</div>
       <div style={ReportPageTitleStyle}>ממוצע יומי</div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
@@ -1001,7 +1012,7 @@ function ReportWorkoutPage({ snapshot }) {
     });
   return (
     <div style={ReportPageStyle}>
-      <div style={ReportPageTagStyle}>WORKOUTS · אימונים</div>
+      <div style={ReportPageTagStyle}>אימונים</div>
       <div style={ReportPageTitleStyle}>{snapshot.workouts_count} אימונים בתקופה</div>
 
       <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
@@ -1066,7 +1077,7 @@ function ReportClosingPage({ ai, recipientLabel }) {
       borderRadius: 8, textAlign: 'center',
     }}>
       <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 2, marginBottom: 8 }}>
-        WHAT'S NEXT · מה הלאה
+        מה הלאה
       </div>
       {action ? (
         <div style={{ fontSize: 15, color: T.ink, lineHeight: 1.6, fontWeight: 600 }}>
@@ -1078,7 +1089,7 @@ function ReportClosingPage({ ai, recipientLabel }) {
         </div>
       )}
       <div style={{ marginTop: 18, fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
-        מִשְׁקַלּוּת · MISHKALUT
+        מִשְׁקַלּוּת
       </div>
     </div>
   );

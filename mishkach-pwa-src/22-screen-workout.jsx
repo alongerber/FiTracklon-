@@ -39,7 +39,7 @@ function WorkoutScreen() {
       {/* Header */}
       <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>WORKOUT</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>אימון</div>
           <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             אימון · {fmt.relativeDay(dateViewing)}
           </div>
@@ -346,7 +346,7 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>NEW WORKOUT · אימון חדש</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>אימון חדש</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>
             {step === 0 ? 'סוג ופרטים' : step === 1 ? 'תרגילים' : 'אישור'}
           </div>
@@ -541,7 +541,7 @@ function ExercisePicker({ onPick, onAddCustom, onClose }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>EXERCISES · תרגילים</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>תרגילים</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>בחר תרגיל</div>
         </div>
       </div>
@@ -1080,7 +1080,7 @@ function PersonalRecordsScreen({ onClose }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>RECORDS · שיאים</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>שיאים</div>
           <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Icon name="trophy" size={16} color={T.amber} /> שיאים אישיים
           </div>
@@ -1206,7 +1206,7 @@ function WorkoutSearchDialog({ onClose, onJumpToDate }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>SEARCH · חיפוש</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>חיפוש</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>בכל האימונים</div>
         </div>
       </div>
@@ -1379,7 +1379,7 @@ function RoutinesDialog({ onClose, onStartRoutine }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ROUTINES · רוטינות</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>רוטינות</div>
           <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Icon name="clipboard-list" size={16} color={T.cyan} /> הרוטינות שלי
           </div>
@@ -1605,7 +1605,7 @@ function QuickLogDialog({ onClose, prefill }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>QUICK LOG</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>רישום מהיר</div>
           <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Icon name="zap" size={16} color={T.lime} /> רישום מהיר
           </div>
@@ -1934,7 +1934,7 @@ function VoiceInputDialog({ onClose, onResult }) {
         padding: 24, maxWidth: 380, width: '100%', direction: 'rtl', textAlign: 'center',
       }}>
         <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 2, marginBottom: 6 }}>
-          VOICE · קול
+          קול
         </div>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 18 }}>
           {phase === 'idle'        && 'מה עשית?'}
@@ -2113,7 +2113,7 @@ function FreeTextInputDialog({ onClose, onResult }) {
         padding: 22, maxWidth: 400, width: '100%', direction: 'rtl',
       }}>
         <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 2, marginBottom: 6 }}>
-          TEXT · כתיבה
+          כתיבה
         </div>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 14 }}>
           תאר במילים מה עשית
@@ -2141,7 +2141,7 @@ function FreeTextInputDialog({ onClose, onResult }) {
         ) : (
           <>
             <div style={{ marginTop: 12, fontSize: 11, color: T.inkMute, lineHeight: 1.5 }}>
-              ה-AI יזהה תרגיל + חזרות + משקל וימלא את הטופס. תוכל לבדוק לפני שמירה.
+              המערכת תזהה תרגיל + חזרות + משקל ותמלא את הטופס. תוכל לבדוק לפני שמירה.
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
               <button onClick={onClose} style={{

@@ -13,7 +13,7 @@ function HistoryScreen({ onNavigate }) {
     return (
       <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
         <div style={{ padding: '14px 18px' }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>HISTORY · היסטוריה</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>היסטוריה</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>כל המספרים שלך</div>
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -63,7 +63,7 @@ function HistoryScreen({ onNavigate }) {
   return (
     <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
       <div style={{ padding: '14px 18px 6px' }}>
-        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>HISTORY · היסטוריה</div>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>היסטוריה</div>
         <div style={{ fontSize: 18, fontWeight: 700 }}>כל המספרים שלך</div>
       </div>
 
