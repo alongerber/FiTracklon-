@@ -44,9 +44,15 @@ function WorkoutScreen() {
             אימון · {fmt.relativeDay(dateViewing)}
           </div>
         </div>
-        <button onClick={() => setShowSearch(true)} aria-label="חיפוש באימונים" style={{ ...headerBtn, color: T.ink }}>🔍</button>
-        <button onClick={() => setShowRoutines(true)} aria-label="הרוטינות שלי" style={{ ...headerBtn, color: T.cyan }}>📋</button>
-        <button onClick={() => setShowPRs(true)} aria-label="שיאים אישיים" style={{ ...headerBtn, color: T.amber }}>🏆</button>
+        <button onClick={() => setShowSearch(true)} aria-label="חיפוש באימונים" style={{ ...headerBtn, color: T.ink }}>
+          <Icon name="search" size={16} />
+        </button>
+        <button onClick={() => setShowRoutines(true)} aria-label="הרוטינות שלי" style={{ ...headerBtn, color: T.cyan }}>
+          <Icon name="clipboard-list" size={16} />
+        </button>
+        <button onClick={() => setShowPRs(true)} aria-label="שיאים אישיים" style={{ ...headerBtn, color: T.amber }}>
+          <Icon name="trophy" size={16} />
+        </button>
         {streak >= 2 && (
           <div style={{
             padding: '4px 8px', background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
@@ -156,7 +162,9 @@ function WorkoutScreen() {
             cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             boxShadow: `0 6px 20px ${T.lime}40`,
-          }}>⚡ רישום מהיר</button>
+          }}>
+            <Icon name="zap" size={18} /> רישום מהיר
+          </button>
           <button onClick={() => setNewOpen(true)} style={{
             width: '100%', padding: 12, background: T.bgElev,
             color: T.ink, border: `1px solid ${T.stroke}`, borderRadius: 12,
@@ -948,7 +956,9 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
               width: '100%', padding: 14, background: T.bgElev, border: `1px solid ${T.cyan}55`,
               borderRadius: 10, color: T.cyan, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            }}>💾 שמור כרוטינה</button>
+            }}>
+              <Icon name="save" size={14} /> שמור כרוטינה
+            </button>
           </div>
         )}
 
@@ -1067,7 +1077,9 @@ function PersonalRecordsScreen({ onClose }) {
         }}>×</button>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>RECORDS · שיאים</div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>🏆 שיאים אישיים</div>
+          <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="trophy" size={16} color={T.amber} /> שיאים אישיים
+          </div>
         </div>
       </div>
 
@@ -1362,7 +1374,9 @@ function RoutinesDialog({ onClose, onStartRoutine }) {
         }}>×</button>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ROUTINES · רוטינות</div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>📋 הרוטינות שלי</div>
+          <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="clipboard-list" size={16} color={T.cyan} /> הרוטינות שלי
+          </div>
         </div>
       </div>
 
@@ -1374,7 +1388,7 @@ function RoutinesDialog({ onClose, onStartRoutine }) {
               אין עדיין רוטינות
             </div>
             <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
-              פתח אימון קיים → "💾 שמור כרוטינה" → תופיע כאן.
+              פתח אימון קיים → "שמור כרוטינה" → תופיע כאן.
             </div>
           </div>
         ) : (
@@ -1466,6 +1480,7 @@ function QuickLogDialog({ onClose, prefill }) {
   const [customDate, setCustomDate] = React.useState(todayISO());
   const [customTime, setCustomTime] = React.useState(nowHHMM());
   const [showVoice, setShowVoice] = React.useState(false);
+  const [showFreeText, setShowFreeText] = React.useState(false);
 
   // ── derived from exerciseId ─────────────────────────────────────────
   const isCustom = exerciseId === '__custom__';
@@ -1585,14 +1600,26 @@ function QuickLogDialog({ onClose, prefill }) {
         }}>×</button>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>QUICK LOG</div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>⚡ רישום מהיר</div>
+          <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="zap" size={16} color={T.lime} /> רישום מהיר
+          </div>
         </div>
+        {/* BUG3: free-text always available; voice gated on Web Speech API */}
+        <button onClick={() => setShowFreeText(true)} aria-label="כתיבה חופשית" style={{
+          background: T.bgElev, color: T.ink, border: `1px solid ${T.stroke}`,
+          padding: '8px 12px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+          cursor: 'pointer', fontFamily: T.font, display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <Icon name="edit" size={14} /> כתיבה
+        </button>
         {speechAvailable && (
           <button onClick={() => setShowVoice(true)} aria-label="הקלטה" style={{
             background: `${T.lime}22`, color: T.lime, border: `1px solid ${T.lime}55`,
-            padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+            padding: '8px 12px', borderRadius: 10, fontSize: 13, fontWeight: 700,
             cursor: 'pointer', fontFamily: T.font, display: 'flex', alignItems: 'center', gap: 6,
-          }}>🎤 דבר</button>
+          }}>
+            <Icon name="microphone" size={14} /> דבר
+          </button>
         )}
       </div>
 
@@ -1714,6 +1741,10 @@ function QuickLogDialog({ onClose, prefill }) {
         onClose={() => setShowVoice(false)}
         onResult={handleVoiceResult}
       />}
+      {showFreeText && <FreeTextInputDialog
+        onClose={() => setShowFreeText(false)}
+        onResult={(parsed, text) => { setShowFreeText(false); handleVoiceResult(parsed, text); }}
+      />}
     </div>
   );
 }
@@ -1728,17 +1759,16 @@ function Label({ children, style }) {
   );
 }
 
+// BUG2 FIX (v3.8): the previous version used appearance: none + custom
+// SVG arrow for visual consistency. On iOS Safari that combo silently
+// kills the native dropdown — the <select> renders but tapping does
+// nothing because the system picker is suppressed. Reverting to native
+// rendering trades the cosmetic arrow for a working dropdown.
 const selectStyle = {
   width: '100%', padding: '12px 14px', background: T.bgElev,
   border: `1px solid ${T.stroke}`, borderRadius: 10,
   color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
   direction: 'rtl', textAlign: 'right', boxSizing: 'border-box',
-  appearance: 'none', WebkitAppearance: 'none',
-  // Caret arrow on the LEFT (since RTL); use a tiny inline SVG so we don't hit a font
-  backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M5 6L0 0h10z' fill='%23a4a8a3'/></svg>")`,
-  backgroundRepeat: 'no-repeat',
-  backgroundPosition: '12px center',
-  paddingLeft: 30,
 };
 const textInputStyle = {
   width: '100%', padding: '12px 14px', background: T.bgElev,
@@ -2028,6 +2058,104 @@ function _VoiceWaves() {
         ))}
       </div>
     </>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FreeTextInputDialog — same parser as voice, but typed instead of spoken
+// ════════════════════════════════════════════════════════════════════
+//
+// Always available (no Web Speech requirement). Reuses parseWorkoutFromVoice
+// since the model already accepts free-form Hebrew text — the prompt
+// doesn't care whether it came from speech recognition or a keyboard.
+function FreeTextInputDialog({ onClose, onResult }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const [text, setText] = React.useState('');
+  const [parsing, setParsing] = React.useState(false);
+
+  const handleSend = async () => {
+    if (!text.trim()) return;
+    if (!apiReady(state.apiConfig)) {
+      toast('הגדר API בפרופיל לזיהוי תרגיל מהטקסט', { type: 'error' });
+      return;
+    }
+    setParsing(true);
+    try {
+      const parsed = await parseWorkoutFromVoice(text.trim(), state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({ type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+          feature: 'workout_voice', costUSD: cost,
+        });
+      });
+      onResult(parsed, text.trim());
+    } catch (e) {
+      toast(personaErrorFromException(state, e), { type: 'error' });
+      setParsing(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 950,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(6px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 400, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 2, marginBottom: 6 }}>
+          TEXT · כתיבה
+        </div>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 14 }}>
+          תאר במילים מה עשית
+        </div>
+
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder='למשל: "30 שכיבות שמיכה" או "ריצה חצי שעה" או "סקוואט 80 קילו 10 חזרות"'
+          autoFocus
+          rows={3}
+          disabled={parsing}
+          style={{
+            width: '100%', padding: '12px 14px', boxSizing: 'border-box',
+            background: T.bg, border: `1px solid ${T.stroke}`, borderRadius: 10,
+            color: T.ink, fontSize: 14, fontFamily: T.font, outline: 'none',
+            direction: 'rtl', textAlign: 'right', resize: 'none',
+          }}
+        />
+
+        {parsing ? (
+          <div style={{ marginTop: 14 }}>
+            <SkeletonLines lines={2} />
+          </div>
+        ) : (
+          <>
+            <div style={{ marginTop: 12, fontSize: 11, color: T.inkMute, lineHeight: 1.5 }}>
+              ה-AI יזהה תרגיל + חזרות + משקל וימלא את הטופס. תוכל לבדוק לפני שמירה.
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button onClick={onClose} style={{
+                flex: 1, padding: 12, background: 'transparent', border: `1px solid ${T.stroke}`,
+                borderRadius: 10, color: T.inkSub, fontSize: 13, fontWeight: 700,
+                cursor: 'pointer', fontFamily: T.font,
+              }}>ביטול</button>
+              <button onClick={handleSend} disabled={!text.trim()} style={{
+                flex: 2, padding: 12,
+                background: text.trim() ? T.lime : T.bgElev2,
+                color: text.trim() ? T.bg : T.inkMute,
+                border: 'none', borderRadius: 10,
+                fontSize: 13, fontWeight: 800, fontFamily: T.font,
+                cursor: text.trim() ? 'pointer' : 'not-allowed',
+              }}>שלח לזיהוי</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

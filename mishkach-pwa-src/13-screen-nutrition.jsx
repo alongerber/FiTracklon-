@@ -80,7 +80,7 @@ function NutritionScreen({ onNavigate }) {
         <div style={{ flex: 1, textAlign: 'center', fontSize: 13, fontFamily: T.mono, color: T.inkSub }}>{fmt.day(dateViewing)}</div>
         <button onClick={() => setDateViewing(d => addDaysISO(d, 1))}
           disabled={dateViewing >= todayISO()}
-          style={{ ...dayNavBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>מחר ›</button>
+          style={{ ...navBtn, opacity: dateViewing >= todayISO() ? 0.3 : 1 }}>מחר ›</button>
       </div>
 
       <PullToRefresh

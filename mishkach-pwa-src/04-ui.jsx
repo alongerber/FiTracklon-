@@ -272,6 +272,43 @@ function TabIcon({ name, size = 18 }) {
         <circle cx="12" cy="12" r="9"/>
         <circle cx="12" cy="12" r="5"/>
       </svg>;
+    // ── BUG4 (v3.8): icons added to replace emoji in headers/CTAs ──
+    case 'trophy':
+      return <svg {...p}>
+        <path d="M8 21h8M12 17v4"/>
+        <path d="M7 4h10v5a5 5 0 0 1-10 0z"/>
+        <path d="M17 4h3v3a3 3 0 0 1-3 3M7 4H4v3a3 3 0 0 0 3 3"/>
+      </svg>;
+    case 'clipboard-list':
+      return <svg {...p}>
+        <rect x="6" y="4" width="12" height="17" rx="2"/>
+        <path d="M9 4h6v3H9z"/>
+        <line x1="9" y1="12" x2="15" y2="12"/>
+        <line x1="9" y1="16" x2="13" y2="16"/>
+      </svg>;
+    case 'search':
+      return <svg {...p}>
+        <circle cx="11" cy="11" r="7"/>
+        <line x1="20" y1="20" x2="16.5" y2="16.5"/>
+      </svg>;
+    case 'zap':
+      return <svg {...p}>
+        <path d="M13 2 4 14h7l-1 8 9-12h-7z"/>
+      </svg>;
+    case 'microphone':
+      return <svg {...p}>
+        <rect x="9" y="3" width="6" height="11" rx="3"/>
+        <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/>
+      </svg>;
+    case 'save':
+      return <svg {...p}>
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+        <path d="M17 21v-8H7v8M7 3v5h8"/>
+      </svg>;
+    case 'play':
+      return <svg {...p}>
+        <path d="M6 4l14 8-14 8z" fill="currentColor"/>
+      </svg>;
     default: return null;
   }
 }
