@@ -1119,7 +1119,9 @@ function MonthlyArchiveDialog({ onClose }) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
         {months.length === 0 ? (
           <div style={{ padding: '60px 12px', textAlign: 'center' }}>
-            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>📊</div>
+            <div style={{ marginBottom: 12, color: T.inkMute, opacity: 0.6, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="chart-bar" size={44} />
+            </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>אין עדיין סיכומים</div>
             <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
               סיכומים חודשיים יופיעו כאן אחרי שיצטברו לפחות 5 ימי שקילה בחודש.

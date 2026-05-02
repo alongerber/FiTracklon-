@@ -522,7 +522,9 @@ function ReportInsufficientStep({ daysWithData, onClose }) {
   );
   return (
     <div style={{ padding: '60px 24px', textAlign: 'center' }}>
-      <div style={{ fontSize: 44, marginBottom: 16, opacity: 0.7 }}>📊</div>
+      <div style={{ marginBottom: 16, color: T.inkMute, opacity: 0.7, display: 'flex', justifyContent: 'center' }}>
+        <TabIcon name="chart-bar" size={44} />
+      </div>
       <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 12 }}>
         אסוף עוד מעט נתונים
       </div>

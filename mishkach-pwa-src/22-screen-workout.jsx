@@ -137,7 +137,9 @@ function WorkoutScreen() {
 
         {workoutsToday.length === 0 ? (
           <Card padding={24} style={{ textAlign: 'center', border: `1px dashed ${T.stroke}`, background: 'transparent' }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>💪</div>
+            <div style={{ marginBottom: 10, color: T.inkMute, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="dumbbell" size={36} />
+            </div>
             <div style={{ fontSize: 13, color: T.inkSub }}>
               עדיין לא נרשם אימון ל{dateViewing === todayISO() ? 'יום' : 'תאריך הזה'}
             </div>
@@ -418,7 +420,9 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
           <>
             {exercises.length === 0 ? (
               <div style={{ padding: '30px 12px', textAlign: 'center' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>🎯</div>
+                <div style={{ marginBottom: 10, color: T.lime, display: 'flex', justifyContent: 'center' }}>
+                  <TabIcon name="target" size={36} />
+                </div>
                 <div style={{ fontSize: 13, color: T.inkSub, marginBottom: 14 }}>
                   הוסף תרגילים לאימון.<br/>
                   אופציונלי — אפשר לדלג ולשמור רק את המשך והסוג.
@@ -1086,7 +1090,9 @@ function PersonalRecordsScreen({ onClose }) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
         {list.length === 0 ? (
           <div style={{ padding: '60px 12px', textAlign: 'center' }}>
-            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>🏋️</div>
+            <div style={{ marginBottom: 12, color: T.inkMute, opacity: 0.6, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="dumbbell" size={44} />
+            </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
               אין עדיין שיאים
             </div>

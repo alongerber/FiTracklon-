@@ -309,6 +309,70 @@ function TabIcon({ name, size = 18 }) {
       return <svg {...p}>
         <path d="M6 4l14 8-14 8z" fill="currentColor"/>
       </svg>;
+    // ── v3.9: more icons for empty states + indicators + system surfaces ──
+    case 'calendar':
+      return <svg {...p}>
+        <rect x="3" y="5" width="18" height="16" rx="2"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+        <line x1="8" y1="3" x2="8" y2="7"/>
+        <line x1="16" y1="3" x2="16" y2="7"/>
+      </svg>;
+    case 'clock':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 7v5l3 2"/>
+      </svg>;
+    case 'scale':
+      return <svg {...p}>
+        <path d="M5 7l-2 9a2 2 0 002 2h14a2 2 0 002-2l-2-9z"/>
+        <path d="M5 7h14M9 7V5a3 3 0 016 0v2"/>
+        <line x1="9" y1="11" x2="15" y2="11"/>
+      </svg>;
+    case 'trending-up':
+      return <svg {...p}>
+        <polyline points="3 17 9 11 13 15 21 7"/>
+        <polyline points="15 7 21 7 21 13"/>
+      </svg>;
+    case 'trending-down':
+      return <svg {...p}>
+        <polyline points="3 7 9 13 13 9 21 17"/>
+        <polyline points="15 17 21 17 21 11"/>
+      </svg>;
+    case 'chart-bar':
+      return <svg {...p}>
+        <line x1="3" y1="20" x2="21" y2="20"/>
+        <rect x="6" y="13" width="3" height="7" rx="0.5"/>
+        <rect x="11" y="9" width="3" height="11" rx="0.5"/>
+        <rect x="16" y="5" width="3" height="15" rx="0.5"/>
+      </svg>;
+    case 'alert-circle':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <line x1="12" y1="8" x2="12" y2="13"/>
+        <circle cx="12" cy="16.5" r="0.5" fill="currentColor"/>
+      </svg>;
+    case 'check-circle':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <polyline points="8 12 11 15 16 9"/>
+      </svg>;
+    case 'info':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <line x1="12" y1="11" x2="12" y2="16"/>
+        <circle cx="12" cy="8" r="0.5" fill="currentColor"/>
+      </svg>;
+    case 'log-out':
+      return <svg {...p}>
+        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>;
+    case 'food':
+      return <svg {...p}>
+        <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/>
+        <path d="M12 15v6M9 18h6"/>
+      </svg>;
     default: return null;
   }
 }

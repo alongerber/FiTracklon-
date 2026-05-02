@@ -109,7 +109,9 @@ function NutritionScreen({ onNavigate }) {
 
         {mealsForDay.length === 0 ? (
           <Card padding={24} style={{ textAlign: 'center', border: `1px dashed ${T.stroke}`, background: 'transparent' }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>🍽️</div>
+            <div style={{ marginBottom: 10, color: T.inkMute, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="apple" size={36} />
+            </div>
             <div style={{ fontSize: 13, color: T.inkSub }}>
               {dateViewing === todayISO()
                 ? personaStr(state, 'empty_meals', 'עדיין לא נרשמה ארוחה היום')
@@ -436,7 +438,9 @@ function FavoritesFlow({ date, onClose }) {
   if (favs.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
-        <div style={{ fontSize: 40, marginBottom: 10 }}>⭐</div>
+        <div style={{ marginBottom: 12, color: T.amber, display: 'flex', justifyContent: 'center' }}>
+          <TabIcon name="star" size={40} />
+        </div>
         <div style={{ fontSize: 14, color: T.inkSub, lineHeight: 1.6 }}>
           עדיין אין מועדפים.<br />
           כל ארוחה שתוסיף תישמר אוטומטית כאן לשימוש חוזר.
@@ -745,7 +749,9 @@ function PhotoParseFlow({ onParsed }) {
             display: 'block', padding: '40px 20px', background: T.bgElev, border: `2px dashed ${T.stroke}`,
             borderRadius: T.radiusL, textAlign: 'center', cursor: 'pointer',
           }}>
-            <div style={{ fontSize: 48, marginBottom: 10 }}>📷</div>
+            <div style={{ marginBottom: 12, color: T.lime, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="photo" size={48} />
+            </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>בחר או צלם תמונה</div>
             <div style={{ fontSize: 11, color: T.inkSub, marginTop: 4 }}>JPG/PNG, עד ~3MB אחרי דחיסה</div>
             <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}

@@ -2,6 +2,23 @@
 // 01-theme.jsx — Design tokens + date/format helpers
 // ════════════════════════════════════════════════════════════════════
 
+// ─── Font stacks ────────────────────────────────────────────────────
+// `_fonts.body` is the new primary stack: Inter for Latin glyphs, Heebo
+// for Hebrew (Inter's Hebrew coverage is limited). `_fonts.mono` keeps
+// JetBrains Mono for numerics with tabular-nums.
+//
+// Backward-compat trick: `_fonts.toString()` returns the body stack, so
+// EVERY existing call site that does `fontFamily: T.font` (and there are
+// hundreds of them) keeps working — React just calls toString() on the
+// object. New code can use `T.font.body` / `T.font.mono` / `T.font.weights`
+// directly. No mass refactor required.
+const _fonts = {
+  body: '"Inter", "Heebo", "Rubik", -apple-system, system-ui, sans-serif',
+  mono: '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
+  weights: { regular: 400, medium: 500, semibold: 600, bold: 700, black: 800 },
+  toString() { return this.body; },
+};
+
 const T = {
   bg:        '#0b0d0c',
   bgElev:    '#141816',
@@ -17,11 +34,27 @@ const T = {
   rose:      '#ff5b7a',
   cyan:      '#5ce1ff',
   violet:    '#b38bff',
-  font:      '"Heebo", "Rubik", -apple-system, system-ui, sans-serif',
-  mono:      '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
+  font:      _fonts,                // object; coerces to body string when stringified
+  mono:      _fonts.mono,           // legacy alias — used via T.mono in many call sites
   radius:    12,
   radiusL:   18,
   radiusXL:  28,
+};
+
+// ─── Typographic scale ──────────────────────────────────────────────
+// Spread these into a style: `style={{ ...T.text.h1, color: T.lime }}`.
+// monoLg combines mono + size + weight for big numeric KPIs (weight,
+// streak, etc) — single source of truth for "big number" treatment.
+T.text = {
+  display: { fontSize: 48, fontWeight: 800, lineHeight: 1.1, fontFamily: _fonts.body },
+  h1:      { fontSize: 28, fontWeight: 700, lineHeight: 1.2, fontFamily: _fonts.body },
+  h2:      { fontSize: 22, fontWeight: 600, lineHeight: 1.3, fontFamily: _fonts.body },
+  h3:      { fontSize: 18, fontWeight: 600, lineHeight: 1.4, fontFamily: _fonts.body },
+  body:    { fontSize: 16, fontWeight: 400, lineHeight: 1.5, fontFamily: _fonts.body },
+  caption: { fontSize: 13, fontWeight: 400, lineHeight: 1.4, color: T.inkMute, fontFamily: _fonts.body },
+  // Numerics
+  mono:    { fontFamily: _fonts.mono, fontVariantNumeric: 'tabular-nums' },
+  monoLg:  { fontFamily: _fonts.mono, fontSize: 32, fontWeight: 700, fontVariantNumeric: 'tabular-nums' },
 };
 
 // ─── Date utilities (local-time, YYYY-MM-DD string keys) ─────────────

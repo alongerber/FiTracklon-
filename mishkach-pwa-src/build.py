@@ -169,14 +169,14 @@ HTML = '''<!DOCTYPE html>
   <!-- Fonts (preload + cache) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Heebo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       margin: 0; padding: 0;
       background: #0b0d0c; color: #f4f6f2;
-      font-family: "Heebo", -apple-system, system-ui, sans-serif;
+      font-family: "Inter", "Heebo", -apple-system, system-ui, sans-serif;
       overscroll-behavior: none;
       overflow: hidden;
       height: 100dvh;
