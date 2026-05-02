@@ -202,7 +202,6 @@ function HomeV1({ onNavigate }) {
       <HomeHeader onNavigate={onNavigate} />
       <DayBanner />
       <MonthlyRecapButton onNavigate={onNavigate} />
-      <MoodCard />
 
       <PullToRefresh
         onRefresh={() => new Promise(r => setTimeout(r, 600))}
@@ -354,7 +353,6 @@ function HomeV2({ onNavigate }) {
       </div>
       <DayBanner />
       <MonthlyRecapButton onNavigate={onNavigate} />
-      <MoodCard />
 
       {/* Streak milestone message — shows the last milestone passed, not just exact match */}
       {(() => {
@@ -560,7 +558,6 @@ function HomeV3({ onNavigate }) {
       </div>
       <DayBanner />
       <MonthlyRecapButton onNavigate={onNavigate} />
-      <MoodCard />
 
       <div style={{ padding: '6px 18px 10px' }}>
         <Card padding={12} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1086,168 +1083,11 @@ function RecapKPI({ label, value, unit, sub, color = T.ink }) {
 
 // ─── Archive list (used from Profile) ──────────────────────────────
 // Lists every month with data; clicking opens the recap dialog read-only.
-// ════════════════════════════════════════════════════════════════════
-// Mood card — daily 3-axis self-report (mood/energy/sleep), shown once
-// per day on Home until the user fills it in.
-// ════════════════════════════════════════════════════════════════════
-//
-// Storage: state.mood[YYYY-MM-DD] = { mood, energy, sleep, note }.
-// Hidden once today's entry exists so the home screen stays uncluttered.
-
-const MOOD_FACES = ['😞', '😕', '😐', '🙂', '😊'];
-const ENERGY_LABELS = ['1', '2', '3', '4', '5'];
-const SLEEP_LABELS = ['1', '2', '3', '4', '5'];
-
-function MoodCard() {
-  const { state, dispatch } = useStore();
-  const toast = useToast();
-  const today = todayISO();
-  const existing = state.mood?.[today];
-
-  // Local form state. Initial = existing values or null (must pick all 3).
-  const [mood, setMood] = React.useState(existing?.mood || 0);
-  const [energy, setEnergy] = React.useState(existing?.energy || 0);
-  const [sleep, setSleep] = React.useState(existing?.sleep || 0);
-  const [note, setNote] = React.useState(existing?.note || '');
-  const [showNoteField, setShowNoteField] = React.useState(false);
-  const [collapsed, setCollapsed] = React.useState(!!existing);
-
-  // If the user already saved today, we collapse the card to a small chip.
-  if (collapsed) {
-    return (
-      <div style={{ padding: '0 18px 6px' }}>
-        <button onClick={() => setCollapsed(false)} style={{
-          width: '100%', padding: '8px 12px',
-          background: T.bgElev, border: `1px solid ${T.stroke}`, borderRadius: 10,
-          color: T.inkSub, fontSize: 12, fontFamily: T.font, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between',
-          direction: 'rtl',
-        }}>
-          <span>נשמר היום: {MOOD_FACES[(existing?.mood || mood) - 1] || '—'} מצב רוח · {existing?.energy || energy}/5 אנרגיה · {existing?.sleep || sleep}/5 שינה</span>
-          <span style={{ color: T.inkMute, fontSize: 11 }}>ערוך</span>
-        </button>
-      </div>
-    );
-  }
-
-  const valid = mood >= 1 && energy >= 1 && sleep >= 1;
-
-  const save = () => {
-    if (!valid) return;
-    dispatch({ type: 'SET_MOOD', date: today, mood, energy, sleep, note: note.trim() });
-    toast(personaStr(state, 'mood_saved', 'נשמר.'), { type: 'success' });
-    setCollapsed(true);
-  };
-
-  return (
-    <div style={{ padding: '0 18px 8px' }}>
-      <Card padding={14} style={{ background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)` }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 12, textAlign: 'center' }}>
-          {personaStr(state, 'mood_card_title', 'איך אתה היום?')}
-        </div>
-
-        {/* Mood row — 5 faces */}
-        <_MoodRow
-          label="מצב רוח"
-          options={MOOD_FACES}
-          value={mood}
-          onChange={setMood}
-        />
-
-        {/* Energy row — 5 dots fill */}
-        <_LevelRow
-          label="אנרגיה"
-          color={T.amber}
-          value={energy}
-          onChange={setEnergy}
-        />
-
-        {/* Sleep row — 5 dots fill */}
-        <_LevelRow
-          label="שינה"
-          color={T.cyan}
-          value={sleep}
-          onChange={setSleep}
-        />
-
-        {/* Optional note */}
-        {showNoteField ? (
-          <input value={note} onChange={e => setNote(e.target.value)} autoFocus
-            placeholder="הערה (לא חובה)"
-            style={{
-              marginTop: 10, width: '100%', padding: '8px 12px', boxSizing: 'border-box',
-              background: T.bg, border: `1px solid ${T.stroke}`, borderRadius: 8,
-              color: T.ink, fontSize: 12, fontFamily: T.font, outline: 'none',
-              direction: 'rtl', textAlign: 'right',
-            }} />
-        ) : (
-          <button onClick={() => setShowNoteField(true)} style={{
-            marginTop: 8, background: 'transparent', border: 'none', color: T.inkMute,
-            fontSize: 11, cursor: 'pointer', fontFamily: T.font,
-          }}>+ הוסף הערה</button>
-        )}
-
-        <button onClick={save} disabled={!valid} style={{
-          width: '100%', padding: 10, marginTop: 12,
-          background: valid ? T.lime : T.bgElev2,
-          color: valid ? T.bg : T.inkMute,
-          border: 'none', borderRadius: 10,
-          fontSize: 13, fontWeight: 700, fontFamily: T.font,
-          cursor: valid ? 'pointer' : 'not-allowed',
-        }}>
-          {valid ? 'שמור' : 'בחר את שלושת השדות'}
-        </button>
-      </Card>
-    </div>
-  );
-}
-
-function _MoodRow({ label, options, value, onChange }) {
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>{label}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4 }}>
-        {options.map((o, i) => {
-          const v = i + 1;
-          const on = value === v;
-          return (
-            <button key={v} onClick={() => onChange(v)} aria-label={`${label} ${v}`} style={{
-              padding: '8px 0',
-              background: on ? `${T.lime}22` : T.bg,
-              border: `1.5px solid ${on ? T.lime : T.stroke}`,
-              borderRadius: 8, cursor: 'pointer',
-              fontSize: 22,
-              filter: on ? 'none' : 'grayscale(0.6) opacity(0.6)',
-            }}>{o}</button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function _LevelRow({ label, color, value, onChange }) {
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>{label}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4 }}>
-        {[1, 2, 3, 4, 5].map(v => {
-          const filled = v <= value;
-          return (
-            <button key={v} onClick={() => onChange(v)} aria-label={`${label} ${v}`} style={{
-              padding: '10px 0',
-              background: filled ? `${color}33` : T.bg,
-              border: `1.5px solid ${filled ? color : T.stroke}`,
-              borderRadius: 8, cursor: 'pointer',
-              color: filled ? color : T.inkMute,
-              fontSize: 13, fontWeight: 700, fontFamily: T.mono,
-            }}>{v}</button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// Mood / energy / sleep tracking removed in v3.6 — low expected utility
+// (most users won't fill it; those who do will fill it noisily; AI insights
+// from such data tend to be generic). The store reducer cases (SET_MOOD,
+// DELETE_MOOD) and loadState merge are kept dormant so existing user data
+// in localStorage isn't lost if we revisit the feature later.
 
 function MonthlyArchiveDialog({ onClose }) {
   const { state } = useStore();

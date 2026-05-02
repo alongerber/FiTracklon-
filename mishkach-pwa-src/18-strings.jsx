@@ -492,21 +492,7 @@ const STRINGS = {
     },
   },
 
-  // ─── Mood card — header text (HomeScreen MoodCard) ───────────────
-  mood_card_title: {
-    polish_mom: { male: 'איך אתה היום, אלון?', female: 'איך את היום, מותק?' },
-    salesman: { male: 'CHECK-IN: איך אתה?', female: 'CHECK-IN: איך את?' },
-    cynic_coach: { male: 'איך הולך?', female: 'איך הולך?' },
-    jealous_friend: { male: 'נו, איך אתה? תספר.', female: 'נו, איך את? תספרי.' },
-    neutral: { male: 'איך אתה היום?', female: 'איך את היום?' },
-  },
-  mood_saved: {
-    polish_mom: { male: 'נרשם, אלון. תהיה לי בריא.', female: 'נרשם, מותק. תהיי לי בריאה.' },
-    salesman: { male: 'CHECK-IN COMPLETE 💪', female: 'CHECK-IN COMPLETE 💪' },
-    cynic_coach: { male: 'נרשם.', female: 'נרשם.' },
-    jealous_friend: { male: 'תודה, גם לי לא מעולה היום.', female: 'תודה, גם לי לא מעולה היום.' },
-    neutral: { male: 'מצב הרגשה נשמר.', female: 'מצב הרגשה נשמר.' },
-  },
+  // mood_card_title + mood_saved removed in v3.6 (mood feature retired).
 
   // ─── QA2 — meal description required (ManualFlow inline error) ────
   meal_desc_required: {

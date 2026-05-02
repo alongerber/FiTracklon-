@@ -21,9 +21,9 @@ const initialState = {
   },
   // entries: { 'YYYY-MM-DD': { weight: kg, time: 'HH:mm', note: string, createdAt: iso } }
   entries: {},
-  // Daily mood/energy/sleep self-report (1-5 each).
-  // mood: { 'YYYY-MM-DD': { mood: 1-5, energy: 1-5, sleep: 1-5, note: string, createdAt: iso } }
-  mood: {},
+  // mood removed from initialState in v3.6 — feature was retired (low utility).
+  // The SET_MOOD/DELETE_MOOD reducer cases + loadState merge are kept dormant
+  // so existing user data isn't lost if we revisit. New users get no `mood` key.
   // nutrition: goals + meals + favorites keyed by date
   nutrition: {
     goals: {
@@ -131,6 +131,8 @@ function loadState() {
       goal: { ...initialState.goal, ...(parsed.goal || {}) },
       settings: { ...initialState.settings, ...(parsed.settings || {}) },
       entries: parsed.entries || {},
+      // v3.6: mood feature removed from UI but data preserved if previously saved.
+      // Migration-safe: missing key on old states is fine.
       mood: parsed.mood || {},
       nutrition: {
         ...initialState.nutrition,
@@ -837,32 +839,8 @@ function buildInsightSnapshot(state, stats, daysBack = 7) {
     },
     nutrition_by_day: nutritionByDay,
     nutrition_days_logged: Object.keys(nutritionByDay).length,
-    ...buildMoodSummary(state, from, today),
   };
-}
-
-// ─── Mood summary for the snapshot — averages over the window ──────
-// Only included if there are at least 2 days with mood data, otherwise
-// the AI gets noise. Returns 0-2 fields depending on data.
-function buildMoodSummary(state, fromISO, toISO) {
-  const moodMap = state.mood || {};
-  const days = Object.entries(moodMap)
-    .filter(([d]) => d >= fromISO && d <= toISO)
-    .map(([d, m]) => m);
-  if (days.length < 2) return {};
-  const avg = (key) => {
-    const vals = days.map(d => d[key]).filter(v => v >= 1 && v <= 5);
-    if (vals.length === 0) return null;
-    return Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10;
-  };
-  return {
-    mood_summary: {
-      days_logged: days.length,
-      avg_mood: avg('mood'),
-      avg_energy: avg('energy'),
-      avg_sleep: avg('sleep'),
-    },
-  };
+  // mood_summary removed in v3.6 alongside the mood UI.
 }
 
 // ─── React Context ──────────────────────────────────────────────────
