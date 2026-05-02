@@ -291,6 +291,12 @@ function HomeV1({ onNavigate }) {
         {/* Nutrition mini widget */}
         <NutritionWidget onNavigate={onNavigate} />
 
+        {/* F1 — auto-detected patterns from 30 days of data */}
+        <CorrelationsCard />
+
+        {/* F2 — what-if forward projection */}
+        <WhatIfCard />
+
         {/* Stats grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
           <StatChip label="שבוע אחרון" value={stats.deltaWeek !== null ? fmt.signed(stats.deltaWeek) : '—'} unit={stats.deltaWeek !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaWeek < 0 ? T.lime : T.rose} />
@@ -1158,5 +1164,315 @@ function MonthlyArchiveDialog({ onClose }) {
 
       {openYM && <MonthlyRecapDialog ym={openYM} onClose={() => setOpenYM(null)} canDismiss={false} />}
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// F1 — CorrelationsCard (auto-detected patterns, 30d window)
+// ════════════════════════════════════════════════════════════════════
+//
+// Min-data gate: 21 weight days + 14 nutrition days. Below that we show
+// a friendly "collect a bit more data" message instead of asking the AI
+// to pattern-match noise. Once data is sufficient, the user sees a
+// generate button; results are cached in state.insights.correlations
+// and shown until the user hits refresh (or 7 days pass — "ישן" hint).
+
+const CORRELATIONS_MIN_WEIGHT_DAYS = 21;
+const CORRELATIONS_MIN_NUTRITION_DAYS = 14;
+
+function CorrelationsCard() {
+  const { state, stats, dispatch } = useStore();
+  const toast = useToast();
+  const [loading, setLoading] = React.useState(false);
+  const cached = state.insights?.correlations;
+  const hasKey = apiReady(state.apiConfig);
+
+  // Stale = older than 7 days; we still show it but flag it
+  const isStale = cached && (Date.now() - new Date(cached.generatedAt).getTime()) > 7 * 24 * 3600 * 1000;
+
+  // Build a 30-day snapshot for the AI. Same shape that other AI calls
+  // already use, so the model sees a familiar structure.
+  const snapshot = React.useMemo(() => buildInsightSnapshot(state, stats, 30), [state, stats]);
+  const weightDays = snapshot.weight_entries_count;
+  const nutritionDays = snapshot.nutrition_days_logged;
+  const enoughData = weightDays >= CORRELATIONS_MIN_WEIGHT_DAYS
+                  && nutritionDays >= CORRELATIONS_MIN_NUTRITION_DAYS;
+
+  const generate = async () => {
+    if (!hasKey) {
+      toast('הגדר API בפרופיל', { type: 'error' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await generateAutoCorrelations(snapshot, state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({ type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+          feature: 'auto_correlations', costUSD: cost,
+        });
+      }, state);
+      // Tolerate three result shapes: {correlations:[]}, {correlations:[...]}, {insufficient_data:true}
+      const items = result?.insufficient_data ? []
+                  : Array.isArray(result?.correlations) ? result.correlations
+                  : [];
+      dispatch({ type: 'SET_INSIGHT', kind: 'correlations',
+        payload: { items, generatedAt: new Date().toISOString() },
+      });
+    } catch (e) {
+      toast(personaErrorFromException(state, e), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const title = personaStr(state, 'correlations_title', '🔍 תבניות שזיהיתי');
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 12,
+      background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+      border: `1px solid ${cached ? T.strokeHi : T.stroke}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{title}</div>
+          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
+            ניתוח 30 ימים אחרונים · {weightDays} שקילות · {nutritionDays} ימי תזונה
+          </div>
+        </div>
+        {cached && !loading && (
+          <button onClick={generate} style={{
+            background: 'transparent', border: `1px solid ${T.stroke}`, color: T.inkSub,
+            padding: '5px 10px', borderRadius: 8, fontSize: 11, fontFamily: T.mono,
+            cursor: 'pointer',
+          }}>רענן</button>
+        )}
+      </div>
+
+      {loading ? (
+        <LoadingPersona message="מחפש תבניות בדאטה שלך..." />
+      ) : !enoughData ? (
+        // Insufficient data — friendly persona-aware message
+        <div style={{ padding: '4px 4px 0', fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
+          {personaStr(state, 'correlations_insufficient',
+            `נדרשים ${CORRELATIONS_MIN_WEIGHT_DAYS} ימי שקילה ו-${CORRELATIONS_MIN_NUTRITION_DAYS} ימי תזונה לזיהוי תבניות. יש ${weightDays} ימים.`,
+            { DAYS: weightDays, NEED: Math.max(CORRELATIONS_MIN_WEIGHT_DAYS - weightDays, CORRELATIONS_MIN_NUTRITION_DAYS - nutritionDays) }
+          )}
+        </div>
+      ) : cached ? (
+        // We have results
+        <>
+          {cached.items && cached.items.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {cached.items.map((c, i) => (
+                <div key={i} style={{
+                  padding: '10px 12px', background: T.bg, borderRadius: 8,
+                  borderRight: `3px solid ${T.lime}`,
+                }}>
+                  <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.5, marginBottom: 4 }}>
+                    {c.pattern}
+                  </div>
+                  {c.support && (
+                    <div style={{ fontSize: 10, color: T.lime, fontFamily: T.mono, marginBottom: 6 }}>
+                      תמיכה: {c.support}
+                    </div>
+                  )}
+                  {c.action && (
+                    <div style={{ fontSize: 11, color: T.inkSub, fontStyle: 'italic', lineHeight: 1.5 }}>
+                      💡 {c.action}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: '12px 4px', fontSize: 12, color: T.inkMute, lineHeight: 1.6 }}>
+              לא נמצאו תבניות עם תמיכה מספיקה (60%+) בדאטה הנוכחית.
+              נסה שוב אחרי שיצטברו עוד שבוע-שבועיים של דאטה.
+            </div>
+          )}
+          <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, marginTop: 10, textAlign: 'left', direction: 'ltr' }}>
+            {fmt.relativeDay(cached.generatedAt.slice(0, 10))} · {isStale ? 'ישן' : 'עדכני'}
+          </div>
+        </>
+      ) : (
+        // First-time generate
+        <>
+          <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 12 }}>
+            יש מספיק דאטה. ה-AI יחפש תבניות חבויות (משהו ספציפי, לא "תאכל פחות").
+          </div>
+          <button onClick={generate} disabled={!hasKey} style={{
+            background: hasKey ? T.lime : T.bgElev2, color: hasKey ? T.bg : T.inkMute,
+            border: 'none', padding: '10px 16px', borderRadius: 10,
+            fontSize: 13, fontWeight: 700, fontFamily: T.font,
+            cursor: hasKey ? 'pointer' : 'not-allowed', width: '100%',
+          }}>
+            {hasKey ? 'מצא תבניות' : 'הגדר API בפרופיל'}
+          </button>
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// F2 — WhatIfCard (forward projection from a hypothetical change)
+// ════════════════════════════════════════════════════════════════════
+//
+// 3 preset scenarios + a custom text input. Each query is a one-off (not
+// cached) — projections are cheap and the user often wants to compare a
+// few back-to-back. Min-data gate: 14 weight days (need a real pace to
+// project from).
+//
+// The "result" panel shows just the most recent answer; previous answers
+// aren't kept. Keeps the surface focused on the current question.
+
+const WHAT_IF_MIN_WEIGHT_DAYS = 14;
+const WHAT_IF_PRESETS = [
+  'מה אם אוסיף אימון אחד בשבוע?',
+  'מה אם אקטין ב-200 ק״ק ביום?',
+  'מה אם אשמור על הקצב הנוכחי?',
+];
+
+function WhatIfCard() {
+  const { state, stats, dispatch } = useStore();
+  const toast = useToast();
+  const [loading, setLoading] = React.useState(false);
+  const [result, setResult] = React.useState(null); // { summary, details, scenario }
+  const [customMode, setCustomMode] = React.useState(false);
+  const [customText, setCustomText] = React.useState('');
+  const hasKey = apiReady(state.apiConfig);
+
+  const snapshot = React.useMemo(() => buildInsightSnapshot(state, stats, 30), [state, stats]);
+  const weightDays = snapshot.weight_entries_count;
+  const enoughData = weightDays >= WHAT_IF_MIN_WEIGHT_DAYS;
+
+  const ask = async (scenarioText) => {
+    if (!hasKey) {
+      toast('הגדר API בפרופיל', { type: 'error' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await generateWhatIf(snapshot, scenarioText, state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({ type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+          feature: 'what_if', costUSD: cost,
+        });
+      }, state);
+      setResult({ ...r, scenario: scenarioText });
+      setCustomMode(false);
+      setCustomText('');
+    } catch (e) {
+      toast(personaErrorFromException(state, e), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const title = personaStr(state, 'what_if_title', '🎯 מה אם...');
+
+  return (
+    <Card padding={14} style={{
+      marginBottom: 14,
+      background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+      border: `1px solid ${T.stroke}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{title}</div>
+          <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
+            תחזית מבוססת קצב הנוכחי שלך
+          </div>
+        </div>
+      </div>
+
+      {!enoughData ? (
+        <div style={{ padding: '4px 4px 0', fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
+          נדרשים {WHAT_IF_MIN_WEIGHT_DAYS} ימי שקילה לתחזית. יש {weightDays}.
+        </div>
+      ) : loading ? (
+        <LoadingPersona message="מחשב תחזית..." />
+      ) : (
+        <>
+          {/* Preset buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {WHAT_IF_PRESETS.map((p, i) => (
+              <button key={i} onClick={() => ask(p)} disabled={!hasKey} style={{
+                width: '100%', padding: '10px 12px',
+                background: T.bg, border: `1px solid ${T.stroke}`, borderRadius: 8,
+                color: T.ink, fontSize: 12, fontFamily: T.font, cursor: hasKey ? 'pointer' : 'not-allowed',
+                textAlign: 'right', direction: 'rtl',
+                opacity: hasKey ? 1 : 0.5,
+              }}>{p}</button>
+            ))}
+            {customMode ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                <input
+                  value={customText}
+                  onChange={e => setCustomText(e.target.value)}
+                  placeholder="למשל: מה אם אעלה ל-3 אימונים בשבוע?"
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                    background: T.bg, border: `1px solid ${T.stroke}`, borderRadius: 8,
+                    color: T.ink, fontSize: 12, fontFamily: T.font, outline: 'none',
+                    direction: 'rtl', textAlign: 'right',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => { setCustomMode(false); setCustomText(''); }} style={{
+                    flex: 1, padding: 8, background: 'transparent', border: `1px solid ${T.stroke}`,
+                    borderRadius: 8, color: T.inkSub, fontSize: 12, cursor: 'pointer', fontFamily: T.font,
+                  }}>ביטול</button>
+                  <button onClick={() => ask(customText)} disabled={!customText.trim()} style={{
+                    flex: 2, padding: 8,
+                    background: customText.trim() ? T.lime : T.bgElev2,
+                    color: customText.trim() ? T.bg : T.inkMute,
+                    border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    cursor: customText.trim() ? 'pointer' : 'not-allowed', fontFamily: T.font,
+                  }}>שאל</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setCustomMode(true)} disabled={!hasKey} style={{
+                width: '100%', padding: '8px 12px', marginTop: 2,
+                background: 'transparent', border: `1px dashed ${T.stroke}`, borderRadius: 8,
+                color: T.inkMute, fontSize: 11, fontFamily: T.font, cursor: hasKey ? 'pointer' : 'not-allowed',
+                textAlign: 'center', opacity: hasKey ? 1 : 0.5,
+              }}>+ שאלה מותאמת</button>
+            )}
+          </div>
+
+          {!hasKey && (
+            <div style={{ marginTop: 10, fontSize: 11, color: T.amber, lineHeight: 1.5, textAlign: 'center' }}>
+              ⚠️ הגדר API בפרופיל לקבלת תחזיות
+            </div>
+          )}
+
+          {/* Latest result */}
+          {result && (
+            <div style={{
+              marginTop: 12, padding: 12, background: T.bg, borderRadius: 8,
+              borderRight: `3px solid ${T.cyan}`,
+            }}>
+              <div style={{ fontSize: 10, color: T.cyan, fontFamily: T.mono, marginBottom: 6 }}>
+                {result.scenario}
+              </div>
+              <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.6, fontWeight: 600 }}>
+                {result.summary || 'אין תחזית'}
+              </div>
+              {result.details && (
+                <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginTop: 6 }}>
+                  {result.details}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </Card>
   );
 }

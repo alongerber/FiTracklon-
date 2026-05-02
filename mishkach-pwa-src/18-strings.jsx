@@ -494,6 +494,47 @@ const STRINGS = {
 
   // mood_card_title + mood_saved removed in v3.6 (mood feature retired).
 
+  // ─── F1 — auto-correlations card (HomeV1) ───────────────────────
+  correlations_title: {
+    polish_mom: { male: '👀 שמתי לב למשהו', female: '👀 שמתי לב למשהו' },
+    salesman: { male: '📊 PATTERNS DETECTED', female: '📊 PATTERNS DETECTED' },
+    cynic_coach: { male: '🔍 תבניות', female: '🔍 תבניות' },
+    jealous_friend: { male: '🕵️ מצאתי משהו עליך', female: '🕵️ מצאתי משהו עליך' },
+    neutral: { male: '🔍 תבניות שזיהיתי', female: '🔍 תבניות שזיהיתי' },
+  },
+  // Vars: {DAYS} = days_logged, {NEED} = days short
+  correlations_insufficient: {
+    polish_mom: {
+      male: 'אלון, יש לי רק {DAYS} ימי דאטה. תרשום עוד {NEED} ואני אגלה לך מה אתה לא רואה.',
+      female: 'מותק, יש לי רק {DAYS} ימי דאטה. תרשמי עוד {NEED} ואני אגלה לך מה את לא רואה.',
+    },
+    salesman: {
+      male: '{DAYS} ימים בתיק. עוד {NEED} ולAI יש מספיק כדי למצוא PATTERNS אמיתיים.',
+      female: '{DAYS} ימים בתיק. עוד {NEED} ולAI יש מספיק כדי למצוא PATTERNS אמיתיים.',
+    },
+    cynic_coach: {
+      male: '{DAYS} ימים. צריך עוד {NEED} כדי שיהיה מה לנתח.',
+      female: '{DAYS} ימים. צריך עוד {NEED} כדי שיהיה מה לנתח.',
+    },
+    jealous_friend: {
+      male: 'רק {DAYS} ימים? עוד {NEED} ואני אצליח להציק לך באמת.',
+      female: 'רק {DAYS} ימים? עוד {NEED} ואני אצליח להציק לך באמת.',
+    },
+    neutral: {
+      male: 'נדרשים 21 ימי שקילה ו-14 ימי תזונה לזיהוי תבניות. יש {DAYS} ימים.',
+      female: 'נדרשים 21 ימי שקילה ו-14 ימי תזונה לזיהוי תבניות. יש {DAYS} ימים.',
+    },
+  },
+
+  // ─── F2 — what-if card (HomeV1) ──────────────────────────────────
+  what_if_title: {
+    polish_mom: { male: '🤔 ובא נראה מה אם...', female: '🤔 ובא נראה מה אם...' },
+    salesman: { male: '🎯 SCENARIO MODELING', female: '🎯 SCENARIO MODELING' },
+    cynic_coach: { male: '🤷 מה אם', female: '🤷 מה אם' },
+    jealous_friend: { male: '😏 בוא נחלום', female: '😏 בוא נחלום' },
+    neutral: { male: '🎯 מה אם...', female: '🎯 מה אם...' },
+  },
+
   // ─── QA2 — meal description required (ManualFlow inline error) ────
   meal_desc_required: {
     polish_mom: {

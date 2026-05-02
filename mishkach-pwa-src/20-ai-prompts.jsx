@@ -198,6 +198,112 @@ function buildAISystemPrompt(promptType, state, windowDays) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// F1 — Auto-correlations (find specific patterns in 30-day data)
+// ════════════════════════════════════════════════════════════════════
+//
+// Returns 1-3 SPECIFIC patterns (not generic advice) the user wouldn't
+// notice on their own. Each pattern must have >=60% support in the data
+// to qualify — generic correlations like "more workout = more loss"
+// fail this bar.
+//
+// Persona affects only the wording (cynic_coach is dry, polish_mom
+// adds "מותק" etc) — the underlying pattern is the same.
+const AUTO_CORRELATIONS_PROMPT = `אתה מאתר תבניות חבויות בנתוני מעקב משקל ותזונה.
+
+קיבלת JSON עם 30 ימי דאטה. תפקידך: למצוא 1-3 תבניות **ספציפיות** עם
+תמיכה סטטיסטית של 60% ומעלה במקרים, שהמשתמש לא היה שם לב אליהן בלי ניתוח.
+
+חוקים מוחלטים:
+1. אסור גנריות. "יותר אימון = יותר ירידה" יידחה.
+2. כל תבנית חייבת להיות **מספרית וספציפית**:
+   "ב-78% מהפעמים שאכלת אחרי 21:00, עלית למחרת ב-0.3 ק״ג בממוצע."
+   "בימים שהיה אימון בבוקר, אכלת בממוצע 280 ק״ק פחות באותו יום."
+   "בכל פעם שעברת 2400 ק״ק, ב-83% מהמקרים גם השקילה למחרת עלתה."
+3. אם אין תמיכה של 60% — אל תכתוב את התבנית. עדיף החזרה ריקה מאשר ניחוש.
+4. אם הדאטה דלה מדי לתבניות אמיתיות — החזר {"insufficient_data": true}.
+
+לכל תבנית, תן גם הצעת פעולה אחת קצרה וספציפית (לא "תאכל פחות"). לדוגמה:
+"הצעה: בימים שאתה יודע שתאכל מאוחר, נסה להוריד 100 ק״ק בארוחת הצהריים."
+
+טון לפי פרסונה: {persona}. שם: {name}, מגדר: {gender}.
+
+החזר JSON תקין בלבד:
+{
+  "correlations": [
+    {
+      "pattern": "תבנית ספציפית עם מספרים",
+      "support": "אחוז המקרים בדאטה (למשל 78%)",
+      "action": "פעולה אחת קצרה וספציפית"
+    }
+  ]
+}
+
+או, אם אין תבניות עם 60%+ תמיכה: {"correlations": []}.
+אם הדאטה דלה (פחות מ-21 ימי שקילה או פחות מ-14 ימי תזונה): {"insufficient_data": true}.
+
+הדאטה: {data}`;
+
+function buildAutoCorrelationsPrompt(state, snapshot) {
+  const personaId = state?.settings?.persona || 'neutral';
+  const gender = state?.user?.gender === 'female' ? 'female' : 'male';
+  const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
+  const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
+  return AUTO_CORRELATIONS_PROMPT
+    .replace('{persona}', personaId)
+    .replace('{name}', name)
+    .replace('{gender}', genderHe)
+    .replace('{data}', JSON.stringify(snapshot));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// F2 — What-if scenarios (project a hypothetical change forward)
+// ════════════════════════════════════════════════════════════════════
+//
+// User picks a preset ("add one workout/week", "cut 200 kcal/day", "stay
+// at current pace") or types a custom one. AI projects the forward effect
+// using the user's current pace + nutrition averages as the baseline.
+//
+// Output is intentionally short (1-2 sentences) and concrete: a specific
+// time-to-goal estimate, NOT a vague "you'll do better."
+const WHAT_IF_SCENARIOS_PROMPT = `אתה מנתח תרחישים היפותטיים למעקב משקל.
+
+קיבלת:
+- הדאטה הנוכחי של המשתמש (קצב, יעד, קלוריות ממוצעות, אימונים בשבוע)
+- שאלה היפותטית: "{scenario}"
+
+תפקידך: לחשב את ההשפעה הצפויה ולתת תחזית **ספציפית ומספרית**, על בסיס הדאטה
+הקיים. לא לנחש. לא לתת המלצות גנריות. רק תחזית.
+
+חוקים:
+1. אם השאלה משנה קלוריות: כל 7700 ק״ק = ~1 ק״ג שינוי. חשב לאורך זמן.
+2. אם השאלה משנה אימונים: הנח שאימון נוסף = ~300 ק״ק שריפה (שמרני).
+3. אם הקצב הנוכחי ידוע (paceKgPerWeek): בנה את התחזית עליו, לא על הנחות.
+4. אם השאלה לא ברורה או לא ניתנת לחישוב — הסבר זאת בקצרה.
+
+החזר JSON:
+{
+  "summary": "משפט קצר של תחזית (1-2 משפטים, מספרי וספציפי)",
+  "details": "1-2 משפטים נוספים על מה משתנה בקצב/בזמן (אופציונלי)"
+}
+
+טון לפי פרסונה: {persona}. שם: {name}, מגדר: {gender}.
+
+הדאטה: {data}`;
+
+function buildWhatIfPrompt(state, snapshot, scenarioText) {
+  const personaId = state?.settings?.persona || 'neutral';
+  const gender = state?.user?.gender === 'female' ? 'female' : 'male';
+  const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
+  const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
+  return WHAT_IF_SCENARIOS_PROMPT
+    .replace('{persona}', personaId)
+    .replace('{name}', name)
+    .replace('{gender}', genderHe)
+    .replace('{scenario}', (scenarioText || '').trim())
+    .replace('{data}', JSON.stringify(snapshot));
+}
+
+// ════════════════════════════════════════════════════════════════════
 // E4 — Monthly recap (AI-augmented stats summary for last calendar month)
 // ════════════════════════════════════════════════════════════════════
 // Returns JSON: { achievements: [string, string, string], next_steps: string }

@@ -65,6 +65,7 @@ const initialState = {
     weekly: null,        // { text, generatedAt, weekEnding }
     plateau: null,       // { text, generatedAt, periodDays }
     calibration: null,   // { text, generatedAt }
+    correlations: null,  // { items: [{pattern, support, action}], generatedAt }
   },
   settings: {
     unit: 'kg',

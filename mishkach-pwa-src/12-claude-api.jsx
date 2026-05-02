@@ -25,6 +25,8 @@ const MODEL_BY_FEATURE = {
   report_insights:    'claude-opus-4-7',     // pattern-finding for personal report
   workout_voice:      'claude-sonnet-4-6',   // structured Hebrew→JSON, Sonnet handles fine
   monthly_recap:      'claude-sonnet-4-6',   // recap fits Sonnet — narrative + 3 short bullets
+  auto_correlations:  'claude-opus-4-7',     // pattern detection across many days — needs Opus reasoning
+  what_if:            'claude-sonnet-4-6',   // forward projection from numbers — Sonnet handles
 };
 
 const DEFAULT_MODEL = 'claude-opus-4-7';
@@ -407,6 +409,39 @@ async function generateMonthlyRecap(monthData, config, onUsage, state) {
     system,
     messages: [{ role: 'user', content: 'הוצא JSON תקין לפי הסכמה.' }],
     maxTokens: 500,
+    onUsage,
+  });
+  return extractJSON(text);
+}
+
+// ─── Auto-correlations (Opus) ──────────────────────────────────────
+// Returns { correlations: [{pattern, support, action}] } or
+// { insufficient_data: true } or { correlations: [] } when no patterns
+// hit the >=60% support bar.
+async function generateAutoCorrelations(snapshot, config, onUsage, state) {
+  const system = buildAutoCorrelationsPrompt(state, snapshot);
+  const { text } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.auto_correlations,
+    system,
+    messages: [{ role: 'user', content: 'נתח את הדאטה והחזר JSON.' }],
+    maxTokens: 600,
+    onUsage,
+  });
+  return extractJSON(text);
+}
+
+// ─── What-if scenarios (Sonnet) ────────────────────────────────────
+// `scenario` is the user-facing question text (preset OR custom).
+// Returns { summary, details } — short, numeric, specific.
+async function generateWhatIf(snapshot, scenarioText, config, onUsage, state) {
+  const system = buildWhatIfPrompt(state, snapshot, scenarioText);
+  const { text } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.what_if,
+    system,
+    messages: [{ role: 'user', content: scenarioText }],
+    maxTokens: 350,
     onUsage,
   });
   return extractJSON(text);
