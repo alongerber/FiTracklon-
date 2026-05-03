@@ -373,6 +373,15 @@ function TabIcon({ name, size = 18 }) {
         <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/>
         <path d="M12 15v6M9 18h6"/>
       </svg>;
+    // ── v3.14 ──
+    case 'repeat':
+      // Lucide-style repeat (two arrows in a loop)
+      return <svg {...p}>
+        <polyline points="17 1 21 5 17 9"/>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+        <polyline points="7 23 3 19 7 15"/>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+      </svg>;
     default: return null;
   }
 }

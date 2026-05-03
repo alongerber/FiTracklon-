@@ -763,6 +763,62 @@ function sortedFavorites(favoritesMap, limit = 20) {
   return arr.slice(0, limit);
 }
 
+// v3.14: auto-favorites — runtime selector, NOT persisted state.
+// Distinct from `state.nutrition.favorites` (which is cumulative all-time).
+// Returns the top `topN` meal descriptions that appear at least `minCount`
+// times in the last `daysBack` days, sorted by frequency. Each item carries
+// the most recent macros (so "quick add" puts the up-to-date numbers in).
+//
+// AddMealDialog only renders the section when at least `minCount` meals
+// qualify (per spec: "אם פחות מ-3 ארוחות מופיעות 3+ פעמים, אל תציג").
+function computeAutoFavorites(state, { daysBack = 30, minCount = 3, topN = 5 } = {}) {
+  const today = todayISO();
+  const cutoff = addDaysISO(today, -daysBack);
+  // bucket by normalized description
+  const buckets = {};   // key -> { name, count, latest: meal, lastDate }
+  const meals = state.nutrition?.meals || {};
+  for (const date of Object.keys(meals)) {
+    if (date < cutoff || date > today) continue;
+    for (const m of meals[date] || []) {
+      // Strip any "(×qty)" suffix v3.12 adds, so "סלט (×2)" and "סלט"
+      // collapse into one bucket.
+      const cleanedDesc = (m.description || '').replace(/\s*\(×[\d.]+\)\s*$/, '').trim();
+      if (!cleanedDesc) continue;
+      const key = cleanedDesc.toLowerCase();
+      const b = buckets[key] || { name: cleanedDesc, count: 0, latest: null, lastDate: '' };
+      b.count += 1;
+      // Keep the most recent meal as the source of macros (latest values
+      // are usually closest to the user's current portion size)
+      if (!b.lastDate || date > b.lastDate ||
+          (date === b.lastDate && (m.time || '') > (b.latest?.time || ''))) {
+        b.latest = m;
+        b.lastDate = date;
+      }
+      buckets[key] = b;
+    }
+  }
+  // Filter by minCount, sort by frequency desc, take top
+  const arr = Object.values(buckets)
+    .filter(b => b.count >= minCount)
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return b.lastDate.localeCompare(a.lastDate); // tiebreak: more recent
+    })
+    .slice(0, topN)
+    .map(b => ({
+      name: b.name,
+      count: b.count,
+      lastDate: b.lastDate,
+      // Snapshot the macros (per spec: "מוסיף מיד עם אותם ערכים")
+      calories: b.latest.calories || 0,
+      protein: b.latest.protein || 0,
+      carbs: b.latest.carbs || 0,
+      fat: b.latest.fat || 0,
+      thumbnail: b.latest.thumbnail || null,
+    }));
+  return arr;
+}
+
 // ─── Gap-aware weight stats helpers ──────────────────────────────────
 // Check if there's a gap > `days` between entries ending at latestDate
 function hasGap(entries, daysBack, tolerance = 2) {

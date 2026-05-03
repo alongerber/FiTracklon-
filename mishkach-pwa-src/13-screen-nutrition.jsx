@@ -125,6 +125,30 @@ function NutritionScreen({ onNavigate }) {
                 isLast={i === mealsForDay.length - 1}
                 onClick={() => setEditingMeal({ meal: m, date: dateViewing })}
                 onDelete={() => setConfirmDeleteMeal({ meal: m, date: dateViewing })}
+                onRepeat={() => {
+                  // v3.14: instant re-log of an existing meal at the current
+                  // moment (today, regardless of which date the user is viewing —
+                  // re-logging "yesterday's coffee" should land on today, not on
+                  // yesterday again).
+                  const today = todayISO();
+                  const cleanedDesc = (m.description || '').replace(/\s*\(×[\d.]+\)\s*$/, '').trim() || 'ארוחה';
+                  dispatch({
+                    type: 'ADD_MEAL',
+                    date: today,
+                    meal: {
+                      time: nowHHMM(),
+                      description: cleanedDesc,
+                      calories: m.calories || 0,
+                      protein: m.protein || 0,
+                      carbs: m.carbs || 0,
+                      fat: m.fat || 0,
+                      source: 'favorite',
+                      thumbnail: m.thumbnail || null,
+                      items: [], confidence: 'high',
+                    },
+                  });
+                  toast(personaStr(state, 'meal_added_again', `נוסף שוב: ${cleanedDesc}`, { ITEM: cleanedDesc }), { type: 'success' });
+                }}
               />
             ))}
           </Card>
@@ -243,7 +267,10 @@ function MacroCard({ label, val, goal, color }) {
 const MiniStat = MacroCard;
 
 // ─── Meal row (swipeable, clickable to edit) ──────────────────────
-function MealRow({ meal, dateViewing, isLast, onDelete, onClick }) {
+// v3.14: added a 🔁 quick-repeat button. Tapping it instantly re-logs the
+// same meal with the current time. stopPropagation prevents the row's
+// click-to-edit handler from also firing.
+function MealRow({ meal, dateViewing, isLast, onDelete, onClick, onRepeat }) {
   const [swipeX, setSwipeX] = React.useState(0);
   const [moved, setMoved] = React.useState(false);
   const startX = React.useRef(0);
@@ -259,6 +286,11 @@ function MealRow({ meal, dateViewing, isLast, onDelete, onClick }) {
   const handleClick = () => {
     if (moved || swipeX > 0) return; // ignore click after swipe
     onClick?.();
+  };
+
+  const handleRepeat = (e) => {
+    e.stopPropagation();
+    onRepeat?.();
   };
 
   const sourceIcon = meal.source === 'photo_parse' ? '📷' : meal.source === 'label_parse' ? '🏷️' : meal.source === 'manual' ? '✏️' : meal.source === 'favorite' ? '⭐' : '💬';
@@ -296,6 +328,16 @@ function MealRow({ meal, dateViewing, isLast, onDelete, onClick }) {
             {meal.time} · <span style={{ color: T.lime }}>{meal.protein}ג</span> חלבון · <span style={{ color: T.amber }}>{meal.carbs}ג</span> פחמ׳ · <span style={{ color: T.rose }}>{meal.fat}ג</span> שומן
           </div>
         </div>
+        {/* Quick repeat — instant re-log, no dialog (per spec) */}
+        <button onClick={handleRepeat} aria-label="הוסף שוב" title="הוסף שוב" style={{
+          width: 36, height: 36, borderRadius: 18,
+          background: 'transparent', border: `1px solid ${T.stroke}`,
+          color: T.lime, cursor: 'pointer', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 0,
+        }}>
+          <TabIcon name="repeat" size={15} />
+        </button>
         <div style={{ textAlign: 'left', fontFamily: T.mono, fontSize: 18, fontWeight: 700, color: T.ink, minWidth: 40 }}>
           {meal.calories}
         </div>
@@ -308,16 +350,53 @@ function MealRow({ meal, dateViewing, isLast, onDelete, onClick }) {
 // Add meal dialog — favorites / text / photo / manual
 // ═════════════════════════════════════════════════════════════════════
 function AddMealDialog({ date, onClose }) {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
+  const toast = useToast();
   const hasFavorites = Object.keys(state.nutrition.favorites || {}).length > 0;
-  // Default to favorites if any exist; otherwise show mode selector
-  const [mode, setMode] = React.useState(hasFavorites ? 'favorites' : null);
+  // v3.14: runtime-computed top auto-favorites (last 30 days, ≥3 reps, top 5).
+  // Distinct from the cumulative state.nutrition.favorites map.
+  const autoFavs = React.useMemo(
+    () => computeAutoFavorites(state, { daysBack: 30, minCount: 3, topN: 5 }),
+    [state]
+  );
+  // Per spec: only show the "מהיר" section when at least 3 items qualify.
+  const showQuickSection = autoFavs.length >= 3;
+
+  // Default landing:
+  //  • If we have auto-favorites → land on ModeSelector so the quick chips
+  //    are immediately visible at the top.
+  //  • Else fall back to the v3.x behavior (jump to favorites tab if any).
+  const initialMode = showQuickSection ? null : (hasFavorites ? 'favorites' : null);
+  const [mode, setMode] = React.useState(initialMode);
   const [parsedResult, setParsedResult] = React.useState(null);
   const [photoThumb, setPhotoThumb] = React.useState(null);
   // QA5: guard close when the user is in the middle of something
   const [confirmCloseUnsaved, setConfirmCloseUnsaved] = React.useState(false);
 
-  const reset = () => { setMode(hasFavorites ? 'favorites' : null); setParsedResult(null); setPhotoThumb(null); };
+  const reset = () => { setMode(initialMode); setParsedResult(null); setPhotoThumb(null); };
+
+  // v3.14: instant quick-add from the "מהיר" chips. Same shape as the row's
+  // onRepeat handler but lands on the date the user is currently viewing
+  // (matches the rest of AddMealDialog, which scopes to `date`).
+  const quickAdd = (fav) => {
+    dispatch({
+      type: 'ADD_MEAL',
+      date,
+      meal: {
+        time: nowHHMM(),
+        description: fav.name,
+        calories: fav.calories || 0,
+        protein: fav.protein || 0,
+        carbs: fav.carbs || 0,
+        fat: fav.fat || 0,
+        source: 'favorite',
+        thumbnail: fav.thumbnail || null,
+        items: [], confidence: 'high',
+      },
+    });
+    toast(personaStr(state, 'meal_quick_added', `נוסף: ${fav.name}`, { ITEM: fav.name }), { type: 'success' });
+    onClose();
+  };
 
   // "Has unsaved progress" = user has either parsed something (and is on
   // review screen) or has switched to a non-default mode beyond the initial
@@ -361,7 +440,11 @@ function AddMealDialog({ date, onClose }) {
       )}
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {!mode && !parsedResult && <ModeSelector onPick={setMode} />}
+        {!mode && !parsedResult && <ModeSelector
+          onPick={setMode}
+          quickFavorites={showQuickSection ? autoFavs : []}
+          onQuickAdd={quickAdd}
+        />}
         {mode === 'favorites' && !parsedResult && <FavoritesFlow date={date} onClose={onClose} />}
         {mode === 'text' && !parsedResult && <TextParseFlow onParsed={setParsedResult} />}
         {mode === 'photo' && !parsedResult && <PhotoParseFlow onParsed={(r, thumb) => { setParsedResult(r); setPhotoThumb(thumb); }} />}
@@ -593,13 +676,63 @@ const iconBtn = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-function ModeSelector({ onPick }) {
+function ModeSelector({ onPick, quickFavorites = [], onQuickAdd }) {
   const { state } = useStore();
   const hasAI = apiReady(state.apiConfig);
   return (
     <div style={{ padding: 24 }}>
+      {/* v3.14: "מהיר" section — top-5 most-frequent meals from last 30 days.
+          Only rendered when ≥3 items qualify (handled by caller). */}
+      {quickFavorites.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{
+            fontSize: 11, color: T.lime, fontFamily: T.mono,
+            letterSpacing: 1, marginBottom: 10,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <TabIcon name="zap" size={12} />
+            <span>מהיר · ארוחות שאתה אוכל הכי הרבה</span>
+          </div>
+          <div style={{
+            display: 'flex', gap: 8, overflowX: 'auto',
+            paddingBottom: 6, scrollSnapType: 'x mandatory',
+            // hide scrollbar in WebKit + Firefox
+            scrollbarWidth: 'none', msOverflowStyle: 'none',
+          }}>
+            {quickFavorites.map(fav => (
+              <button key={fav.name} onClick={() => onQuickAdd?.(fav)} style={{
+                flexShrink: 0, scrollSnapAlign: 'start',
+                minWidth: 124, padding: '10px 12px',
+                background: T.bgElev, border: `1px solid ${T.lime}40`,
+                borderRadius: 12, color: T.ink, cursor: 'pointer',
+                fontFamily: T.font, textAlign: 'right', direction: 'rtl',
+                display: 'flex', flexDirection: 'column', gap: 4,
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  fontSize: 13, fontWeight: 700, color: T.ink,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  <span style={{ color: T.lime, flexShrink: 0, display: 'inline-flex' }}>
+                    <TabIcon name="zap" size={12} />
+                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fav.name}</span>
+                </div>
+                <div style={{
+                  fontSize: 10, color: T.inkMute, fontFamily: T.mono,
+                  display: 'flex', justifyContent: 'space-between', gap: 4,
+                }}>
+                  <span>{fav.calories} ק״ק</span>
+                  <span style={{ color: T.lime, fontWeight: 700 }}>{fav.count}×</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ fontSize: 12, color: T.inkMute, marginBottom: 16, lineHeight: 1.5 }}>
-        בחר איך להוסיף את הארוחה:
+        {quickFavorites.length > 0 ? 'או הוסף ארוחה חדשה:' : 'בחר איך להוסיף את הארוחה:'}
       </div>
       {!hasAI && (
         <div style={{ padding: '12px 14px', background: `${T.amber}15`, border: `1px solid ${T.amber}44`, borderRadius: 10, fontSize: 12, color: T.amber, marginBottom: 16 }}>
