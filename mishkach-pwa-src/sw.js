@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.14 — offline-first, auto-invalidate cache
+// מִשְׁקַלּוּת Service Worker v3.15 — offline-first, auto-invalidate cache
 // ════════════════════════════════════════════════════════════════════
 
-const CACHE = 'mishkalut-v314';
+const CACHE = 'mishkalut-v315';
 const CORE = [
   './',
   './index.html',

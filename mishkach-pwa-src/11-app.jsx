@@ -17,6 +17,13 @@ function Router() {
   const [screenStack, setScreenStack] = React.useState(['home']);
   const current = screenStack[screenStack.length - 1];
 
+  // v3.15: per-screen parameters for navigations that carry state (e.g.
+  // WeightDetailScreen filtered to a specific month, or focusing a date
+  // picked from a record row). Keyed by screen name; latest navigation
+  // wins. Cleared on `setScreen` to avoid stale params bleeding through
+  // a tab switch.
+  const [screenParams, setScreenParams] = React.useState({});
+
   // v3.11: track whether splash already played in THIS session — separate
   // from settings.splashSeenToday (which gates day-level frequency). The
   // splash sets `splashDone` after it finishes; without this flag the
@@ -31,8 +38,21 @@ function Router() {
   // PWA install state — reads canInstall / isIOS / isInstalled
   const installState = useInstallPrompt();
 
-  const setScreen = (s) => setScreenStack([s]);
-  const push = (s) => setScreenStack(arr => [...arr, s]);
+  // setScreen + push now accept an optional params object that the target
+  // screen receives via props. When clearing the stack, also clear params
+  // for screens NOT in the new stack so they don't reappear stale.
+  const setScreen = (s, params) => {
+    if (params !== undefined) {
+      setScreenParams(p => ({ ...p, [s]: params }));
+    } else {
+      setScreenParams(p => { const { [s]: _, ...rest } = p; return rest; });
+    }
+    setScreenStack([s]);
+  };
+  const push = (s, params) => {
+    if (params !== undefined) setScreenParams(p => ({ ...p, [s]: params }));
+    setScreenStack(arr => [...arr, s]);
+  };
   const pop = () => setScreenStack(arr => arr.length > 1 ? arr.slice(0, -1) : arr);
 
   // Handle onboarding (first run takes priority over splash — splash plays
@@ -63,21 +83,36 @@ function Router() {
     && !installDismissedThisSession
     && (installState.canInstall || installState.isIOS);
 
+  // v3.15: Home + History pass `push` so they can stack additional screens
+  // (like WeightDetailScreen) without losing the home-tab context. Other
+  // screens still use setScreen for tab-style navigation.
+  const navFromHome = (s, params) => {
+    // Push for drill-down screens that should let `pop` return to home;
+    // setScreen for tab switches.
+    if (s === 'weight-detail') return push(s, params);
+    return setScreen(s, params);
+  };
+
   const renderScreen = () => {
     switch (current) {
-      case 'log':       return <LogScreen onClose={pop} onSaved={pop} />;
-      case 'goal':      return <GoalScreen onClose={pop} />;
-      case 'nutrition': return <NutritionScreen onNavigate={setScreen} />;
-      case 'workout':   return <WorkoutScreen />;
-      case 'history':   return <HistoryScreen onNavigate={setScreen} />;
-      case 'me':        return <ProfileScreen onNavigate={push} />;
+      case 'log':           return <LogScreen onClose={pop} onSaved={pop} />;
+      case 'goal':          return <GoalScreen onClose={pop} />;
+      case 'nutrition':     return <NutritionScreen onNavigate={setScreen} />;
+      case 'workout':       return <WorkoutScreen />;
+      case 'history':       return <HistoryScreen onNavigate={navFromHome} />;
+      case 'me':            return <ProfileScreen onNavigate={push} />;
+      case 'weight-detail': return <WeightDetailScreen
+                                params={screenParams['weight-detail']}
+                                onClose={pop}
+                                onNavigate={setScreen} />;
       case 'home':
-      default:          return <HomeScreen onNavigate={setScreen} />;
+      default:              return <HomeScreen onNavigate={navFromHome} />;
     }
   };
 
-  // Modal-like screens: log + goal. They cover the whole view.
-  const isModal = current === 'log' || current === 'goal';
+  // Modal-like screens: log + goal + weight-detail. They cover the whole view
+  // (no bottom tab bar, no install prompt overlay competing for attention).
+  const isModal = current === 'log' || current === 'goal' || current === 'weight-detail';
 
   return (
     <div style={{

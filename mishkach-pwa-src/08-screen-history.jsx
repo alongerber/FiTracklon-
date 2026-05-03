@@ -422,7 +422,7 @@ function WeeklyInsightCard() {
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <TabIcon name="trophy" size={11} />
-                <span>שיאי השבוע</span>
+                <span>נתוני השבוע</span>
               </div>
               {cached.records.map((r, i) => (
                 <div key={i} style={{
@@ -481,7 +481,7 @@ function WeeklyInsightCard() {
       ) : (
         <>
           <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 12 }}>
-            המנוע יסתכל על {snapshot.weight_entries_count} שקילות ו-{snapshot.nutrition_days_logged} ימי תזונה מהשבוע, ויחזיר תובנה אחת + שיאים + מספרים מעניינים.
+            המנוע יסתכל על {snapshot.weight_entries_count} שקילות ו-{snapshot.nutrition_days_logged} ימי תזונה מהשבוע, ויחזיר תובנה אחת + נתונים + מספרים מעניינים.
           </div>
           <button onClick={generate} disabled={!hasKey} style={{
             background: hasKey ? T.lime : T.bgElev2, color: hasKey ? T.bg : T.inkMute,

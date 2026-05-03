@@ -207,8 +207,13 @@ function HomeV1({ onNavigate }) {
         onRefresh={() => new Promise(r => setTimeout(r, 600))}
         style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 20px' }}
       >
-        {/* Hero */}
-        <Card padding={18} style={{ background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`, border: `1px solid ${T.strokeHi}`, marginBottom: 14 }}>
+        {/* Hero — v3.15: clicking opens the WeightDetailScreen drill-down */}
+        <Card padding={18}
+          onClick={() => onNavigate('weight-detail')}
+          style={{
+            background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+            border: `1px solid ${T.strokeHi}`, marginBottom: 14, cursor: 'pointer',
+          }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkMute, letterSpacing: 0.4 }}>משקל נוכחי · {fmt.relativeDay(stats.latestDate)}</div>
@@ -297,13 +302,30 @@ function HomeV1({ onNavigate }) {
         {/* F2 — what-if forward projection */}
         <WhatIfCard />
 
-        {/* Stats grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
-          <StatChip label="שבוע אחרון" value={stats.deltaWeek !== null ? fmt.signed(stats.deltaWeek) : '—'} unit={stats.deltaWeek !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaWeek < 0 ? T.lime : T.rose} />
-          <StatChip label="חודש אחרון" value={stats.deltaMonth !== null ? fmt.signed(stats.deltaMonth) : '—'} unit={stats.deltaMonth !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaMonth < 0 ? T.lime : T.rose} />
-          <StatChip label="שיא" value={fmt.kg(stats.peak.weight, unit)} unit={fmt.unitLabel(unit)} sub={fmt.day(stats.peak.date)} color={T.rose} />
-          <StatChip label="שפל" value={fmt.kg(stats.low.weight, unit)} unit={fmt.unitLabel(unit)} sub={fmt.day(stats.low.date)} color={T.lime} />
-        </div>
+        {/* Stats grid — v3.15: max/min labels are direction-aware.
+            For a weight-loss user, the heaviest weigh is "הכי רחוק מהיעד"
+            and the lightest is "הכי קרוב ליעד". When no goal exists, fall
+            back to the neutral "המקסימום"/"המינימום". Never use "שיא"
+            (implies achievement) or "שפל" (implies failure) — those terms
+            invert their meaning depending on which direction the user wants. */}
+        {(() => {
+          const wantsToLose = goal !== null && stats.startWeight > goal;
+          const hasGoal = goal !== null && goal !== undefined;
+          const peakLabel = !hasGoal ? 'המקסימום' : (wantsToLose ? 'הכי רחוק מהיעד' : 'הכי קרוב ליעד');
+          const lowLabel  = !hasGoal ? 'המינימום' : (wantsToLose ? 'הכי קרוב ליעד'  : 'הכי רחוק מהיעד');
+          // Color: the row that's "further from goal" gets rose,
+          // the one that's "closer to goal" gets lime. When no goal,
+          // default to neutral coloring that matches old behavior.
+          const peakIsBad = !hasGoal ? true : wantsToLose;
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
+              <StatChip label="שבוע אחרון" value={stats.deltaWeek !== null ? fmt.signed(stats.deltaWeek) : '—'} unit={stats.deltaWeek !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaWeek < 0 ? T.lime : T.rose} />
+              <StatChip label="חודש אחרון" value={stats.deltaMonth !== null ? fmt.signed(stats.deltaMonth) : '—'} unit={stats.deltaMonth !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaMonth < 0 ? T.lime : T.rose} />
+              <StatChip label={peakLabel} value={fmt.kg(stats.peak.weight, unit)} unit={fmt.unitLabel(unit)} sub={fmt.day(stats.peak.date)} color={peakIsBad ? T.rose : T.lime} />
+              <StatChip label={lowLabel}  value={fmt.kg(stats.low.weight, unit)}  unit={fmt.unitLabel(unit)} sub={fmt.day(stats.low.date)}  color={peakIsBad ? T.lime : T.rose} />
+            </div>
+          );
+        })()}
 
         {/* Goal CTA if no goal */}
         {goal === null && (
@@ -433,8 +455,10 @@ function HomeV2({ onNavigate }) {
           </div>
         </div>
 
-        {/* Current weight strip */}
-        <Card padding={14} style={{ marginBottom: 12, background: T.bgElev2 }}>
+        {/* Current weight strip — v3.15: clickable */}
+        <Card padding={14}
+          onClick={() => onNavigate('weight-detail')}
+          style={{ marginBottom: 12, background: T.bgElev2, cursor: 'pointer' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: 10, color: T.inkMute, letterSpacing: 1, fontFamily: T.mono }}>עכשיו</div>
@@ -491,21 +515,29 @@ function HomeV2({ onNavigate }) {
           </Card>
         )}
 
-        {/* Peak/Low */}
-        {stats.n >= 3 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <Card padding={12}>
-              <div style={{ fontSize: 10, color: T.rose, fontFamily: T.mono, letterSpacing: 1 }}>שיא ▲</div>
-              <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, letterSpacing: -1, marginTop: 6 }}>{fmt.kg(stats.peak.weight, unit)}</div>
-              <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2 }}>{fmt.day(stats.peak.date)}</div>
-            </Card>
-            <Card padding={12}>
-              <div style={{ fontSize: 10, color: T.lime, fontFamily: T.mono, letterSpacing: 1 }}>שפל ▼</div>
-              <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, letterSpacing: -1, marginTop: 6 }}>{fmt.kg(stats.low.weight, unit)}</div>
-              <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2 }}>{fmt.day(stats.low.date)}</div>
-            </Card>
-          </div>
-        )}
+        {/* Peak/Low — v3.15: goal-aware labels (see HomeV1 comment) */}
+        {stats.n >= 3 && (() => {
+          const wantsToLose = goal !== null && stats.startWeight > goal;
+          const hasGoal = goal !== null && goal !== undefined;
+          const peakLabel = !hasGoal ? 'המקסימום' : (wantsToLose ? 'הכי רחוק מהיעד' : 'הכי קרוב ליעד');
+          const lowLabel  = !hasGoal ? 'המינימום' : (wantsToLose ? 'הכי קרוב ליעד'  : 'הכי רחוק מהיעד');
+          const peakColor = !hasGoal ? T.rose : (wantsToLose ? T.rose : T.lime);
+          const lowColor  = !hasGoal ? T.lime : (wantsToLose ? T.lime : T.rose);
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <Card padding={12}>
+                <div style={{ fontSize: 10, color: peakColor, fontFamily: T.mono, letterSpacing: 1 }}>{peakLabel}</div>
+                <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, letterSpacing: -1, marginTop: 6 }}>{fmt.kg(stats.peak.weight, unit)}</div>
+                <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2 }}>{fmt.day(stats.peak.date)}</div>
+              </Card>
+              <Card padding={12}>
+                <div style={{ fontSize: 10, color: lowColor, fontFamily: T.mono, letterSpacing: 1 }}>{lowLabel}</div>
+                <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, letterSpacing: -1, marginTop: 6 }}>{fmt.kg(stats.low.weight, unit)}</div>
+                <div style={{ fontSize: 10, color: T.inkMute, marginTop: 2 }}>{fmt.day(stats.low.date)}</div>
+              </Card>
+            </div>
+          );
+        })()}
       </PullToRefresh>
     </div>
   );
@@ -543,10 +575,15 @@ function HomeV3({ onNavigate }) {
     ? Math.max(0, Math.min(1, (startWeight - curW) / (startWeight - goal)))
     : 0;
 
+  // v3.15: relabel max/min to be goal-direction-aware. Never use the
+  // judgment words "שיא"/"שפל" for weight extremes.
+  const wantsToLose = goal !== null && startWeight > goal;
+  const peakLabel = wantsToLose ? 'הנקודה הגבוהה ביותר' : 'הנקודה הנמוכה ביותר';
+  const lowLabel  = wantsToLose ? 'הנקודה הקרובה ביותר ליעד' : 'הנקודה הרחוקה ביותר מהיעד';
   const milestones = [
     { w: startWeight, label: 'נקודת זינוק', date: state.user.startDate, kind: 'start' },
-    stats.peak.weight > startWeight + 0.2 && { w: stats.peak.weight, label: 'שיא · חריגה למעלה', date: stats.peak.date, kind: 'peak' },
-    stats.low.weight < startWeight - 1 && { w: stats.low.weight, label: 'שפל · השיא הכי נמוך', date: stats.low.date, kind: 'low' },
+    stats.peak.weight > startWeight + 0.2 && { w: stats.peak.weight, label: peakLabel, date: stats.peak.date, kind: 'peak' },
+    stats.low.weight < startWeight - 1 && { w: stats.low.weight, label: lowLabel, date: stats.low.date, kind: 'low' },
     goal !== null && { w: goal, label: 'היעד', kind: 'goal' },
   ].filter(Boolean).sort((a, b) => b.w - a.w);
 
@@ -566,7 +603,9 @@ function HomeV3({ onNavigate }) {
       <MonthlyRecapButton onNavigate={onNavigate} />
 
       <div style={{ padding: '6px 18px 10px' }}>
-        <Card padding={12} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Card padding={12}
+          onClick={() => onNavigate('weight-detail')}
+          style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>מיקום נוכחי</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
@@ -892,21 +931,46 @@ function computeAutoAchievements(stats) {
 // v3.13: deterministic records computed from raw data — used when the AI
 // either fails or returns a sparse `records` array. Returns array of
 //   { label, value, date }   (date may be null when not applicable).
+//
+// v3.15: max/min weight rows are goal-aware:
+//   • With a weight-loss goal → "הכי רחוק מהיעד" (max) + "הכי קרוב ליעד" (min)
+//   • With a weight-gain goal → swapped
+//   • With no goal → neutral "המקסימום" / "המינימום"
+// Never "שיא"/"שפל" (those imply a value judgment that flips by direction).
 function computeMonthRecords(state, ym, monthStats) {
   const out = [];
   const prefix = ym + '-';
 
-  // 1. Lowest weight in month
+  // 1+2. Furthest / closest to goal (or neutral max/min)
   if (monthStats.weight_entries.length > 0) {
-    const lowest = monthStats.weight_entries.reduce((a, b) => b.weight < a.weight ? b : a);
-    out.push({
-      label: 'משקל הכי נמוך',
-      value: `${lowest.weight.toFixed(1)} ק״ג`,
-      date: lowest.date,
-    });
+    const goal = state.goal?.weight;
+    const startWeight = state.user?.startWeight;
+    const max = monthStats.weight_entries.reduce((a, b) => b.weight > a.weight ? b : a);
+    const min = monthStats.weight_entries.reduce((a, b) => b.weight < a.weight ? b : a);
+    if (goal !== null && goal !== undefined && startWeight !== null && startWeight !== undefined && max.weight !== min.weight) {
+      const wantsToLose = startWeight > goal;
+      const furthest = wantsToLose ? max : min;
+      const closest  = wantsToLose ? min : max;
+      out.push({
+        label: 'הכי רחוק מהיעד',
+        value: `${furthest.weight.toFixed(1)} ק״ג`,
+        date: furthest.date,
+      });
+      out.push({
+        label: 'הכי קרוב ליעד',
+        value: `${closest.weight.toFixed(1)} ק״ג`,
+        date: closest.date,
+      });
+    } else if (max.weight !== min.weight) {
+      out.push({ label: 'המקסימום', value: `${max.weight.toFixed(1)} ק״ג`, date: max.date });
+      out.push({ label: 'המינימום', value: `${min.weight.toFixed(1)} ק״ג`, date: min.date });
+    } else {
+      // Single-weight month — show it as-is, neutral
+      out.push({ label: 'המשקל החודש', value: `${max.weight.toFixed(1)} ק״ג`, date: max.date });
+    }
   }
 
-  // 2. Longest streak (already on monthStats — re-expose with date hint)
+  // 3. Longest streak (already on monthStats — re-expose with date hint)
   if (monthStats.longest_streak >= 2) {
     out.push({
       label: 'רצף הכי ארוך',
@@ -1063,6 +1127,12 @@ function MonthlyRecapButton({ onNavigate }) {
   const [open, setOpen] = React.useState(false);
   const ym = shouldShowMonthlyRecap(state);
   if (!ym) return null;
+  // Drill-down handler passed to the dialog so KPI/record clicks can
+  // close the recap and jump to the relevant detail screen.
+  const drillDown = (screen, params) => {
+    setOpen(false);
+    onNavigate?.(screen, params);
+  };
 
   const monthLabel = HEBREW_MONTH_NAMES[parseInt(ym.split('-')[1], 10) - 1];
   const buttonText = personaStr(state, 'monthly_recap_button',
@@ -1092,6 +1162,7 @@ function MonthlyRecapButton({ onNavigate }) {
       {open && <MonthlyRecapDialog
         ym={ym}
         onClose={() => setOpen(false)}
+        onNavigate={drillDown}
         canDismiss={true}
       />}
     </>
@@ -1108,7 +1179,7 @@ function MonthlyRecapButton({ onNavigate }) {
 //   6. Next-month advice — single specific sentence
 // canDismiss=true → "סיים" button writes dismissedMonthlyRecap.
 // canDismiss=false → archive view, only "סגור".
-function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
+function MonthlyRecapDialog({ ym, onClose, onNavigate, canDismiss }) {
   const { state, dispatch } = useStore();
 
   const monthStats = React.useMemo(() => computeMonthStats(state, ym), [state, ym]);
@@ -1186,7 +1257,7 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
-        {/* ─── 1. KPI grid 2×2 ─────────────────────────────────── */}
+        {/* ─── 1. KPI grid 2×2 ─── v3.15: clickable where it makes sense ─── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 14 }}>
           <RecapKPI label="שינוי במשקל"
             value={monthStats.delta_weight !== null
@@ -1195,17 +1266,20 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
             unit={fmt.unitLabel(unit)}
             color={monthStats.delta_weight === null ? T.ink :
                    monthStats.delta_weight < 0 ? T.lime :
-                   monthStats.delta_weight > 0.3 ? T.rose : T.ink} />
+                   monthStats.delta_weight > 0.3 ? T.rose : T.ink}
+            onClick={onNavigate ? () => onNavigate('weight-detail', { monthYM: ym }) : undefined} />
           <RecapKPI label="אימונים"
             value={monthStats.workouts_count}
             sub={monthStats.workouts_minutes_total > 0 ? `${monthStats.workouts_minutes_total} דק׳` : ''}
-            color={T.cyan} />
+            color={T.cyan}
+            onClick={onNavigate && monthStats.workouts_count > 0 ? () => onNavigate('workout') : undefined} />
           <RecapKPI label="רצף הכי ארוך"
             value={monthStats.longest_streak}
             unit="ימים" color={T.amber} />
           <RecapKPI label="ימי שקילה"
             value={weighingDays}
-            unit="ימים" />
+            unit="ימים"
+            onClick={onNavigate ? () => onNavigate('weight-detail', { monthYM: ym }) : undefined} />
         </div>
 
         {/* ─── 2. Weight chart ─────────────────────────────────── */}
@@ -1235,7 +1309,7 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
         {insufficient && (
           <Card padding={14} style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
-              עוד מעט נתונים ואפשר יהיה לזהות תבניות. בינתיים — הסטטיסטיקות והשיאים בלבד.
+              עוד מעט נתונים ואפשר יהיה לזהות תבניות. בינתיים — הסטטיסטיקות והנתונים בלבד.
             </div>
           </Card>
         )}
@@ -1269,16 +1343,34 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
           </div>
         )}
 
-        {/* ─── 4. Records list ───────────────────────────────────── */}
+        {/* ─── 4. Records list ─── v3.15: header renamed (no "שיא"),
+            rows with a weight-related label + date jump to that date in
+            WeightDetailScreen filtered to this month. ─────────────── */}
         {records.length > 0 && (
           <Card padding={14} style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
               <TabIcon name="trophy" size={12} />
-              <span>שיאים החודש</span>
+              <span>נתונים מהחודש</span>
             </div>
-            {records.map((r, i) => (
-              <RecapRecordRow key={i} record={r} isLast={i === records.length - 1} />
-            ))}
+            {records.map((r, i) => {
+              // Only weight-related rows have a clickable destination
+              // (workout duration / cleanest day live elsewhere — for now
+              // just the entries the WeightDetailScreen can highlight).
+              const isWeightRow = r.label && (
+                r.label.includes('הכי רחוק') ||
+                r.label.includes('הכי קרוב') ||
+                r.label.includes('המקסימום') ||
+                r.label.includes('המינימום') ||
+                r.label.includes('המשקל החודש')
+              );
+              const handleClick = (onNavigate && r.date && isWeightRow)
+                ? () => onNavigate('weight-detail', { monthYM: ym, focusDate: r.date })
+                : undefined;
+              return (
+                <RecapRecordRow key={i} record={r} isLast={i === records.length - 1}
+                  onClick={handleClick} />
+              );
+            })}
           </Card>
         )}
 
@@ -1332,12 +1424,15 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
   );
 }
 
-function RecapKPI({ label, value, unit, sub, color = T.ink }) {
+function RecapKPI({ label, value, unit, sub, color = T.ink, onClick }) {
   return (
-    <Card padding={14} style={{
-      textAlign: 'center',
-      background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
-    }}>
+    <Card padding={14}
+      onClick={onClick}
+      style={{
+        textAlign: 'center',
+        background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+        cursor: onClick ? 'pointer' : 'default',
+      }}>
       <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 4, marginTop: 6 }}>
         <span style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 800, color, letterSpacing: -1 }}>{value}</span>
@@ -1349,13 +1444,15 @@ function RecapKPI({ label, value, unit, sub, color = T.ink }) {
 }
 
 // One row in the records list. AI may return date as YYYY-MM-DD or omit it.
-function RecapRecordRow({ record, isLast }) {
+// v3.15: optional onClick promotes the row to a button-like target.
+function RecapRecordRow({ record, isLast, onClick }) {
   const dateLabel = record.date ? fmt.dayShort(record.date) : '';
   return (
-    <div style={{
+    <div onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 10,
       padding: '8px 0',
       borderBottom: isLast ? 'none' : `1px solid ${T.stroke}`,
+      cursor: onClick ? 'pointer' : 'default',
     }}>
       <div style={{
         width: 6, height: 6, borderRadius: 3, background: T.amber, flexShrink: 0,
@@ -1372,6 +1469,9 @@ function RecapRecordRow({ record, isLast }) {
         <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, flexShrink: 0 }}>
           {dateLabel}
         </div>
+      )}
+      {onClick && (
+        <div style={{ fontSize: 14, color: T.inkMute, flexShrink: 0 }}>‹</div>
       )}
     </div>
   );

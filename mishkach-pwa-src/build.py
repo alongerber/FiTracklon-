@@ -58,6 +58,7 @@ JSX_FILES = [
     '22-screen-workout.jsx',   # NEW: Workout tracking screen
     '23-screen-report.jsx',    # NEW: AI-powered personal report (PDF + WhatsApp)
     '24-icons.jsx',            # NEW (v3.5): persona icon set + <Icon> alias
+    '25-screen-weight-detail.jsx',  # NEW (v3.15): WeightDetailScreen drill-down
     '11-app.jsx',
 ]
 
