@@ -864,28 +864,91 @@ const inputStyle = {
 };
 
 // ─── Review & save ──────────────────────────────────────────────────
+// v3.12: editable review screen.
+//   • Name = display + ✏️; clicking ✏️ enters edit mode with "בדוק שוב"
+//     to re-parse via Claude (replaces per-unit macros).
+//   • Quantity = stepper (−/+ in 0.5s) + preset chips (×0.5/1/1.5/2/3).
+//   • Macros stored as PER-UNIT; totals = perUnit × qty (recomputed live).
+//   • Save persists TOTALS (so the rest of the app keeps summing per-meal),
+//     and appends " (×qty)" to the description when qty !== 1.
 function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
-  const [desc, setDesc] = React.useState(result.description || '');
-  const [cal, setCal] = React.useState(result.calories);
-  const [p, setP] = React.useState(result.protein);
-  const [c, setC] = React.useState(result.carbs);
-  const [f, setF] = React.useState(result.fat);
+
+  // Per-unit macros (what the AI returned for one serving). The user can
+  // override any of these — overrides are NOT cleared by re-parse.
+  const [desc, setDesc]   = React.useState(result.description || '');
+  const [perCal, setPerCal] = React.useState(result.calories);
+  const [perP, setPerP]   = React.useState(result.protein);
+  const [perC, setPerC]   = React.useState(result.carbs);
+  const [perF, setPerF]   = React.useState(result.fat);
+
+  // Re-parse-able metadata (notes/items/confidence). Updated when "בדוק שוב"
+  // is pressed; otherwise stays as the original parse.
+  const [meta, setMeta] = React.useState({
+    notes: result.notes || '',
+    items: result.items || [],
+    confidence: result.confidence || (source === 'manual' ? 'high' : 'medium'),
+  });
+
+  const [qty, setQty] = React.useState(1);
+  const [editingName, setEditingName] = React.useState(false);
+  const [reparsing, setReparsing] = React.useState(false);
+
+  const totCal = Math.round(perCal * qty);
+  const totP   = Math.round(perP * qty);
+  const totC   = Math.round(perC * qty);
+  const totF   = Math.round(perF * qty);
+
+  const hasAI = apiReady(state.apiConfig);
+  const canReparse = hasAI && source !== 'manual';
+
+  const reparseFromName = async () => {
+    if (!desc.trim() || !canReparse) return;
+    setReparsing(true);
+    try {
+      const r = await parseNutritionFromText(desc.trim(), state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({
+          type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          feature: 'nutrition_text',
+          costUSD: cost,
+        });
+      });
+      setPerCal(r.calories);
+      setPerP(r.protein);
+      setPerC(r.carbs);
+      setPerF(r.fat);
+      setMeta({
+        notes: r.notes || '',
+        items: r.items || [],
+        confidence: r.confidence || 'medium',
+      });
+      setEditingName(false);
+      toast(personaStr(state, 'reparsed', 'הערכים עודכנו'), { type: 'success' });
+    } catch (e) {
+      toast(personaErrorFromException(state, e), { type: 'error' });
+    } finally {
+      setReparsing(false);
+    }
+  };
 
   const save = () => {
+    const finalDesc = (desc.trim() || 'ארוחה') + (qty !== 1 ? ` (×${qty})` : '');
     dispatch({
       type: 'ADD_MEAL',
       date,
       meal: {
         time: nowHHMM(),
-        description: desc.trim() || 'ארוחה',
-        calories: cal, protein: p, carbs: c, fat: f,
+        description: finalDesc,
+        calories: totCal, protein: totP, carbs: totC, fat: totF,
         source,
         thumbnail: thumbnail || null,
-        aiNotes: result.notes || '',
-        items: result.items || [],
-        confidence: result.confidence || 'high',
+        aiNotes: meta.notes || '',
+        items: meta.items || [],
+        confidence: meta.confidence || 'high',
       },
     });
     toast(personaStr(state, 'meal_added', 'הארוחה נוספה'), { type: 'success' });
@@ -895,26 +958,33 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
   const confidenceColors = { high: T.lime, medium: T.amber, low: T.rose };
   const confidenceLabels = { high: 'ביטחון גבוה', medium: 'ביטחון בינוני', low: 'ביטחון נמוך · כדאי לבדוק' };
 
+  const qtyPresets = [0.5, 1, 1.5, 2, 3];
+  const fmtQty = (n) => Number.isInteger(n) ? `${n}` : n.toFixed(1);
+  const bumpQty = (delta) => {
+    const next = Math.max(0.5, Math.min(20, +(qty + delta).toFixed(1)));
+    setQty(next);
+  };
+
   return (
     <div style={{ padding: 24 }}>
       {/* AI confidence indicator */}
       {source !== 'manual' && (
         <div style={{
-          padding: '10px 14px', background: `${confidenceColors[result.confidence]}15`,
-          border: `1px solid ${confidenceColors[result.confidence]}44`, borderRadius: 10,
-          fontSize: 12, color: confidenceColors[result.confidence], marginBottom: 16,
+          padding: '10px 14px', background: `${confidenceColors[meta.confidence]}15`,
+          border: `1px solid ${confidenceColors[meta.confidence]}44`, borderRadius: 10,
+          fontSize: 12, color: confidenceColors[meta.confidence], marginBottom: 16,
         }}>
-          <div style={{ fontWeight: 700 }}>{confidenceLabels[result.confidence]}</div>
-          {result.notes && <div style={{ marginTop: 4, opacity: 0.9, lineHeight: 1.5 }}>{result.notes}</div>}
+          <div style={{ fontWeight: 700 }}>{confidenceLabels[meta.confidence]}</div>
+          {meta.notes && <div style={{ marginTop: 4, opacity: 0.9, lineHeight: 1.5 }}>{meta.notes}</div>}
         </div>
       )}
 
       {/* Item breakdown if present */}
-      {result.items && result.items.length > 0 && (
+      {meta.items && meta.items.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>זוהה</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {result.items.map((it, i) => (
+            {meta.items.map((it, i) => (
               <div key={i} style={{
                 padding: '4px 10px', background: T.bgElev, borderRadius: 999,
                 fontSize: 11, color: T.inkSub, fontFamily: T.font,
@@ -924,30 +994,143 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
         </div>
       )}
 
-      <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>תיאור</div>
-      <input value={desc} onChange={e => setDesc(e.target.value)} style={inputStyle} />
+      {/* Name — view mode (display + ✏️) or edit mode (input + "בדוק שוב") */}
+      <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>שם</div>
+      {!editingName ? (
+        <button onClick={() => setEditingName(true)} style={{
+          width: '100%', padding: '14px 16px', background: T.bgElev, border: `1px solid ${T.stroke}`,
+          borderRadius: 12, color: T.ink, fontSize: 15, fontFamily: T.font, cursor: 'pointer',
+          direction: 'rtl', textAlign: 'right', display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {desc || 'ללא שם'}
+          </span>
+          <span style={{
+            width: 28, height: 28, borderRadius: 14, background: T.bg, color: T.lime,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }} aria-label="ערוך שם">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </span>
+        </button>
+      ) : (
+        <>
+          <input value={desc}
+            onChange={e => setDesc(e.target.value)}
+            autoFocus
+            placeholder="שם הארוחה / מאכל"
+            style={inputStyle}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={() => setEditingName(false)} style={{
+              flex: 1, padding: '10px 14px', background: 'transparent', border: `1px solid ${T.stroke}`,
+              borderRadius: 10, color: T.inkSub, fontSize: 12, fontWeight: 700, fontFamily: T.font, cursor: 'pointer',
+            }}>סגור</button>
+            <button
+              onClick={reparseFromName}
+              disabled={!canReparse || !desc.trim() || reparsing}
+              title={!canReparse ? 'דורש חיבור AI' : ''}
+              style={{
+                flex: 2, padding: '10px 14px',
+                background: (!canReparse || !desc.trim() || reparsing) ? T.bgElev2 : T.lime,
+                border: 'none', borderRadius: 10,
+                color: (!canReparse || !desc.trim() || reparsing) ? T.inkMute : T.bg,
+                fontSize: 12, fontWeight: 800, fontFamily: T.font,
+                cursor: (!canReparse || !desc.trim() || reparsing) ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              {reparsing ? 'בודק…' : 'בדוק שוב'}
+            </button>
+          </div>
+          {!canReparse && (
+            <div style={{ fontSize: 11, color: T.inkMute, marginTop: 6, lineHeight: 1.5 }}>
+              {source === 'manual'
+                ? 'הזנה ידנית — אין צורך לבדוק מחדש, מלא את הערכים למטה.'
+                : 'בדיקה מחדש דורשת חיבור AI. עדיין אפשר לערוך את הערכים ידנית.'}
+            </div>
+          )}
+        </>
+      )}
 
-      <div style={{ marginTop: 16 }}>
-        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות</div>
-        <NumberStepper value={cal} onChange={setCal} min={0} max={3000} step={10} unit="ק״ק" />
+      {/* Quantity — stepper + preset chips */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>כמות</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center' }}>
+          <button onClick={() => bumpQty(-0.5)} disabled={qty <= 0.5} style={{
+            width: 44, height: 44, borderRadius: 12, background: T.bgElev,
+            border: `1px solid ${T.stroke}`, color: qty <= 0.5 ? T.inkMute : T.ink,
+            fontSize: 22, fontWeight: 700, cursor: qty <= 0.5 ? 'not-allowed' : 'pointer', fontFamily: T.font,
+          }}>−</button>
+          <div style={{
+            minWidth: 90, padding: '10px 14px', background: T.bgElev2, borderRadius: 12,
+            fontFamily: T.mono, fontSize: 22, fontWeight: 800, color: T.ink, textAlign: 'center', letterSpacing: -0.5,
+          }}>×{fmtQty(qty)}</div>
+          <button onClick={() => bumpQty(0.5)} disabled={qty >= 20} style={{
+            width: 44, height: 44, borderRadius: 12, background: T.bgElev,
+            border: `1px solid ${T.stroke}`, color: T.ink,
+            fontSize: 22, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+          }}>+</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 10 }}>
+          {qtyPresets.map(p => (
+            <button key={p} onClick={() => setQty(p)} style={{
+              padding: '10px 0', borderRadius: 10,
+              border: `1px solid ${qty === p ? T.lime : T.stroke}`,
+              background: qty === p ? T.lime : 'transparent',
+              color: qty === p ? T.bg : T.inkSub,
+              fontFamily: T.mono, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            }}>×{p}</button>
+          ))}
+        </div>
       </div>
 
-      <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>חלבון</div>
-          <NumberStepper value={p} onChange={setP} min={0} max={300} step={1} unit="ג" />
+      {/* Per-unit macros — what one serving is. Edits override AI. */}
+      <div style={{
+        marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.stroke}`,
+      }}>
+        <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 8, fontFamily: T.mono, letterSpacing: 1 }}>
+          ערכים ליחידה אחת
         </div>
-        <div>
-          <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>פחמימות</div>
-          <NumberStepper value={c} onChange={setC} min={0} max={500} step={1} unit="ג" />
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>קלוריות</div>
+          <NumberStepper value={perCal} onChange={setPerCal} min={0} max={3000} step={10} unit="ק״ק" />
         </div>
-        <div>
-          <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>שומן</div>
-          <NumberStepper value={f} onChange={setF} min={0} max={200} step={1} unit="ג" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>חלבון</div>
+            <NumberStepper value={perP} onChange={setPerP} min={0} max={300} step={1} unit="ג" />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>פחמימות</div>
+            <NumberStepper value={perC} onChange={setPerC} min={0} max={500} step={1} unit="ג" />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: T.inkMute, marginBottom: 4, fontFamily: T.mono }}>שומן</div>
+            <NumberStepper value={perF} onChange={setPerF} min={0} max={200} step={1} unit="ג" />
+          </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 24 }}>
+      {/* Live total preview — multiplied by qty */}
+      <div style={{
+        marginTop: 16, padding: 14, borderRadius: T.radius,
+        background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+        border: `1px solid ${T.strokeHi}`,
+      }}>
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>
+          סה״כ {qty !== 1 ? `(כפול ×${fmtQty(qty)})` : ''}
+        </div>
+        <div style={{ fontFamily: T.mono, fontSize: 26, fontWeight: 800, color: T.ink, letterSpacing: -1 }}>
+          {totCal} <span style={{ fontSize: 13, color: T.inkSub, fontWeight: 600 }}>ק״ק</span>
+        </div>
+        <div style={{ fontSize: 12, color: T.inkSub, marginTop: 4, fontFamily: T.mono }}>
+          <span style={{ color: T.lime }}>{totP}ג</span> חלבון · <span style={{ color: T.amber }}>{totC}ג</span> פחמ׳ · <span style={{ color: T.rose }}>{totF}ג</span> שומן
+        </div>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
         <Button onClick={save}>שמור ארוחה</Button>
       </div>
     </div>
