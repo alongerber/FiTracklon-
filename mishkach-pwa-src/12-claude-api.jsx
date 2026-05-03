@@ -19,12 +19,12 @@ const PRICING = {
 const MODEL_BY_FEATURE = {
   nutrition_text:     'claude-sonnet-4-6',   // 40% cheaper, near-Opus quality on text
   nutrition_image:    'claude-opus-4-7',     // vision matters for product recognition
-  weekly_insight:     'claude-opus-4-7',     // reasoning quality critical
+  weekly_insight:     'claude-sonnet-4-6',   // v3.13: structured JSON, Sonnet plenty
   plateau_analysis:   'claude-opus-4-7',
   goal_calibration:   'claude-opus-4-7',
   report_insights:    'claude-opus-4-7',     // pattern-finding for personal report
   workout_voice:      'claude-sonnet-4-6',   // structured Hebrew→JSON, Sonnet handles fine
-  monthly_recap:      'claude-sonnet-4-6',   // recap fits Sonnet — narrative + 3 short bullets
+  monthly_recap:      'claude-opus-4-7',     // v3.13: cross-data correlations need Opus reasoning
   auto_correlations:  'claude-opus-4-7',     // pattern detection across many days — needs Opus reasoning
   what_if:            'claude-sonnet-4-6',   // forward projection from numbers — Sonnet handles
 };
@@ -352,20 +352,21 @@ function normalizeNutrition(p) {
 }
 
 // ─── High-level: weekly insight (persona-aware) ─────────────────────
+// v3.13: returns STRUCTURED JSON via WEEKLY_INSIGHT_STRUCT_PROMPT.
+//   { insight, records, interesting_numbers } or { insufficient_data: true }
+// Caller (WeeklyInsightCard) renders new layout when payload has `.insight`,
+// otherwise falls back to legacy `.text` rendering for cached pre-v3.13 payloads.
 async function generateWeeklyInsight(snapshot, config, onUsage, state) {
-  // Use persona-specific prompt if state provided, else fallback to generic
-  const system = state
-    ? buildAISystemPrompt('weekly_insight', state, 7)
-    : PROMPTS.weeklyInsight.system;
+  const system = buildWeeklyInsightStructPrompt(state || {}, snapshot);
   const { text } = await callClaude({
     config,
     model: MODEL_BY_FEATURE.weekly_insight,
     system,
-    messages: [{ role: 'user', content: JSON.stringify(snapshot, null, 2) }],
-    maxTokens: PROMPTS.weeklyInsight.maxTokens,
+    messages: [{ role: 'user', content: 'הוצא JSON תקין לפי הסכמה.' }],
+    maxTokens: 600,
     onUsage,
   });
-  return text.trim();
+  return extractJSON(text);
 }
 
 async function generatePlateauAnalysis(snapshot, config, onUsage, state) {
@@ -408,7 +409,7 @@ async function generateMonthlyRecap(monthData, config, onUsage, state) {
     model: MODEL_BY_FEATURE.monthly_recap,
     system,
     messages: [{ role: 'user', content: 'הוצא JSON תקין לפי הסכמה.' }],
-    maxTokens: 500,
+    maxTokens: 1400,  // v3.13: much richer schema (3 insights + 4 records + 4 numbers)
     onUsage,
   });
   return extractJSON(text);

@@ -109,33 +109,74 @@ function PersonaStep({ persona, setPersona, onNext, onPrev }) {
   );
 }
 
+// v3.13: replaced generic "ברוכים הבאים" + "5 שאלות" with a one-screen
+// pact. The text sets honest expectations (what the app does, what the
+// commitment is, what the user can do if it doesn't work). The "הוגן"
+// CTA is the user's accept of that pact.
 function WelcomeStep({ onNext }) {
+  const bodyParaStyle = {
+    fontSize: 15,
+    lineHeight: 1.75,
+    color: T.ink,
+    margin: 0,
+  };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 20, paddingTop: 32 }}>
-      <div style={{
-        width: 160, height: 160,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      minHeight: '100%', padding: '8px 4px 24px',
+      direction: 'rtl',
+    }}>
+      {/* Logo — centered, 140×140 per spec */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20, marginBottom: 28 }}>
         <img
           src="./logo-welcome.png"
           alt="מִשְׁקַלּוּת"
           style={{
-            width: '100%', height: '100%', objectFit: 'contain',
-            borderRadius: 34,
+            width: 140, height: 140, objectFit: 'contain',
+            borderRadius: 30,
             boxShadow: `0 0 60px ${T.lime}44, 0 10px 30px rgba(0,0,0,0.5)`,
           }}
         />
       </div>
-      <div>
-        <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: -0.5 }}>ברוכים הבאים למִשְׁקַלּוּת</div>
-        <div style={{ fontSize: 14, color: T.inkSub, marginTop: 8, lineHeight: 1.6, maxWidth: 280 }}>
-          משקל, תזונה ותובנות חכמות במקום אחד. הכל נשמר על המכשיר שלך בלבד.
-        </div>
+
+      {/* Title */}
+      <div style={{
+        fontSize: 38, fontWeight: 800, color: T.lime,
+        letterSpacing: -1, lineHeight: 1.05,
+        textAlign: 'center', marginBottom: 28,
+      }}>
+        מִשְׁקַלּוּת.
       </div>
-      <div style={{ marginTop: 12, fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>5 שאלות · 90 שניות</div>
-      <div style={{ marginTop: 16, width: '100%', maxWidth: 300, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Button onClick={onNext}>בוא נתחיל</Button>
-        <InstallButton variant="ghost" label="📱 התקן במסך הבית" />
+
+      {/* Pact heading + body */}
+      <div style={{
+        fontSize: 18, fontWeight: 700, color: T.ink,
+        marginBottom: 14, textAlign: 'right',
+      }}>
+        הסכם:
+      </div>
+
+      <p style={{ ...bodyParaStyle, marginBottom: 14 }}>
+        יש כאן כלי שיודע לזהות אוכל מצילום, להבין משפט בעברית,
+        ולתעד אימון מאמירה אחת. בקול שתבחרו מתוך חמש דמויות.
+      </p>
+
+      <p style={{ ...bodyParaStyle, marginBottom: 28 }}>
+        תרשמו. אם זה יעזור — מצוין. אם לא — תמחקו את האפליקציה,
+        ואני לא אעלב.
+      </p>
+
+      {/* "הוגן" CTA — 56px tall, full width */}
+      <div style={{ marginTop: 'auto', paddingTop: 8 }}>
+        <button onClick={onNext} style={{
+          width: '100%', height: 56,
+          background: T.lime, color: T.bg,
+          border: 'none', borderRadius: 14,
+          fontSize: 18, fontWeight: 800, fontFamily: T.font,
+          letterSpacing: 0.5, cursor: 'pointer',
+        }}>
+          הוגן
+        </button>
       </div>
     </div>
   );

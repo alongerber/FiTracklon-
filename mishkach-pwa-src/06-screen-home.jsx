@@ -889,6 +889,174 @@ function computeAutoAchievements(stats) {
   return out.slice(0, 3);
 }
 
+// v3.13: deterministic records computed from raw data — used when the AI
+// either fails or returns a sparse `records` array. Returns array of
+//   { label, value, date }   (date may be null when not applicable).
+function computeMonthRecords(state, ym, monthStats) {
+  const out = [];
+  const prefix = ym + '-';
+
+  // 1. Lowest weight in month
+  if (monthStats.weight_entries.length > 0) {
+    const lowest = monthStats.weight_entries.reduce((a, b) => b.weight < a.weight ? b : a);
+    out.push({
+      label: 'משקל הכי נמוך',
+      value: `${lowest.weight.toFixed(1)} ק״ג`,
+      date: lowest.date,
+    });
+  }
+
+  // 2. Longest streak (already on monthStats — re-expose with date hint)
+  if (monthStats.longest_streak >= 2) {
+    out.push({
+      label: 'רצף הכי ארוך',
+      value: `${monthStats.longest_streak} ימי שקילה`,
+      date: null,
+    });
+  }
+
+  // 3. Longest workout in month
+  let longestWorkout = null;
+  Object.entries(state.workouts?.sessions || {}).forEach(([d, list]) => {
+    if (!d.startsWith(prefix)) return;
+    (list || []).forEach(w => {
+      const min = w.durationMin || 0;
+      if (!longestWorkout || min > longestWorkout.min) {
+        longestWorkout = { date: d, min, name: w.name || '' };
+      }
+    });
+  });
+  if (longestWorkout && longestWorkout.min > 0) {
+    out.push({
+      label: 'אימון הכי ארוך',
+      value: `${longestWorkout.min} דק׳`,
+      date: longestWorkout.date,
+    });
+  }
+
+  // 4. Cleanest day = lowest calories among logged nutrition days
+  let cleanestDay = null;
+  Object.keys(state.nutrition?.meals || {}).forEach(d => {
+    if (!d.startsWith(prefix)) return;
+    const meals = state.nutrition.meals[d] || [];
+    if (meals.length === 0) return;
+    const cal = meals.reduce((s, m) => s + (m.calories || 0), 0);
+    if (cal === 0) return;
+    if (!cleanestDay || cal < cleanestDay.cal) {
+      cleanestDay = { date: d, cal };
+    }
+  });
+  if (cleanestDay) {
+    out.push({
+      label: 'היום הכי נקי',
+      value: `${Math.round(cleanestDay.cal)} ק״ק`,
+      date: cleanestDay.date,
+    });
+  }
+
+  return out;
+}
+
+// v3.13: 4 interesting non-trivial numbers, fallback when AI doesn't fill them.
+// Returns array of { label, value, change }   (change = string or null).
+function computeInterestingNumbers(state, ym, monthStats) {
+  const out = [];
+  const prefix = ym + '-';
+
+  // 1. Average daily calories + change vs prev month
+  let totalCalThisMonth = 0;
+  let nutritionDaysThisMonth = 0;
+  Object.keys(state.nutrition?.meals || {}).forEach(d => {
+    if (!d.startsWith(prefix)) return;
+    const meals = state.nutrition.meals[d] || [];
+    if (meals.length === 0) return;
+    const sum = meals.reduce((s, m) => s + (m.calories || 0), 0);
+    if (sum > 0) { totalCalThisMonth += sum; nutritionDaysThisMonth++; }
+  });
+  if (nutritionDaysThisMonth >= 3) {
+    const avgThis = Math.round(totalCalThisMonth / nutritionDaysThisMonth);
+    // Prev month
+    const prevYM = previousMonthYM(ym + '-15'); // mid-month avoids edge cases
+    const prevPrefix = prevYM + '-';
+    let totalCalPrev = 0;
+    let nutritionDaysPrev = 0;
+    Object.keys(state.nutrition?.meals || {}).forEach(d => {
+      if (!d.startsWith(prevPrefix)) return;
+      const meals = state.nutrition.meals[d] || [];
+      if (meals.length === 0) return;
+      const sum = meals.reduce((s, m) => s + (m.calories || 0), 0);
+      if (sum > 0) { totalCalPrev += sum; nutritionDaysPrev++; }
+    });
+    let change = null;
+    if (nutritionDaysPrev >= 3) {
+      const avgPrev = totalCalPrev / nutritionDaysPrev;
+      const pct = ((avgThis - avgPrev) / avgPrev) * 100;
+      if (Math.abs(pct) >= 1) {
+        change = `${pct > 0 ? '+' : ''}${pct.toFixed(0)}% מחודש קודם`;
+      }
+    }
+    out.push({
+      label: 'ממוצע ק״ק יומי',
+      value: avgThis.toLocaleString('he-IL'),
+      change,
+    });
+  }
+
+  // 2. Most repeated meal
+  const mealCounts = {};
+  Object.keys(state.nutrition?.meals || {}).forEach(d => {
+    if (!d.startsWith(prefix)) return;
+    (state.nutrition.meals[d] || []).forEach(m => {
+      const key = (m.description || '').trim().toLowerCase().replace(/\s*\(×.*\)$/, '');
+      if (!key) return;
+      mealCounts[key] = (mealCounts[key] || { name: m.description.replace(/\s*\(×.*\)$/, ''), count: 0 });
+      mealCounts[key].count += 1;
+    });
+  });
+  const top = Object.values(mealCounts).sort((a, b) => b.count - a.count)[0];
+  if (top && top.count >= 2) {
+    out.push({
+      label: 'הארוחה החוזרת ביותר',
+      value: `${top.name} (${top.count}×)`,
+      change: null,
+    });
+  }
+
+  // 3. Best/worst day-of-week by avg weight delta
+  // For each weight entry, compute delta from prev entry; group by DOW; avg.
+  if (monthStats.weight_entries.length >= 4) {
+    const dowDelta = {}; // 0..6 → { sumDelta, count }
+    for (let i = 1; i < monthStats.weight_entries.length; i++) {
+      const a = monthStats.weight_entries[i - 1];
+      const b = monthStats.weight_entries[i];
+      const d = b.weight - a.weight;
+      const dow = parseDOWFromISO(b.date);
+      dowDelta[dow] = dowDelta[dow] || { sum: 0, count: 0 };
+      dowDelta[dow].sum += d;
+      dowDelta[dow].count += 1;
+    }
+    const dowNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    const ranked = Object.entries(dowDelta)
+      .filter(([, v]) => v.count >= 2)
+      .map(([dow, v]) => ({ dow: parseInt(dow, 10), avg: v.sum / v.count }))
+      .sort((a, b) => a.avg - b.avg);
+    if (ranked.length >= 2) {
+      out.push({
+        label: 'היום הכי טוב בשבוע',
+        value: dowNames[ranked[0].dow],
+        change: null,
+      });
+      out.push({
+        label: 'היום הכי קשה בשבוע',
+        value: dowNames[ranked[ranked.length - 1].dow],
+        change: null,
+      });
+    }
+  }
+
+  return out.slice(0, 4);
+}
+
 // ─── Home: button that opens the recap dialog ──────────────────────
 function MonthlyRecapButton({ onNavigate }) {
   const { state } = useStore();
@@ -930,21 +1098,27 @@ function MonthlyRecapButton({ onNavigate }) {
   );
 }
 
-// ─── Recap dialog (full-screen) ─────────────────────────────────────
+// ─── Recap dialog (full-screen) — v3.13 expanded ──────────────────
+// 5 sections, each AI-augmented with deterministic fallback:
+//   1. KPI grid (2×2): weight change, workouts, longest streak, weighing days
+//   2. Big weight chart for the month
+//   3. 3 insight cards (lime accent) — cross-data correlations from AI
+//   4. 4 records — local extremes with dates
+//   5. 4 interesting numbers — non-trivial figures w/ optional change vs prev month
+//   6. Next-month advice — single specific sentence
 // canDismiss=true → "סיים" button writes dismissedMonthlyRecap.
-// canDismiss=false → archive view, only "סגור" (no state change).
+// canDismiss=false → archive view, only "סגור".
 function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
   const { state, dispatch } = useStore();
-  const toast = useToast();
 
   const monthStats = React.useMemo(() => computeMonthStats(state, ym), [state, ym]);
-  const autoAchievements = React.useMemo(() => computeAutoAchievements(monthStats), [monthStats]);
+  const fallbackRecords = React.useMemo(() => computeMonthRecords(state, ym, monthStats), [state, ym, monthStats]);
+  const fallbackNumbers = React.useMemo(() => computeInterestingNumbers(state, ym, monthStats), [state, ym, monthStats]);
 
   const [aiResult, setAiResult] = React.useState(null);
   const [aiLoading, setAiLoading] = React.useState(false);
   const [aiTried, setAiTried] = React.useState(false);
 
-  // Try AI once on open if API is ready and we have enough data
   React.useEffect(() => {
     if (aiTried) return;
     if (!apiReady(state.apiConfig)) return;
@@ -959,7 +1133,7 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
       });
     }, state)
       .then(r => setAiResult(r))
-      .catch(_ => { /* fall back silently to autoAchievements */ })
+      .catch(_ => { /* fall back silently to deterministic sections */ })
       .finally(() => setAiLoading(false));
   }, [aiTried, monthStats, state]);
 
@@ -972,9 +1146,25 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
 
   const unit = state.settings.unit;
   const chartData = monthStats.weight_entries.map(e => ({ date: e.date, weight: e.weight }));
-  const achievements = (aiResult?.achievements && aiResult.achievements.length > 0)
-    ? aiResult.achievements.slice(0, 3)
-    : autoAchievements;
+
+  // Resolve sections: AI first, deterministic fallback after
+  const insufficient = !!aiResult?.insufficient_data;
+  const insights =
+    (aiResult?.insights && Array.isArray(aiResult.insights) && aiResult.insights.length > 0)
+      ? aiResult.insights.slice(0, 3)
+      : []; // no deterministic equivalent for cross-data correlations
+  const records =
+    (aiResult?.records && Array.isArray(aiResult.records) && aiResult.records.length > 0)
+      ? aiResult.records.slice(0, 4)
+      : fallbackRecords;
+  const interestingNumbers =
+    (aiResult?.interesting_numbers && Array.isArray(aiResult.interesting_numbers) && aiResult.interesting_numbers.length > 0)
+      ? aiResult.interesting_numbers.slice(0, 4)
+      : fallbackNumbers;
+  const nextAdvice = aiResult?.next_month_advice || '';
+
+  // Compute the "weighing days" KPI value — entries_count from raw stats
+  const weighingDays = monthStats.entries_count;
 
   return (
     <div style={{
@@ -987,7 +1177,7 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
           border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>×</button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>סיכום חודשי</div>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>החודש שלך</div>
           <div style={{ fontSize: 17, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: T.cyan, flexShrink: 0, display: 'inline-flex' }}><TabIcon name="calendar" size={16} /></span>
             {monthStats.monthName}
@@ -996,11 +1186,8 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
-        {/* 4 KPI grid */}
+        {/* ─── 1. KPI grid 2×2 ─────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 14 }}>
-          <RecapKPI label="משקל ממוצע"
-            value={monthStats.avg_weight !== null ? fmt.kg(monthStats.avg_weight, unit) : '—'}
-            unit={fmt.unitLabel(unit)} />
           <RecapKPI label="שינוי במשקל"
             value={monthStats.delta_weight !== null
               ? (monthStats.delta_weight > 0 ? '+' : '') + monthStats.delta_weight.toFixed(1)
@@ -1011,61 +1198,126 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
                    monthStats.delta_weight > 0.3 ? T.rose : T.ink} />
           <RecapKPI label="אימונים"
             value={monthStats.workouts_count}
-            sub={monthStats.workouts_minutes_total > 0 ? `${monthStats.workouts_minutes_total} דק׳ סה״כ` : ''} />
-          <RecapKPI label="רצף ארוך"
+            sub={monthStats.workouts_minutes_total > 0 ? `${monthStats.workouts_minutes_total} דק׳` : ''}
+            color={T.cyan} />
+          <RecapKPI label="רצף הכי ארוך"
             value={monthStats.longest_streak}
             unit="ימים" color={T.amber} />
+          <RecapKPI label="ימי שקילה"
+            value={weighingDays}
+            unit="ימים" />
         </div>
 
-        {/* Weight chart for the month */}
+        {/* ─── 2. Weight chart ─────────────────────────────────── */}
         {chartData.length >= 2 && (
-          <Card padding={12} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
-              משקל · {chartData.length} מדידות
+          <Card padding={14} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="trending-down" size={14} />
+              <span>המסע · {chartData.length} מדידות</span>
             </div>
             <WeightChart data={chartData} goal={monthStats.goal_target_kg}
-              width={340} height={140} showMarkers={false} showDots={true} />
+              width={340} height={170} showMarkers={false} showDots={true} />
           </Card>
         )}
 
-        {/* Achievements (AI > auto fallback) */}
-        {achievements.length > 0 && (
-          <Card padding={14} style={{ marginBottom: 14, background: `${T.lime}10`, border: `1px solid ${T.lime}30` }}>
+        {/* AI loading skeleton (one big block while we wait) */}
+        {aiLoading && !aiResult && (
+          <Card padding={14} style={{ marginBottom: 14, background: `${T.lime}08`, border: `1px solid ${T.stroke}` }}>
             <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
               <TabIcon name="sparkle" size={12} />
-              הישגים{aiLoading ? ' (טוען...)' : ''}
+              <span>בונה ניתוח חודשי…</span>
             </div>
-            {achievements.map((a, i) => (
-              <div key={i} style={{
-                padding: '8px 12px', background: T.bg, borderRadius: 8, marginBottom: 6,
-                fontSize: 13, color: T.ink, lineHeight: 1.5,
+            <SkeletonLines lines={4} />
+          </Card>
+        )}
+
+        {/* Insufficient-data note replaces AI sections when the model bailed */}
+        {insufficient && (
+          <Card padding={14} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
+              עוד מעט נתונים ואפשר יהיה לזהות תבניות. בינתיים — הסטטיסטיקות והשיאים בלבד.
+            </div>
+          </Card>
+        )}
+
+        {/* ─── 3. Insights (3 cards, lime accent) ───────────────── */}
+        {insights.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="sparkle" size={12} />
+              <span>{insights.length} תובנות מהחודש</span>
+            </div>
+            {insights.map((it, i) => (
+              <Card key={i} padding={14} style={{
+                marginBottom: 8,
+                background: `${T.lime}08`,
                 borderRight: `3px solid ${T.lime}`,
-              }}>{a}</div>
+                border: `1px solid ${T.lime}25`,
+              }}>
+                {it.type && (
+                  <div style={{ fontSize: 9, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6, opacity: 0.9 }}>
+                    {it.type === 'correlation' ? 'קורלציה' :
+                     it.type === 'observation' ? 'תצפית' :
+                     it.type === 'warning' ? 'אזהרה' : it.type}
+                  </div>
+                )}
+                <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.65 }}>
+                  {it.text || ''}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* ─── 4. Records list ───────────────────────────────────── */}
+        {records.length > 0 && (
+          <Card padding={14} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="trophy" size={12} />
+              <span>שיאים החודש</span>
+            </div>
+            {records.map((r, i) => (
+              <RecapRecordRow key={i} record={r} isLast={i === records.length - 1} />
             ))}
           </Card>
         )}
 
-        {/* AI next-steps */}
-        {(aiResult?.next_steps || aiLoading) && (
+        {/* ─── 5. Interesting numbers ───────────────────────────── */}
+        {interestingNumbers.length > 0 && (
           <Card padding={14} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="chart-bar" size={12} />
+              <span>מספרים מעניינים</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              {interestingNumbers.map((n, i) => (
+                <RecapNumberCard key={i} entry={n} />
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* ─── 6. Next-month advice ─────────────────────────────── */}
+        {nextAdvice && (
+          <Card padding={14} style={{
+            marginBottom: 14,
+            background: `linear-gradient(135deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+            border: `1px solid ${T.cyan}40`,
+          }}>
             <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
               <TabIcon name="target" size={12} />
-              מה הלאה
+              <span>{HEBREW_MONTH_NAMES[(parseInt(ym.split('-')[1], 10) % 12)]}</span>
             </div>
-            {aiLoading && !aiResult ? (
-              <SkeletonLines lines={2} />
-            ) : (
-              <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.6 }}>
-                {aiResult.next_steps}
-              </div>
-            )}
+            <div style={{ fontSize: 14, color: T.ink, lineHeight: 1.65, fontWeight: 500 }}>
+              {nextAdvice}
+            </div>
           </Card>
         )}
 
         {/* Holidays footer (if any) */}
         {monthStats.holidays.length > 0 && (
           <div style={{ marginTop: 14, fontSize: 11, color: T.inkMute, fontFamily: T.mono, textAlign: 'center', lineHeight: 1.6 }}>
-            כלל את: {monthStats.holidays.map(h => `${h.emoji} ${h.name}`).join(' · ')}
+            כלל את: {monthStats.holidays.map(h => h.name).join(' · ')}
           </div>
         )}
 
@@ -1082,14 +1334,72 @@ function MonthlyRecapDialog({ ym, onClose, canDismiss }) {
 
 function RecapKPI({ label, value, unit, sub, color = T.ink }) {
   return (
-    <Card padding={14} style={{ textAlign: 'center' }}>
+    <Card padding={14} style={{
+      textAlign: 'center',
+      background: `linear-gradient(145deg, ${T.bgElev} 0%, ${T.bgElev2} 100%)`,
+    }}>
       <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 4, marginTop: 6 }}>
-        <span style={{ fontFamily: T.mono, fontSize: 22, fontWeight: 700, color, letterSpacing: -1 }}>{value}</span>
+        <span style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 800, color, letterSpacing: -1 }}>{value}</span>
         {unit && <span style={{ fontSize: 11, color: T.inkMute }}>{unit}</span>}
       </div>
       {sub && <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, marginTop: 4 }}>{sub}</div>}
     </Card>
+  );
+}
+
+// One row in the records list. AI may return date as YYYY-MM-DD or omit it.
+function RecapRecordRow({ record, isLast }) {
+  const dateLabel = record.date ? fmt.dayShort(record.date) : '';
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '8px 0',
+      borderBottom: isLast ? 'none' : `1px solid ${T.stroke}`,
+    }}>
+      <div style={{
+        width: 6, height: 6, borderRadius: 3, background: T.amber, flexShrink: 0,
+      }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: T.inkSub, fontFamily: T.font, lineHeight: 1.4 }}>
+          {record.label}
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, fontFamily: T.mono, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {record.value}
+        </div>
+      </div>
+      {dateLabel && (
+        <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, flexShrink: 0 }}>
+          {dateLabel}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One card in the interesting-numbers grid. `change` is optional Hebrew text.
+function RecapNumberCard({ entry }) {
+  const changeColor = !entry.change ? null
+    : entry.change.startsWith('-') ? T.lime
+    : entry.change.startsWith('+') ? T.rose
+    : T.inkMute;
+  return (
+    <div style={{
+      padding: '10px 12px', background: T.bg, borderRadius: 10,
+      border: `1px solid ${T.stroke}`, minHeight: 72,
+    }}>
+      <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, lineHeight: 1.4, marginBottom: 4 }}>
+        {entry.label}
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: T.mono, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {entry.value}
+      </div>
+      {entry.change && (
+        <div style={{ fontSize: 10, color: changeColor || T.inkMute, fontFamily: T.mono, marginTop: 4 }}>
+          {entry.change}
+        </div>
+      )}
+    </div>
   );
 }
 

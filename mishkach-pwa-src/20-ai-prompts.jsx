@@ -306,29 +306,76 @@ function buildWhatIfPrompt(state, snapshot, scenarioText) {
 // ════════════════════════════════════════════════════════════════════
 // E4 — Monthly recap (AI-augmented stats summary for last calendar month)
 // ════════════════════════════════════════════════════════════════════
-// Returns JSON: { achievements: [string, string, string], next_steps: string }
-// Caller (MonthlyRecapDialog) shows our auto-detected stats first; AI only
-// fills in the qualitative "what stood out" + "what to do next month" pieces.
-const MONTHLY_RECAP_PROMPT = `אתה מנתח חודש שעבר עבור משתמש מעקב משקל.
+// v3.13: rewritten for richer output. Returns:
+//   {
+//     kpis: { weight_change, workouts, longest_streak, weighing_days },
+//     insights: [ { text, type } × 3 ],
+//     records: [ { label, value, date } × 4 ],
+//     interesting_numbers: [ { label, value, change } × 4 ],
+//     next_month_advice: "one specific sentence"
+//   }
+// or { insufficient_data: true } when the snapshot is too sparse.
+//
+// The dialog also renders deterministic fallbacks (computeMonthRecords /
+// computeInterestingNumbers in 06-screen-home.jsx) so a missing AI section
+// degrades gracefully rather than collapsing the whole screen.
+const MONTHLY_RECAP_PROMPT = `אתה כותב סיכום חודשי לאפליקציית בריאות.
 
-קיבלת JSON עם נתוני החודש שעבר. החזר JSON תקין בלבד:
+הפלט: JSON תקין עם המבנה (כל הערכים בעברית):
 {
-  "achievements": ["הישג 1", "הישג 2", "הישג 3"],
-  "next_steps": "1-2 משפטים על מה לעשות בחודש הבא, ספציפי לדאטה הזו"
+  "kpis": {
+    "weight_change": "מספר עם +/- בק״ג, למשל \\"-1.4\\"",
+    "workouts": "מספר",
+    "longest_streak": "מספר",
+    "weighing_days": "מספר"
+  },
+  "insights": [
+    { "text": "תובנה ספציפית של 2-3 שורות עם מספר", "type": "correlation" },
+    { "text": "תובנה שניה", "type": "observation" },
+    { "text": "תובנה שלישית", "type": "warning" }
+  ],
+  "records": [
+    { "label": "תיאור השיא בעברית", "value": "ערך עם יחידה", "date": "YYYY-MM-DD" }
+  ],
+  "interesting_numbers": [
+    { "label": "תיאור בעברית", "value": "ערך", "change": "+/-X% מחודש קודם" }
+  ],
+  "next_month_advice": "משפט אחד ספציפי, מבוסס על הדאטה. לא גנרי."
 }
 
-חוקים:
-1. הישגים חייבים להיות **ספציפיים** למשתמש הזה — לא "התחלת חזק" או "המשך כך".
-2. אם השינוי במשקל קטן — תכבד את זה כהישג שמירה. אל תתבאסש.
-3. אם הייתה ירידה — ציין כמה ק"ג ובאיזה אחוז מהיעד החודשי.
-4. אם הייתה עלייה — ציין מספר ענייני; אל תהיה דרמטי.
-5. אם נכלל חג — ציין את ההשפעה האפשרית.
-6. next_steps: דבר אחד או שניים מאוד ספציפיים. לא "תאכל בריא".
+חוקים מוחלטים:
+1. כל תובנה חייבת מספר ספציפי (ב-78%, פי 2.4, ירד ב-12%). תובנה ללא מספר = פסולה.
+2. אסור גנריות מוחלטת. אסור: "המשך כך", "כל הכבוד", "טוב מאוד", "מעולה", "התקדמות נחמדה".
+3. אסור לחזור על KPIs בתוך התובנות. ה-KPIs מוצגים בנפרד.
+4. תובנות חייבות לזהות קורלציות חוצות-דאטה:
+   • תזונה X משקל ("ב-78% מהפעמים שאכלת אחרי 21:00, עלית למחרת")
+   • אימון X משקל ("אימוני בוקר היו אפקטיביים פי 2.4 מאימוני ערב")
+   • יום בשבוע X תוצאה ("ימי שלישי הם הכי חלשים שלך")
+   • שעת אכילה X ירידה למחרת
+5. שיאים: 4 שיאים, כל אחד עם תאריך מדויק (YYYY-MM-DD מתוך הדאטה). דוגמאות:
+   • "משקל הכי נמוך"
+   • "רצף הכי ארוך"
+   • "אימון הכי ארוך"
+   • "היום הכי נקי" (קלוריות)
+6. מספרים מעניינים: 4 מספרים שאינם טריוויאליים (לא KPIs, לא שיאים). דוגמאות:
+   • "ממוצע ק״ק יומי" + change vs prev month
+   • "הארוחה החוזרת ביותר" (X×)
+   • "היום הכי טוב/קשה בשבוע"
+7. next_month_advice: ספציפי לדאטה הזו, לא "תאכל בריא". משפט אחד.
 
-טון לפי פרסונה: {persona}.
+טון לפי פרסונה {persona}:
+- polish_mom: דאגה מומחית, "אני שמתי לב ש..."
+- cynic_coach: עובדתי-קר, "הנתונים אומרים..."
+- jealous_friend: ברוגז קל, "ראיתי שאתה..."
+- salesman: אנליטי-בלי-התלהבות, "BREAKDOWN של החודש:"
+- neutral: ישיר, ללא נופך
+
+אם הדאטה דלילה מ-7 ימי שקילה: החזר {"insufficient_data": true}
+
 שם: {name}, מגדר: {gender}.
+הדאטה: {data}
 
-הדאטה: {data}`;
+החזר JSON תקין בלבד, ללא markdown, ללא טקסט נוסף.`;
 
 function buildMonthlyRecapPrompt(state, monthData) {
   const personaId = state?.settings?.persona || 'neutral';
@@ -340,6 +387,60 @@ function buildMonthlyRecapPrompt(state, monthData) {
     .replace('{name}', name)
     .replace('{gender}', genderHe)
     .replace('{data}', JSON.stringify(monthData));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Weekly insight v2 — structured (v3.13)
+// ════════════════════════════════════════════════════════════════════
+// Same shape as the monthly recap, scaled down: one insight, two records,
+// two interesting numbers, NO next_week_advice (weekly is too noisy for
+// confident forward guidance).
+const WEEKLY_INSIGHT_STRUCT_PROMPT = `אתה כותב תובנה שבועית לאפליקציית בריאות. שבוע אחרון בלבד.
+
+הפלט: JSON תקין:
+{
+  "insight": { "text": "תובנה אחת ספציפית עם מספר, 2-3 שורות", "type": "correlation/observation/warning" },
+  "records": [
+    { "label": "שם השיא", "value": "ערך עם יחידה", "date": "YYYY-MM-DD" },
+    { "label": "...", "value": "...", "date": "..." }
+  ],
+  "interesting_numbers": [
+    { "label": "תיאור", "value": "ערך", "change": "+/-X% או null" },
+    { "label": "...", "value": "...", "change": "..." }
+  ]
+}
+
+חוקים מוחלטים:
+1. התובנה חייבת מספר ספציפי. תובנה ללא מספר = פסולה.
+2. אסור גנריות ("המשך כך", "כל הכבוד", "טוב מאוד").
+3. שיאים שבועיים — 2 בלבד, עם תאריכים מדויקים מתוך הדאטה.
+4. מספרים מעניינים — 2 בלבד. לא חזרה על שיאים.
+5. אין next_week_advice — שבוע אחד הוא רעש מדי לעצה קדימה.
+
+טון לפי פרסונה {persona}:
+- polish_mom: "שמתי לב ש..."
+- cynic_coach: "הנתונים אומרים..."
+- jealous_friend: "ראיתי ש..."
+- salesman: אנליטי
+- neutral: ישיר
+
+אם הדאטה דלילה (פחות מ-3 שקילות ופחות מ-3 ימי תזונה): {"insufficient_data": true}
+
+שם: {name}, מגדר: {gender}.
+הדאטה: {data}
+
+JSON תקין בלבד, ללא markdown.`;
+
+function buildWeeklyInsightStructPrompt(state, snapshot) {
+  const personaId = state?.settings?.persona || 'neutral';
+  const gender = state?.user?.gender === 'female' ? 'female' : 'male';
+  const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
+  const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
+  return WEEKLY_INSIGHT_STRUCT_PROMPT
+    .replace('{persona}', personaId)
+    .replace('{name}', name)
+    .replace('{gender}', genderHe)
+    .replace('{data}', JSON.stringify(snapshot));
 }
 
 // ════════════════════════════════════════════════════════════════════

@@ -319,7 +319,9 @@ function WeeklyInsightCard() {
     }
     setLoading(true);
     try {
-      const text = await generateWeeklyInsight(snapshot, state.apiConfig, (usage) => {
+      // v3.13: now returns structured object
+      // { insight, records, interesting_numbers } or { insufficient_data: true }
+      const result = await generateWeeklyInsight(snapshot, state.apiConfig, (usage) => {
         const cost = estimateCost(usage, state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
@@ -331,7 +333,15 @@ function WeeklyInsightCard() {
       }, state);
       dispatch({
         type: 'SET_INSIGHT', kind: 'weekly',
-        payload: { text, generatedAt: new Date().toISOString(), weekEnding: todayISO() },
+        payload: {
+          // New shape — explicit sections.
+          insight: result.insight || null,
+          records: Array.isArray(result.records) ? result.records.slice(0, 2) : [],
+          interesting_numbers: Array.isArray(result.interesting_numbers) ? result.interesting_numbers.slice(0, 2) : [],
+          insufficient_data: !!result.insufficient_data,
+          generatedAt: new Date().toISOString(),
+          weekEnding: todayISO(),
+        },
       });
     } catch (e) {
       toast(personaErrorFromException(state, e), { type: 'error' });
@@ -339,6 +349,11 @@ function WeeklyInsightCard() {
       setLoading(false);
     }
   };
+
+  // Backward compat: cached payloads from v3.12 and earlier had a `.text`
+  // field instead of the structured shape. Render the legacy text inline so
+  // existing users don't see a blank card after upgrade.
+  const isLegacyText = cached && typeof cached.text === 'string' && !cached.insight && !cached.records;
 
   return (
     <Card padding={14} style={{
@@ -350,8 +365,8 @@ function WeeklyInsightCard() {
         <div style={{
           width: 28, height: 28, borderRadius: 14,
           background: `${T.lime}25`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 14,
-        }}>✨</div>
+          color: T.lime,
+        }}><TabIcon name="sparkle" size={14} /></div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>תובנה שבועית</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
@@ -371,9 +386,90 @@ function WeeklyInsightCard() {
         <LoadingPersona message="מנתח את השבוע שלך..." />
       ) : cached ? (
         <>
-          <div style={{ fontSize: 13, lineHeight: 1.7, color: T.ink, whiteSpace: 'pre-wrap', marginTop: 4 }}>
-            {cached.text}
-          </div>
+          {/* Legacy v3.12 payload — render free text */}
+          {isLegacyText && (
+            <div style={{ fontSize: 13, lineHeight: 1.7, color: T.ink, whiteSpace: 'pre-wrap', marginTop: 4 }}>
+              {cached.text}
+            </div>
+          )}
+
+          {/* v3.13 structured payload */}
+          {!isLegacyText && cached.insufficient_data && (
+            <div style={{ padding: '6px 4px', fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
+              האלגוריתם החליט שאין מספיק תבניות לתובנה. תוסיף עוד כמה שקילות וארוחות.
+            </div>
+          )}
+
+          {!isLegacyText && cached.insight && (
+            <div style={{
+              marginTop: 6, padding: '10px 12px', background: `${T.lime}10`,
+              borderRight: `3px solid ${T.lime}`, borderRadius: 8,
+            }}>
+              {cached.insight.type && (
+                <div style={{ fontSize: 9, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>
+                  {cached.insight.type === 'correlation' ? 'קורלציה' :
+                   cached.insight.type === 'observation' ? 'תצפית' :
+                   cached.insight.type === 'warning' ? 'אזהרה' : cached.insight.type}
+                </div>
+              )}
+              <div style={{ fontSize: 13, lineHeight: 1.65, color: T.ink }}>
+                {cached.insight.text || ''}
+              </div>
+            </div>
+          )}
+
+          {!isLegacyText && Array.isArray(cached.records) && cached.records.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <TabIcon name="trophy" size={11} />
+                <span>שיאי השבוע</span>
+              </div>
+              {cached.records.map((r, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 0',
+                  borderBottom: i < cached.records.length - 1 ? `1px solid ${T.stroke}` : 'none',
+                }}>
+                  <div style={{ width: 5, height: 5, borderRadius: 3, background: T.amber, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: T.inkSub, lineHeight: 1.3 }}>{r.label}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, fontFamily: T.mono, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.value}</div>
+                  </div>
+                  {r.date && <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, flexShrink: 0 }}>{fmt.dayShort(r.date)}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!isLegacyText && Array.isArray(cached.interesting_numbers) && cached.interesting_numbers.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <TabIcon name="chart-bar" size={11} />
+                <span>מספרים מעניינים</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+                {cached.interesting_numbers.map((n, i) => {
+                  const changeColor = !n.change ? null
+                    : (typeof n.change === 'string' && n.change.startsWith('-')) ? T.lime
+                    : (typeof n.change === 'string' && n.change.startsWith('+')) ? T.rose
+                    : T.inkMute;
+                  return (
+                    <div key={i} style={{
+                      padding: '8px 10px', background: T.bg, borderRadius: 8,
+                      border: `1px solid ${T.stroke}`,
+                    }}>
+                      <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, lineHeight: 1.3, marginBottom: 2 }}>{n.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, fontFamily: T.mono, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.value}</div>
+                      {n.change && (
+                        <div style={{ fontSize: 9, color: changeColor || T.inkMute, fontFamily: T.mono, marginTop: 2 }}>{n.change}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={{ fontSize: 9, color: T.inkMute, fontFamily: T.mono, marginTop: 10, textAlign: 'left', direction: 'ltr' }}>
             {fmt.relativeDay(cached.weekEnding)} · {isStale ? 'ישן' : 'עדכני'}
           </div>
@@ -385,7 +481,7 @@ function WeeklyInsightCard() {
       ) : (
         <>
           <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 12 }}>
-            המנוע יסתכל על {snapshot.weight_entries_count} שקילות ו-{snapshot.nutrition_days_logged} ימי תזונה מהשבוע ויכתוב לך 3 פסקאות.
+            המנוע יסתכל על {snapshot.weight_entries_count} שקילות ו-{snapshot.nutrition_days_logged} ימי תזונה מהשבוע, ויחזיר תובנה אחת + שיאים + מספרים מעניינים.
           </div>
           <button onClick={generate} disabled={!hasKey} style={{
             background: hasKey ? T.lime : T.bgElev2, color: hasKey ? T.bg : T.inkMute,
