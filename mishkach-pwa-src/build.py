@@ -122,27 +122,27 @@ HTML = '''<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-  <meta name="description" content="מִשְׁקַלּוּת — תשקלו לפני שתאכלו. תקנאו בעצמכם של מחר." />
+  <meta name="description" content="יומן משקל ותזונה בעברית. בקול שתבחרו מתוך חמש דמויות. הכל על המכשיר שלכם." />
 
-  <title>מִשְׁקַלּוּת · תשקלו לפני שתאכלו</title>
+  <title>מִשְׁקַלּוּת · יומן משקל בעברית</title>
 
-  <!-- Open Graph / Facebook / WhatsApp -->
+  <!-- Open Graph / Facebook / WhatsApp (v3.16) -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="מִשְׁקַלּוּת" />
-  <meta property="og:title" content="מִשְׁקַלּוּת · תשקלו לפני שתאכלו" />
-  <meta property="og:description" content="תשקלו לפני שתאכלו. תקנאו בעצמכם של מחר." />
-  <meta property="og:image" content="https://fi-tracklon.vercel.app/og-preview.png" />
+  <meta property="og:title" content="מִשְׁקַלּוּת" />
+  <meta property="og:description" content="יומן משקל ותזונה בעברית. בקול שתבחרו מתוך חמש דמויות. הכל על המכשיר שלכם." />
+  <meta property="og:image" content="https://fi-tracklon.vercel.app/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="מִשְׁקַלּוּת — מעקב משקל ותזונה בעברית" />
+  <meta property="og:image:alt" content="מִשְׁקַלּוּת — יומן משקל בעברית" />
   <meta property="og:url" content="https://fi-tracklon.vercel.app/" />
   <meta property="og:locale" content="he_IL" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="מִשְׁקַלּוּת" />
-  <meta name="twitter:description" content="תשקלו לפני שתאכלו. תקנאו בעצמכם של מחר." />
-  <meta name="twitter:image" content="https://fi-tracklon.vercel.app/og-preview.png" />
+  <meta name="twitter:description" content="יומן משקל ותזונה בעברית. בקול שתבחרו מתוך חמש דמויות." />
+  <meta name="twitter:image" content="https://fi-tracklon.vercel.app/og-image.png" />
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest" />
@@ -267,7 +267,9 @@ with open(out_html, 'w', encoding='utf-8') as fp:
 # Copy static assets
 for static in ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png',
                'icon-maskable.png', 'apple-touch-icon.png', 'favicon.png',
-               'logo-welcome.png', 'og-preview.png',
+               'logo-welcome.png',
+               'og-preview.png',     # legacy v3.0 share card (kept for inbound links that still reference it)
+               'og-image.png',       # v3.16 share card — what the meta tags point to
                'splash-1290x2796.png', 'splash-1179x2556.png',
                'splash-1170x2532.png', 'splash-1125x2436.png',
                'splash-750x1334.png']:
