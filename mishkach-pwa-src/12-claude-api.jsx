@@ -19,6 +19,7 @@ const PRICING = {
 const MODEL_BY_FEATURE = {
   nutrition_text:     'claude-sonnet-4-6',   // 40% cheaper, near-Opus quality on text
   nutrition_image:    'claude-opus-4-7',     // vision matters for product recognition
+  nutrition_refine:   'claude-sonnet-4-6',   // v3.18: arithmetic on vision output, no reasoning bonus
   weekly_insight:     'claude-sonnet-4-6',   // v3.13: structured JSON, Sonnet plenty
   plateau_analysis:   'claude-opus-4-7',
   goal_calibration:   'claude-opus-4-7',
@@ -217,6 +218,10 @@ Return ONLY valid JSON, no markdown, no preamble, no trailing text:
   },
 
   // ─── Parse nutrition from image (food OR label OR product) ──────
+  // v3.18: now also returns `classification` so the caller can drive the
+  // refinement-questions flow. Classification is independent of `detected`
+  // (which is meal/label/product) — it bins by FOOD CATEGORY for context
+  // questions about portion / oil / cheese / etc.
   nutritionImage: {
     system: `You are a nutrition estimation engine analyzing a food photo for an Israeli Hebrew app.
 
@@ -239,10 +244,89 @@ Return ONLY valid JSON:
   "detected": "meal" | "label" | "product",
   "productName": "<if product detected, Hebrew name + brand>",
   "confidence": "high" | "medium" | "low",
-  "notes": "<Hebrew explanation of assumptions, empty if none>"
-}`,
+  "notes": "<Hebrew explanation of assumptions, empty if none>",
+  "classification": "starch" | "protein" | "salad" | "pastry" | "mixed" | "soup" | "drink" | "other"
+}
+
+Classification rules (pick exactly one):
+- starch: pasta, rice, bread, pita, potato, couscous, quinoa, סנדוויץ' מבוסס לחם
+- protein: meat / chicken / fish / eggs / tofu when it's the dominant component
+- salad: salad or raw vegetables as the main item
+- pastry: baked good, dessert, cake, בורקס, מלאווח
+- soup: soup, broth, מרק
+- drink: coffee, smoothie, juice, soda, milk, alcoholic beverage
+- mixed: clearly a composite plate (e.g. pasta + steak + salad together) — use only when no single category dominates
+- other: anything that doesn't fit (yogurt cup, snack bar, sushi, ethnic dishes that span categories)
+For nutrition labels and isolated branded products use "other" unless the product itself fits a category (cookie packet → pastry, soda → drink).`,
     userText: 'נתח את התמונה והחזר ערכי תזונה.',
-    maxTokens: 700,
+    maxTokens: 750,
+  },
+
+  // ─── Refinement: AI re-estimates after user answers context questions ──
+  // v3.18. Caller (RefinementScreen) sends:
+  //   { food_name, base: {calories, protein, carbs, fat}, classification,
+  //     answers: [{question_id, label, value, all_options}] }
+  // Server returns:
+  //   { calories, protein, carbs, fat, explanation }
+  //
+  // Use Sonnet — this is a structured-math task, no reasoning bonus from Opus.
+  photoRefinement: {
+    system: `You are a nutrition expert refining a calorie estimate based on context clues.
+
+INPUT (JSON in user message):
+{
+  "food_name": "<Hebrew description from vision>",
+  "classification": "starch|protein|salad|pastry|soup|drink|mixed|other",
+  "base": { "calories": N, "protein": N, "carbs": N, "fat": N },
+  "answers": [ { "question_id": "<id>", "label": "<Hebrew question>", "value": "<Hebrew chosen answer>" }, ... ]
+}
+
+Apply the answers as multiplicative adjustments to the base values:
+
+PORTION SIZE (gads cal × all macros):
+  קטן/קטנה  → ×0.7
+  רגיל/רגילה → ×1.0
+  גדול/גדולה → ×1.4
+
+OIL / SAUCE / שמן / רוטב / חמאה / שמנת:
+  לא       → ×0.9 cal, ×0.8 fat
+  קצת      → ×1.0 (no change)
+  הרבה     → ×1.2 cal, ×1.5 fat
+
+CHEESE / MEAT ADD-IN (גבינה / בשר נטחן):
+  לא       → no change
+  קצת      → +60 cal, +5g protein, +4g fat
+  הרבה     → +150 cal, +12g protein, +10g fat
+
+EXTRAS (אגוזים / גרעינים):
+  לא       → no change
+  קצת      → +50 cal, +5g fat
+  הרבה     → +120 cal, +12g fat
+
+BAKED-COUNT (כמה חתיכות):
+  multiply ALL macros by the count (1, 2, or 3 — for "3+" use 3.5)
+
+DRINK SWEETENER (סוכר / חלב):
+  לא       → ×0.7 cal
+  קצת      → ×1.0
+  הרבה     → ×1.4 cal, +5g carbs
+
+For SAUCE on protein:
+  יבש          → ×0.9 cal
+  ברוטב קל    → ×1.0
+  ברוטב כבד   → ×1.25 cal, +6g fat
+
+Apply each adjustment in sequence. Round all values to whole integers.
+
+Return ONLY this JSON, no markdown, no preamble:
+{
+  "calories": <int>,
+  "protein": <int>,
+  "carbs": <int>,
+  "fat": <int>,
+  "explanation": "<Hebrew, 1–2 short sentences describing what changed and why>"
+}`,
+    maxTokens: 350,
   },
 
   // ─── Weekly insight (Opus, higher context) ──────────────────────
@@ -338,6 +422,12 @@ function normalizeNutrition(p) {
     const n = typeof v === 'number' ? v : parseFloat(v);
     return isNaN(n) ? def : Math.round(n);
   };
+  // v3.18: validate classification — must be one of the expected enum values,
+  // else null (caller treats null as "skip refinement").
+  const VALID_CLASSES = new Set(['starch','protein','salad','pastry','mixed','soup','drink','other']);
+  const cls = typeof p.classification === 'string' && VALID_CLASSES.has(p.classification)
+    ? p.classification
+    : null;
   return {
     calories: Math.max(0, num(p.calories)),
     protein:  Math.max(0, num(p.protein)),
@@ -348,6 +438,51 @@ function normalizeNutrition(p) {
     productName: p.productName || '',
     confidence: p.confidence || 'medium',
     notes: p.notes || '',
+    classification: cls,
+  };
+}
+
+// ─── v3.18: refine a vision estimate via context questions ──────────
+// `base`   = { calories, protein, carbs, fat }   (what vision returned)
+// `answers` = [{ question_id, label, value }]    (chosen chips)
+// Returns { calories, protein, carbs, fat, explanation } — caller swaps
+// these into the per-unit values shown in ReviewAndSave.
+async function refineMealFromQuestions({ foodName, classification, base, answers }, config, onUsage) {
+  const p = PROMPTS.photoRefinement;
+  const userPayload = {
+    food_name: foodName || '',
+    classification: classification || 'other',
+    base: {
+      calories: Math.round(base.calories || 0),
+      protein:  Math.round(base.protein  || 0),
+      carbs:    Math.round(base.carbs    || 0),
+      fat:      Math.round(base.fat      || 0),
+    },
+    answers: (answers || []).map(a => ({
+      question_id: a.question_id,
+      label: a.label,
+      value: a.value,
+    })),
+  };
+  const { text: responseText } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.nutrition_refine,
+    system: p.system,
+    messages: [{ role: 'user', content: JSON.stringify(userPayload, null, 2) }],
+    maxTokens: p.maxTokens,
+    onUsage,
+  });
+  const parsed = extractJSON(responseText);
+  const num = (v, fallback) => {
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    return isNaN(n) ? fallback : Math.max(0, Math.round(n));
+  };
+  return {
+    calories:    num(parsed.calories, base.calories),
+    protein:     num(parsed.protein,  base.protein),
+    carbs:       num(parsed.carbs,    base.carbs),
+    fat:         num(parsed.fat,      base.fat),
+    explanation: typeof parsed.explanation === 'string' ? parsed.explanation : '',
   };
 }
 

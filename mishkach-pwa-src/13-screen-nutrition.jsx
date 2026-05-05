@@ -846,7 +846,15 @@ function TextParseFlow({ onParsed }) {
           costUSD: cost,
         });
       });
-      onParsed({ ...result, description: text.trim() });
+      // v3.18: tag the AI baseline so ReviewAndSave can dispatch
+      // LEARN_FROM_CORRECTION if the user edits the calorie value before
+      // saving. Text path doesn't auto-apply learning (no refinement UI),
+      // but we still HARVEST corrections to feed the photo-path adjustment.
+      onParsed({
+        ...result,
+        description: text.trim(),
+        _aiBaseline: { calories: result.calories, multiplier: 1, sampleSize: 0 },
+      });
     } catch (e) {
       setError(e.message);
       toast(personaErrorFromException(state, e), { type: 'error' });
@@ -882,7 +890,277 @@ function TextParseFlow({ onParsed }) {
   );
 }
 
-// ─── Photo parse flow ───────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// v3.18 — REFINEMENT_QUESTIONS catalog
+// ═════════════════════════════════════════════════════════════════════
+// Per-classification context questions shown after vision returns. Each
+// chip array is the Hebrew labels in display order; `default` is the
+// index of the chip that's pre-selected (usually "רגיל"). The PHOTO_REFINEMENT
+// system prompt knows how to interpret these labels (see 12-claude-api.jsx).
+const REFINEMENT_QUESTIONS = {
+  starch: [
+    { id: 'portion',     label: 'גודל המנה',          options: ['קטנה', 'רגילה', 'גדולה'], default: 1 },
+    { id: 'oil_sauce',   label: 'רוטב או שמן נוסף?',   options: ['לא', 'קצת', 'הרבה'],     default: 1 },
+    { id: 'cheese_meat', label: 'גבינה או בשר נטחן?',  options: ['לא', 'קצת', 'הרבה'],     default: 0 },
+  ],
+  protein: [
+    { id: 'portion',      label: 'גודל המנה',     options: ['קטנה', 'רגילה', 'גדולה'],          default: 1 },
+    { id: 'cooking_oil',  label: 'שמן בבישול?',   options: ['לא', 'קצת', 'הרבה'],              default: 1 },
+    { id: 'sauce',        label: 'ברוטב או יבש?', options: ['יבש', 'ברוטב קל', 'ברוטב כבד'],   default: 1 },
+  ],
+  salad: [
+    { id: 'portion',   label: 'גודל',            options: ['קטן', 'רגיל', 'גדול'], default: 1 },
+    { id: 'olive_oil', label: 'שמן זית?',         options: ['לא', 'כפית', 'כף+'],   default: 1 },
+    { id: 'extras',    label: 'אגוזים או גרעינים?', options: ['לא', 'קצת', 'הרבה'],   default: 0 },
+  ],
+  pastry: [
+    { id: 'size',  label: 'גודל',         options: ['קטן', 'רגיל', 'גדול'], default: 1 },
+    { id: 'count', label: 'כמה חתיכות?',   options: ['1', '2', '3+'],        default: 0 },
+  ],
+  soup: [
+    { id: 'portion', label: 'גודל',          options: ['קטן', 'רגיל', 'גדול'], default: 1 },
+    { id: 'cream',   label: 'שמנת או חמאה?',  options: ['לא', 'קצת', 'הרבה'],   default: 0 },
+  ],
+  drink: [
+    { id: 'size',      label: 'גודל',          options: ['קטן', 'רגיל', 'גדול'], default: 1 },
+    { id: 'sweetener', label: 'סוכר או חלב?',   options: ['לא', 'קצת', 'הרבה'],   default: 1 },
+  ],
+  mixed: [
+    { id: 'overall_portion', label: 'גודל המנה הכוללת', options: ['קטנה', 'רגילה', 'גדולה'], default: 1 },
+    { id: 'oil_sauce',       label: 'רוטב או שמן?',     options: ['לא', 'קצת', 'הרבה'],     default: 1 },
+    { id: 'protein_amount',  label: 'כמות החלבון',      options: ['מעט', 'רגיל', 'הרבה'],    default: 1 },
+  ],
+  other: [
+    { id: 'portion', label: 'גודל המנה', options: ['קטנה', 'רגילה', 'גדולה'], default: 1 },
+  ],
+};
+
+// Hebrew label for the classification chip on the refinement header.
+const CLASSIFICATION_LABELS = {
+  starch: 'עמילן',
+  protein: 'חלבון',
+  salad:   'סלט',
+  pastry:  'מאפה',
+  soup:    'מרק',
+  drink:   'משקה',
+  mixed:   'מורכב',
+  other:   'אחר',
+};
+
+// ─── Personalization banner — shown when a learned pattern adjusts AI ────
+// Pure presentational; PhotoParseFlow handles the "המשך" wiring.
+function PersonalizationBanner({ originalCalories, adjustedCalories, sampleSize, onContinue }) {
+  const delta = adjustedCalories - originalCalories;
+  const pct = originalCalories > 0
+    ? Math.round((delta / originalCalories) * 100)
+    : 0;
+  const sign = pct > 0 ? '+' : '';
+  return (
+    <div style={{ padding: 24, direction: 'rtl' }}>
+      <Card padding={18} style={{
+        background: `linear-gradient(135deg, ${T.lime}15 0%, ${T.bgElev2} 100%)`,
+        border: `1px solid ${T.lime}55`,
+      }}>
+        <div style={{
+          fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1,
+          marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <TabIcon name="sparkle" size={12} />
+          <span>התאמתי לדפוסים שלך</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 13, color: T.inkSub }}>ניחוש מקורי</span>
+            <span style={{ fontFamily: T.mono, fontSize: 18, fontWeight: 700, color: T.inkSub, textDecoration: 'line-through' }}>
+              {originalCalories} ק״ק
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 13, color: T.ink, fontWeight: 600 }}>אחרי התאמה</span>
+            <span style={{ fontFamily: T.mono, fontSize: 22, fontWeight: 800, color: T.lime, letterSpacing: -0.5 }}>
+              {adjustedCalories} ק״ק
+              {pct !== 0 && (
+                <span style={{ fontSize: 13, color: pct > 0 ? T.amber : T.lime, fontWeight: 600, marginRight: 6 }}>
+                  ({sign}{pct}%)
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: T.inkMute, lineHeight: 1.6, marginBottom: 14 }}>
+          על בסיס {sampleSize} ארוחות דומות שתיקנת בעבר.
+        </div>
+        <Button onClick={onContinue}>המשך</Button>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Refinement screen — context questions to sharpen the calorie estimate ──
+// Receives the vision result + classification, renders a question per
+// REFINEMENT_QUESTIONS[classification], and on "חישוב" calls
+// refineMealFromQuestions to update the macros. "דלג" passes through
+// the current values untouched.
+function RefinementScreen({ baseResult, thumbnail, onSkip, onRefined }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+
+  const classification = baseResult.classification || 'other';
+  const questions = REFINEMENT_QUESTIONS[classification] || REFINEMENT_QUESTIONS.other;
+
+  // Initial answers: each question's `default` index
+  const [answers, setAnswers] = React.useState(
+    () => questions.map(q => q.default ?? 0)
+  );
+  const [loading, setLoading] = React.useState(false);
+
+  const setAnswerIndex = (qIdx, optIdx) => {
+    setAnswers(prev => prev.map((v, i) => i === qIdx ? optIdx : v));
+  };
+
+  const handleSkip = () => {
+    trackEvent('AI Refinement Skipped', { classification });
+    onSkip();
+  };
+
+  const handleCompute = async () => {
+    setLoading(true);
+    try {
+      const refined = await refineMealFromQuestions({
+        foodName: baseResult.description,
+        classification,
+        base: {
+          calories: baseResult.calories,
+          protein:  baseResult.protein,
+          carbs:    baseResult.carbs,
+          fat:      baseResult.fat,
+        },
+        answers: questions.map((q, i) => ({
+          question_id: q.id,
+          label: q.label,
+          value: q.options[answers[i]],
+        })),
+      }, state.apiConfig, (usage) => {
+        const cost = estimateCost(usage, state.apiConfig.model);
+        dispatch({
+          type: 'TRACK_USAGE',
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          feature: 'nutrition_refine',
+          costUSD: cost,
+        });
+      });
+      trackEvent('AI Refinement Used', {
+        classification,
+        questions_answered: questions.length,
+      });
+      // Merge the refined macros into the result; keep description / items / etc.
+      onRefined({
+        ...baseResult,
+        calories: refined.calories,
+        protein:  refined.protein,
+        carbs:    refined.carbs,
+        fat:      refined.fat,
+        // Append the model's explanation to existing notes, separated by a dot
+        notes: [baseResult.notes, refined.explanation].filter(Boolean).join(' · '),
+      });
+    } catch (e) {
+      toast(personaErrorFromException(state, e), { type: 'error' });
+      // Fall through to skip — user shouldn't be stuck on a failed refine
+      onSkip();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: 24, direction: 'rtl' }}>
+      {/* Header strip — small thumbnail + identified meal name + classification chip */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        {thumbnail && (
+          <img src={thumbnail} alt="" style={{
+            width: 56, height: 56, borderRadius: 10, objectFit: 'cover', flexShrink: 0,
+          }} />
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.3,
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {baseResult.description || 'ארוחה'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <span style={{
+              padding: '2px 8px', borderRadius: 999,
+              background: `${T.lime}20`, color: T.lime,
+              fontSize: 10, fontFamily: T.mono, fontWeight: 700,
+            }}>
+              {CLASSIFICATION_LABELS[classification] || 'אחר'}
+            </span>
+            <span style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono }}>
+              {baseResult.calories} ק״ק (לפני התאמה)
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 18 }}>
+        רגע, כמה דברים שיעזרו לדייק:
+      </div>
+
+      {/* Questions */}
+      {questions.map((q, qIdx) => (
+        <div key={q.id} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, marginBottom: 8 }}>
+            {q.label}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {q.options.map((opt, optIdx) => {
+              const active = answers[qIdx] === optIdx;
+              return (
+                <button
+                  key={optIdx}
+                  onClick={() => setAnswerIndex(qIdx, optIdx)}
+                  style={{
+                    flex: 1, minHeight: 44, padding: '10px 12px',
+                    borderRadius: 12,
+                    border: `1.5px solid ${active ? T.lime : T.stroke}`,
+                    background: active ? T.lime : T.bgElev,
+                    color: active ? T.bg : T.inkSub,
+                    fontSize: 13, fontWeight: 700, fontFamily: T.font,
+                    cursor: 'pointer', transition: 'background 150ms',
+                  }}>
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* Footer: skip + compute */}
+      <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+        <Button variant="ghost" onClick={handleSkip} disabled={loading}>דלג</Button>
+        <Button onClick={handleCompute} disabled={loading}>
+          {loading ? 'מחשב…' : 'חישוב'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Photo parse flow (v3.18 multi-step state machine) ──────────────
+// Stages, in order:
+//   pick      — file picker
+//   preview   — image picked, "נתח" button visible
+//   analyzing — vision in flight (loading)
+//   banner    — learned-pattern adjustment to confirm (PersonalizationBanner)
+//   refining  — context questions (RefinementScreen)
+//   computing — refinement in flight (loading) — handled inside RefinementScreen
+// On terminal step, calls onParsed(result, thumb) so AddMealDialog can
+// hand off to ReviewAndSave. Stages can be skipped:
+//   • banner  skipped if no learned pattern
+//   • refining skipped if classification is null OR has no question set
 function PhotoParseFlow({ onParsed }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
@@ -891,12 +1169,36 @@ function PhotoParseFlow({ onParsed }) {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
 
+  // Multi-stage UI within this component (not the global router).
+  const [stage, setStage] = React.useState('pick');
+  // visionResult = original AI output (calories before any adjustment)
+  const [visionResult, setVisionResult] = React.useState(null);
+  // adjustedResult = visionResult after personalization (or === visionResult)
+  const [adjustedResult, setAdjustedResult] = React.useState(null);
+  // adjustment metadata for the banner (null if no learned pattern)
+  const [adjustment, setAdjustment]       = React.useState(null);
+
   const handleFile = (f) => {
     if (!f) return;
     setFile(f);
     const reader = new FileReader();
     reader.onload = (e) => setPreview(e.target.result);
     reader.readAsDataURL(f);
+    setStage('preview');
+  };
+
+  // After vision returns, pick the next stage based on:
+  //   1. Is there a learned pattern? → show banner first
+  //   2. Else, does the classification have refinement questions? → refining
+  //   3. Else, skip straight to ReviewAndSave (call onParsed)
+  const advanceFrom = (resultForRouting, baseForOnParsed) => {
+    const refinable = resultForRouting.classification
+      && REFINEMENT_QUESTIONS[resultForRouting.classification];
+    if (refinable) {
+      setStage('refining');
+    } else {
+      onParsed(baseForOnParsed, baseForOnParsed.thumbnail);
+    }
   };
 
   const handleParse = async () => {
@@ -914,7 +1216,40 @@ function PhotoParseFlow({ onParsed }) {
         });
       });
       const desc = result.productName || result.items?.map(i => `${i.name} ${i.amount}`).join(', ') || 'ארוחה';
-      onParsed({ ...result, description: desc }, result.thumbnail);
+      const decorated = { ...result, description: desc };
+      setVisionResult(decorated);
+
+      // v3.18: check for a learned pattern. If we have one, pre-adjust the
+      // macros and route through the banner so the user knows the system
+      // applied a personal correction. The original vision baseline is
+      // preserved in `_aiBaseline` for the learning step.
+      const adj = getLearnedAdjustment(state, decorated.description);
+      if (adj) {
+        const m = adj.multiplier;
+        const adjusted = {
+          ...decorated,
+          calories: Math.round(decorated.calories * m),
+          protein:  Math.round(decorated.protein  * m),
+          carbs:    Math.round(decorated.carbs    * m),
+          fat:      Math.round(decorated.fat      * m),
+          _aiBaseline: {
+            calories: decorated.calories,
+            multiplier: m,
+            sampleSize: adj.sampleSize,
+          },
+        };
+        setAdjustedResult(adjusted);
+        setAdjustment(adj);
+        setStage('banner');
+      } else {
+        // No learned pattern — adjusted == vision; baseline is the same number
+        const decoratedWithBaseline = {
+          ...decorated,
+          _aiBaseline: { calories: decorated.calories, multiplier: 1, sampleSize: 0 },
+        };
+        setAdjustedResult(decoratedWithBaseline);
+        advanceFrom(decoratedWithBaseline, decoratedWithBaseline);
+      }
     } catch (e) {
       setError(e.message);
       toast(personaErrorFromException(state, e), { type: 'error' });
@@ -923,6 +1258,35 @@ function PhotoParseFlow({ onParsed }) {
     }
   };
 
+  // ─── Render per stage ───────────────────────────────────────────
+  if (stage === 'banner' && adjustedResult && adjustment) {
+    return (
+      <PersonalizationBanner
+        originalCalories={visionResult.calories}
+        adjustedCalories={adjustedResult.calories}
+        sampleSize={adjustment.sampleSize}
+        onContinue={() => advanceFrom(adjustedResult, adjustedResult)}
+      />
+    );
+  }
+
+  if (stage === 'refining' && adjustedResult) {
+    return (
+      <RefinementScreen
+        baseResult={adjustedResult}
+        thumbnail={preview}
+        onSkip={() => onParsed(adjustedResult, adjustedResult.thumbnail)}
+        onRefined={(refined) => onParsed({
+          ...refined,
+          // Carry the AI baseline through refinement so the learning step
+          // can compare final user value back to the ORIGINAL vision number.
+          _aiBaseline: adjustedResult._aiBaseline,
+        }, adjustedResult.thumbnail)}
+      />
+    );
+  }
+
+  // Default: pick / preview view
   return (
     <div style={{ padding: 24 }}>
       {!preview ? (
@@ -951,7 +1315,7 @@ function PhotoParseFlow({ onParsed }) {
           }} />
           {error && <div style={{ marginBottom: 12, padding: '10px 14px', background: `${T.rose}15`, border: `1px solid ${T.rose}44`, borderRadius: 10, fontSize: 12, color: T.rose }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="ghost" onClick={() => { setFile(null); setPreview(null); }}>החלף</Button>
+            <Button variant="ghost" onClick={() => { setFile(null); setPreview(null); setStage('pick'); }}>החלף</Button>
             <Button onClick={handleParse} disabled={loading}>
               {loading ? 'מנתח...' : 'נתח את התמונה'}
             </Button>
@@ -1176,6 +1540,25 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
         meal_type: mealType,
       },
     });
+    // v3.18: learn from this correction. Compare the user's per-unit value
+    // (perCal — qty multiplier doesn't matter for the "what does ONE serving
+    // weigh" question) against the AI's ORIGINAL per-unit baseline (preserved
+    // through personalization + refinement via result._aiBaseline). The
+    // reducer rejects no-ops, edge ratios, and missing keys.
+    const aiBaselineCal = result._aiBaseline?.calories;
+    if (
+      (source === 'photo_parse' || source === 'text_parse') &&
+      aiBaselineCal && aiBaselineCal > 0 &&
+      perCal !== aiBaselineCal &&
+      desc.trim()
+    ) {
+      dispatch({
+        type: 'LEARN_FROM_CORRECTION',
+        description: desc.trim(),
+        aiCalories: aiBaselineCal,
+        userCalories: perCal,
+      });
+    }
     // v3.17: source maps directly to the spec's method enum
     // (photo_parse → photo, text_parse → text, manual → manual).
     const methodMap = { photo_parse: 'photo', text_parse: 'text', manual: 'manual' };

@@ -38,6 +38,18 @@ const initialState = {
     // favorites: { favoriteId: { description, calories, protein, carbs, fat, useCount, lastUsed, thumbnail? } }
     // Keyed by normalized description; auto-populated from saved meals
     favorites: {},
+    // v3.18: per-pattern learning. Keyed by normalizeMealName(description)
+    // (first 2 words, lowercased, punctuation stripped). Each entry tracks
+    // a rolling window of (ai_estimate, user_correction) pairs and exposes
+    // an `average_multiplier` the photo flow can pre-apply on similar meals.
+    //   { "פסטה ברוטב": {
+    //       ai_estimates: [350, 380, 320],
+    //       user_corrections: [450, 480, 420],
+    //       average_multiplier: 1.28,
+    //       sample_size: 3,
+    //       last_updated: "2026-05-05"
+    //   } }
+    learned_patterns: {},
   },
   // workouts: keyed by date for fast lookup
   workouts: {
@@ -159,6 +171,8 @@ function loadState() {
           return out;
         })(),
         favorites: (parsed.nutrition || {}).favorites || {},
+        // v3.18: empty object for users upgrading from pre-v3.18.
+        learned_patterns: (parsed.nutrition || {}).learned_patterns || {},
       },
       workouts: {
         ...initialState.workouts,
@@ -301,6 +315,50 @@ function reducer(state, action) {
           meals: {
             ...state.nutrition.meals,
             [date]: existing.map(m => m.id === mealId ? { ...m, ...updates, updatedAt: new Date().toISOString() } : m),
+          },
+        },
+      };
+    }
+    // v3.18: record one (ai_estimate, user_correction) pair into the
+    // pattern bucket for `description`. Caller already filtered out
+    // no-op corrections (user === ai) and edge ratios.
+    case 'LEARN_FROM_CORRECTION': {
+      const { description, aiCalories, userCalories } = action;
+      const key = normalizeMealName(description);
+      if (!key) return state;
+      if (!aiCalories || aiCalories <= 0 || !userCalories || userCalories <= 0) return state;
+      const ratio = userCalories / aiCalories;
+      // Cap the per-correction ratio to the learning band — a single wild
+      // datapoint shouldn't be allowed to drag the average to extremes.
+      if (ratio < LEARNING_RATIO_MIN || ratio > LEARNING_RATIO_MAX) return state;
+
+      const existing = state.nutrition.learned_patterns?.[key] || {
+        ai_estimates: [],
+        user_corrections: [],
+        average_multiplier: 1,
+        sample_size: 0,
+        last_updated: null,
+      };
+      // Append + cap to the rolling window (keep the most recent N).
+      const ai_estimates    = [...(existing.ai_estimates || []), Math.round(aiCalories)].slice(-LEARNING_WINDOW);
+      const user_corrections = [...(existing.user_corrections || []), Math.round(userCalories)].slice(-LEARNING_WINDOW);
+      // Average multiplier = mean of per-pair ratios (more stable than
+      // total_user / total_ai when individual meals vary in size).
+      const ratios = ai_estimates.map((ai, i) => user_corrections[i] / ai);
+      const average_multiplier = ratios.reduce((s, r) => s + r, 0) / ratios.length;
+      return {
+        ...state,
+        nutrition: {
+          ...state.nutrition,
+          learned_patterns: {
+            ...(state.nutrition.learned_patterns || {}),
+            [key]: {
+              ai_estimates,
+              user_corrections,
+              average_multiplier: Math.round(average_multiplier * 1000) / 1000,
+              sample_size: ai_estimates.length,
+              last_updated: todayISO(),
+            },
           },
         },
       };
@@ -770,6 +828,53 @@ function nutritionStreak(mealsByDay) {
     if (streak > 365) break; // sanity
   }
   return streak;
+}
+
+// ─── v3.18: personalization — normalize a meal name into a bucket key ──
+// "פסטה ברוטב עגבניות + סלט" → "פסטה ברוטב"
+// "פסטה ברוטב לבן"          → "פסטה ברוטב"
+// Both bucket together so corrections to one pasta dish steer estimates
+// for the next pasta dish — without crossing into "פסטה קרה" territory.
+//
+// Strategy: lowercase → strip suffix qty (e.g. "(×2)") → strip
+// punctuation including +/×/-/() → split on whitespace → first 2 words.
+// Returns "" when the name is empty / too short to normalize.
+function normalizeMealName(name) {
+  if (!name || typeof name !== 'string') return '';
+  const cleaned = name
+    .toLowerCase()
+    .replace(/\s*\(×[\d.]+\)\s*$/u, '')                // strip trailing "(×qty)"
+    .replace(/[+\-×()'",.!?:;׳״]/gu, ' ')   // punctuation incl. Hebrew gershayim
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return '';
+  const words = cleaned.split(' ').filter(Boolean);
+  if (words.length === 0) return '';
+  return words.slice(0, 2).join(' ');
+}
+
+// Look up the learned adjustment for a given meal name. Returns
+//   { multiplier, sampleSize }
+// when a confident pattern exists (sample_size >= MIN), else null. The
+// caller (PhotoParseFlow) multiplies the AI calorie estimate by
+// `multiplier` — keep it tight (0.5–2.0) to avoid runaway compounding.
+const LEARNING_MIN_SAMPLES   = 3;
+const LEARNING_RATIO_MIN     = 0.5;
+const LEARNING_RATIO_MAX     = 2.0;
+const LEARNING_WINDOW        = 10;   // rolling window cap per pattern
+
+function getLearnedAdjustment(state, mealName) {
+  const key = normalizeMealName(mealName);
+  if (!key) return null;
+  const pattern = state?.nutrition?.learned_patterns?.[key];
+  if (!pattern) return null;
+  if ((pattern.sample_size || 0) < LEARNING_MIN_SAMPLES) return null;
+  const m = pattern.average_multiplier;
+  if (typeof m !== 'number' || isNaN(m)) return null;
+  // Defensive clamp — prevents a corrupted pattern from sending a 0.1 or 5.0
+  // multiplier through the UI even if the reducer lets one through.
+  const clamped = Math.max(LEARNING_RATIO_MIN, Math.min(LEARNING_RATIO_MAX, m));
+  return { multiplier: clamped, sampleSize: pattern.sample_size, key };
 }
 
 // ─── v3.17: meal type classification ────────────────────────────────
