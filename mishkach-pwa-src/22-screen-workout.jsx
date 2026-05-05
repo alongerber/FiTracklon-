@@ -327,6 +327,11 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
         exercises,
       },
     });
+    trackEvent('Workout Logged', {
+      type,
+      method: 'full',
+      exercise_count: exercises.length,
+    });
     toast('האימון נשמר!', { type: 'success' });
     onClose();
   };
@@ -1561,6 +1566,12 @@ function QuickLogDialog({ onClose, prefill }) {
           notes: '',
         }],
       },
+    });
+    // v3.17: quick log — different funnel than the full workout form
+    trackEvent('Workout Logged', {
+      type: wType,
+      method: 'quick',
+      exercise_count: 1,
     });
 
     // Persona toast — vars: {EX} = exercise name, {REPS} = reps or minutes

@@ -188,7 +188,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.16
+          מִשְׁקַלּוּת · v3.17
         </div>
       </div>
 
@@ -585,7 +585,12 @@ function PersonaPickerDialog({ onClose }) {
   const [selected, setSelected] = React.useState(state.settings.persona || 'neutral');
 
   const save = () => {
+    const previous = state.settings.persona || 'neutral';
     dispatch({ type: 'SET_PERSONA', persona: selected });
+    if (previous !== selected) {
+      // v3.17: track only actual changes (selecting the current persona is a no-op)
+      trackEvent('Persona Changed', { from: previous, to: selected });
+    }
     toast(`בחרת: ${PERSONAS[selected].name}`, { type: 'success' });
     onClose();
   };

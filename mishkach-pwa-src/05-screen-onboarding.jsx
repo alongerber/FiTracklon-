@@ -22,6 +22,11 @@ function OnboardingScreen() {
   const next = () => setStep(s => s + 1);
   const prev = () => setStep(s => Math.max(0, s - 1));
 
+  // v3.17: fire "Onboarding Started" once when this screen mounts
+  React.useEffect(() => {
+    trackEvent('Onboarding Started');
+  }, []);
+
   const complete = () => {
     const toKg = (v) => unit === 'lb' ? v / 2.20462 : v;
     dispatch({ type: 'SET_PERSONA', persona });
@@ -40,6 +45,9 @@ function OnboardingScreen() {
       dispatch({ type: 'SET_API_MODE', mode: 'direct' });
       dispatch({ type: 'SET_API_KEY', key: apiKey.trim() });
     }
+    // v3.17: track conversion. Persona is one of the few non-PII signals
+    // safe to attach (no name, no weight, no email).
+    trackEvent('Onboarding Completed', { persona });
   };
 
   return (
@@ -168,13 +176,15 @@ function WelcomeStep({ onNext }) {
 
       {/* "הוגן" CTA — 56px tall, full width */}
       <div style={{ marginTop: 'auto', paddingTop: 8 }}>
-        <button onClick={onNext} style={{
-          width: '100%', height: 56,
-          background: T.lime, color: T.bg,
-          border: 'none', borderRadius: 14,
-          fontSize: 18, fontWeight: 800, fontFamily: T.font,
-          letterSpacing: 0.5, cursor: 'pointer',
-        }}>
+        <button
+          onClick={() => { trackEvent('Agreement Accepted'); onNext(); }}
+          style={{
+            width: '100%', height: 56,
+            background: T.lime, color: T.bg,
+            border: 'none', borderRadius: 14,
+            fontSize: 18, fontWeight: 800, fontFamily: T.font,
+            letterSpacing: 0.5, cursor: 'pointer',
+          }}>
           הוגן
         </button>
       </div>

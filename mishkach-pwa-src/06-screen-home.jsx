@@ -1186,6 +1186,15 @@ function MonthlyRecapDialog({ ym, onClose, onNavigate, canDismiss }) {
   const fallbackRecords = React.useMemo(() => computeMonthRecords(state, ym, monthStats), [state, ym, monthStats]);
   const fallbackNumbers = React.useMemo(() => computeInterestingNumbers(state, ym, monthStats), [state, ym, monthStats]);
 
+  // v3.17: track recap views. canDismiss=true means it surfaced from the
+  // Home button (the auto-suggested current-month recap); false means the
+  // user opened it from the Profile archive.
+  React.useEffect(() => {
+    trackEvent('Monthly Recap Viewed', {
+      source: canDismiss ? 'home_button' : 'archive',
+    });
+  }, []);
+
   const [aiResult, setAiResult] = React.useState(null);
   const [aiLoading, setAiLoading] = React.useState(false);
   const [aiTried, setAiTried] = React.useState(false);

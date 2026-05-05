@@ -119,13 +119,39 @@ function NutritionScreen({ onNavigate }) {
             </div>
           </Card>
         ) : (
-          <Card padding={0}>
-            {mealsForDay.map((m, i) => (
-              <MealRow key={m.id} meal={m} dateViewing={dateViewing}
-                isLast={i === mealsForDay.length - 1}
-                onClick={() => setEditingMeal({ meal: m, date: dateViewing })}
-                onDelete={() => setConfirmDeleteMeal({ meal: m, date: dateViewing })}
-                onRepeat={() => {
+          // v3.17: group by meal_type, render a Card per non-empty bucket.
+          // Order matches the day's chronological flow (breakfast → night).
+          // Within a bucket, meals stay in their natural insertion order.
+          (() => {
+            const buckets = {};
+            for (const m of mealsForDay) {
+              const t = m.meal_type || mealTypeFromTime(m.time);
+              (buckets[t] = buckets[t] || []).push(m);
+            }
+            const sections = MEAL_TYPE_ORDER.filter(t => (buckets[t] || []).length > 0);
+            return sections.map(typeKey => {
+              const meals = buckets[typeKey];
+              const totals = sumMealsForDay(meals);
+              return (
+                <div key={typeKey} style={{ marginBottom: 12 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                    padding: '0 4px', marginBottom: 6,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>
+                      {MEAL_TYPE_LABELS[typeKey].section}
+                    </div>
+                    <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 0.5 }}>
+                      {totals.calories} ק״ק · {meals.length} {meals.length === 1 ? 'ארוחה' : 'ארוחות'}
+                    </div>
+                  </div>
+                  <Card padding={0}>
+                    {meals.map((m, i) => (
+                      <MealRow key={m.id} meal={m} dateViewing={dateViewing}
+                        isLast={i === meals.length - 1}
+                        onClick={() => setEditingMeal({ meal: m, date: dateViewing })}
+                        onDelete={() => setConfirmDeleteMeal({ meal: m, date: dateViewing })}
+                        onRepeat={() => {
                   // v3.14: instant re-log of an existing meal at the current
                   // moment (today, regardless of which date the user is viewing —
                   // re-logging "yesterday's coffee" should land on today, not on
@@ -147,11 +173,16 @@ function NutritionScreen({ onNavigate }) {
                       items: [], confidence: 'high',
                     },
                   });
+                  trackEvent('Meal Added', { method: 'repeat' });
                   toast(personaStr(state, 'meal_added_again', `נוסף שוב: ${cleanedDesc}`, { ITEM: cleanedDesc }), { type: 'success' });
                 }}
               />
             ))}
-          </Card>
+                  </Card>
+                </div>
+              );
+            });
+          })()
         )}
 
         {/* Add meal CTA — works for any day */}
@@ -323,7 +354,26 @@ function MealRow({ meal, dateViewing, isLast, onDelete, onClick, onRepeat }) {
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meal.description}</div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              fontSize: 13, fontWeight: 600, color: T.ink,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              flex: '0 1 auto', minWidth: 0,
+            }}>{meal.description}</div>
+            {/* v3.17: meal_type micro-badge — short label inline with title */}
+            {meal.meal_type && MEAL_TYPE_LABELS[meal.meal_type] && (
+              <span style={{
+                flexShrink: 0,
+                fontSize: 9, fontFamily: T.mono, color: T.inkMute,
+                padding: '1px 6px', borderRadius: 999,
+                border: `1px solid ${T.stroke}`, background: T.bg,
+                lineHeight: 1.6,
+              }}>{MEAL_TYPE_LABELS[meal.meal_type].short}</span>
+            )}
+          </div>
           <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginTop: 3 }}>
             {meal.time} · <span style={{ color: T.lime }}>{meal.protein}ג</span> חלבון · <span style={{ color: T.amber }}>{meal.carbs}ג</span> פחמ׳ · <span style={{ color: T.rose }}>{meal.fat}ג</span> שומן
           </div>
@@ -394,6 +444,7 @@ function AddMealDialog({ date, onClose }) {
         items: [], confidence: 'high',
       },
     });
+    trackEvent('Meal Added', { method: 'quick' });
     toast(personaStr(state, 'meal_quick_added', `נוסף: ${fav.name}`, { ITEM: fav.name }), { type: 'success' });
     onClose();
   };
@@ -514,6 +565,7 @@ function FavoritesFlow({ date, onClose }) {
         items: [], confidence: 'high',
       },
     });
+    trackEvent('Meal Added', { method: 'favorite' });
     toast(personaStr(state, 'favorite_added', 'נוסף מהמועדפים'), { type: 'success' });
     onClose();
   };
@@ -996,6 +1048,42 @@ const inputStyle = {
   direction: 'rtl', textAlign: 'right',
 };
 
+// v3.17: chips for picking the meal_type before saving. Default selected
+// is the time-inferred bucket (passed in via `value`); user tap updates
+// `value` via onChange. Visual order matches the day-flow MEAL_TYPE_ORDER.
+function MealTypeChips({ value, onChange }) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>
+        סוג ארוחה
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {MEAL_TYPE_ORDER.map(t => {
+          const active = value === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => onChange(t)}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 999,
+                border: `1px solid ${active ? T.lime : T.stroke}`,
+                background: active ? T.lime : 'transparent',
+                color: active ? T.bg : T.inkSub,
+                fontSize: 12, fontWeight: 700, fontFamily: T.font,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}>
+              {MEAL_TYPE_LABELS[t].section}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Review & save ──────────────────────────────────────────────────
 // v3.12: editable review screen.
 //   • Name = display + ✏️; clicking ✏️ enters edit mode with "בדוק שוב"
@@ -1015,6 +1103,9 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
   const [perP, setPerP]   = React.useState(result.protein);
   const [perC, setPerC]   = React.useState(result.carbs);
   const [perF, setPerF]   = React.useState(result.fat);
+  // v3.17: meal type — default is inferred from "now" (close to when
+  // the user is actually saving the meal). User can override before save.
+  const [mealType, setMealType] = React.useState(() => mealTypeFromTime(nowHHMM()));
 
   // Re-parse-able metadata (notes/items/confidence). Updated when "בדוק שוב"
   // is pressed; otherwise stays as the original parse.
@@ -1082,8 +1173,13 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
         aiNotes: meta.notes || '',
         items: meta.items || [],
         confidence: meta.confidence || 'high',
+        meal_type: mealType,
       },
     });
+    // v3.17: source maps directly to the spec's method enum
+    // (photo_parse → photo, text_parse → text, manual → manual).
+    const methodMap = { photo_parse: 'photo', text_parse: 'text', manual: 'manual' };
+    trackEvent('Meal Added', { method: methodMap[source] || source, meal_type: mealType });
     toast(personaStr(state, 'meal_added', 'הארוחה נוספה'), { type: 'success' });
     onDone();
   };
@@ -1262,6 +1358,9 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
           <span style={{ color: T.lime }}>{totP}ג</span> חלבון · <span style={{ color: T.amber }}>{totC}ג</span> פחמ׳ · <span style={{ color: T.rose }}>{totF}ג</span> שומן
         </div>
       </div>
+
+      {/* v3.17: meal type — chips below the live total, above save */}
+      <MealTypeChips value={mealType} onChange={setMealType} />
 
       <div style={{ marginTop: 20 }}>
         <Button onClick={save}>שמור ארוחה</Button>

@@ -2,6 +2,20 @@
 // 04-ui.jsx — UI primitives + dialogs + toasts
 // ════════════════════════════════════════════════════════════════════
 
+// v3.17: Plausible event tracker. Defensive — silently no-ops if the
+// Plausible script hasn't loaded (offline, ad-blocker, dev console).
+// Props are flat key/value pairs that Plausible surfaces in custom-event
+// dashboards. Don't pass PII — see PRIVACY note in build.py.
+function trackEvent(name, props) {
+  if (typeof window === 'undefined') return;
+  if (typeof window.plausible !== 'function') return;
+  try {
+    window.plausible(name, props ? { props } : undefined);
+  } catch (_) {
+    // network / parser hiccup — never let analytics break the UI
+  }
+}
+
 function Card({ children, style, padding = 16, ...rest }) {
   return (
     <div style={{
@@ -416,6 +430,8 @@ if (typeof window !== 'undefined') {
     _installState.canInstall = false;
     _installState.prompt = null;
     _installSubs.forEach(fn => fn({ ..._installState }));
+    // v3.17: install conversion — fires once per device
+    trackEvent('PWA Installed', { ios: _installState.isIOS });
   });
 }
 

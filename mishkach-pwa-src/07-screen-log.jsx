@@ -125,6 +125,12 @@ function LogScreen({ onClose, onSaved }) {
       time: timeForSave,
       note: note.trim(),
     });
+    // v3.17: track the log. `backdated` flag separates today's habit from
+    // catch-up entries; `is_edit` distinguishes edits from new entries.
+    trackEvent('Weight Logged', {
+      backdated: !isToday,
+      is_edit: !!existing,
+    });
 
     // Save toast — three branches: edited / today new / back-dated new
     if (existing) {

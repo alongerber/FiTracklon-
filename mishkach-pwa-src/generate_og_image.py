@@ -3,12 +3,17 @@
 Run once to (re)create mishkach-pwa-src/og-image.png. The build pipeline
 copies it to the repo root where Vercel serves it.
 
-Design (per v3.16 spec):
+Design (v3.17 update — bolded "קל" reveals the wordplay):
   • Background: T.bg (#0b0d0c)
   • Logo (logo-welcome.png) centered, ~280px tall
-  • Title "מִשְׁקַלּוּת" — 96px bold lime
-  • Subtitle "יומן משקל בעברית" — 32px regular muted gray
-  • Footer URL "fi-tracklon.vercel.app" — 18px mono-ish gray
+  • Title "מש קל ות" — 110px, with the middle "קל" rendered in lime to
+    surface the מִשְׁקָל + קַלּוּת pun (weight + lightness)
+  • Subtitle "משקל + קלות" — 36px muted gray, explains the wordplay
+  • Footer URL "fi-tracklon.vercel.app" — 22px mono gray
+
+Earlier (v3.16): single-color title + "יומן משקל בעברית" subtitle.
+The new layout trades plain explanation for visual storytelling — the
+reader's eye hits the lime "קל" and decodes the name themselves.
 
 Hebrew handling: PIL renders Unicode strings left-to-right. For Hebrew
 to appear correctly we run them through python-bidi's get_display(),
@@ -32,8 +37,9 @@ W, H = 1200, 630
 
 # Theme (matches mishkach-pwa-src/01-theme.jsx T.bg / T.lime / T.inkSub)
 BG       = (11, 13, 12, 255)        # T.bg #0b0d0c
-LIME     = (198, 255, 61, 255)      # T.lime #c6ff3d
-INK_SUB  = (170, 175, 165, 255)     # T.inkSub-ish gray
+LIME     = (201, 242, 62, 255)      # spec: #C9F23E (matches CTA in app)
+TITLE_GRAY = (232, 232, 232, 255)   # spec: #E8E8E8 — bright off-white for "מש"/"ות"
+INK_SUB  = (136, 136, 136, 255)     # spec: #888 — subtitle gray
 INK_MUTE = (110, 115, 105, 255)     # T.inkMute-ish
 
 # ─── Font discovery ─────────────────────────────────────────────────
@@ -67,9 +73,12 @@ FONT_BOLD = first_existing(FONT_CANDIDATES_BOLD)
 FONT_REG  = first_existing(FONT_CANDIDATES_REG)
 FONT_MONO = first_existing(FONT_CANDIDATES_MONO)
 
-font_title    = ImageFont.truetype(FONT_BOLD, 110)   # was 96 — bumped for ~280px logo balance
-font_subtitle = ImageFont.truetype(FONT_REG,  34)
-font_url      = ImageFont.truetype(FONT_MONO, 22)
+font_title       = ImageFont.truetype(FONT_BOLD, 110)
+# Slightly larger for "קל" so the wordplay reads even on a small WhatsApp
+# tile. ~14% bump is visible but not jarring at 110px base.
+font_title_lime  = ImageFont.truetype(FONT_BOLD, 124)
+font_subtitle    = ImageFont.truetype(FONT_REG,  36)
+font_url         = ImageFont.truetype(FONT_MONO, 22)
 
 # ─── Build the canvas ───────────────────────────────────────────────
 img = Image.new('RGBA', (W, H), BG)
@@ -99,25 +108,40 @@ if os.path.exists(LOGO_PATH):
     logo_y = 70
     img.paste(logo, (logo_x, logo_y), logo)
 
-# ─── Title: "מִשְׁקַלּוּת" — lime, centered ──────────────────────
-# Use the unpointed form (without niqqud) so PIL+arialbd renders cleanly
-# at 110px. Bidi-reverse for visual order.
-title_logical = 'משקלות'
-title_visual = get_display(title_logical)
-title_bbox = draw.textbbox((0, 0), title_visual, font=font_title)
-title_w = title_bbox[2] - title_bbox[0]
-title_h = title_bbox[3] - title_bbox[1]
-title_x = (W - title_w) // 2 - title_bbox[0]
-title_y = 380
-draw.text((title_x, title_y), title_visual, font=font_title, fill=LIME)
+# ─── Title: "מש קל ות" — tri-color, baseline-aligned ──────────────
+# Visual order (left→right) on the canvas: ות (gray) | קל (lime) | מש (gray).
+# We render each chunk separately with its own font + color, sharing one
+# baseline so the larger lime "קל" sits cleanly between the gray pieces.
+#
+# python-bidi reverses each chunk into visual storage order so PIL (which
+# draws strictly left-to-right) ends up showing the Hebrew letters in the
+# direction a Hebrew reader expects (mem on right, shin on left, etc).
+title_baseline_y = 480   # a single baseline shared by all 3 chunks
+chunks = [
+    # (logical Hebrew, font, color) — listed in visual order, ות leftmost
+    ('ות', font_title,      TITLE_GRAY),
+    ('קל', font_title_lime, LIME),
+    ('מש', font_title,      TITLE_GRAY),
+]
+# Width per chunk via textlength; combined width centers the whole word.
+widths = [draw.textlength(get_display(t), font=f) for t, f, _ in chunks]
+total_w = sum(widths)
+cursor_x = (W - total_w) // 2
 
-# ─── Subtitle: "יומן משקל בעברית" — gray, centered ─────────────
-sub_logical = 'יומן משקל בעברית'
+for (logical, font, color), w in zip(chunks, widths):
+    visual = get_display(logical)
+    # anchor='ls' = (left, baseline) — keeps mixed-size chunks lined up
+    draw.text((cursor_x, title_baseline_y), visual, font=font, fill=color, anchor='ls')
+    cursor_x += w
+
+# ─── Subtitle: "משקל + קלות" — gray, centered, explains the wordplay ─
+# The "+" stays as ASCII so bidi keeps it where we want; the surrounding
+# Hebrew is bidi'd as a single string.
+sub_logical = 'משקל + קלות'
 sub_visual = get_display(sub_logical)
-sub_bbox = draw.textbbox((0, 0), sub_visual, font=font_subtitle)
-sub_w = sub_bbox[2] - sub_bbox[0]
-sub_x = (W - sub_w) // 2 - sub_bbox[0]
-sub_y = title_y + title_h + 32
+sub_w = draw.textlength(sub_visual, font=font_subtitle)
+sub_x = (W - sub_w) // 2
+sub_y = title_baseline_y + 32   # below the title's baseline
 draw.text((sub_x, sub_y), sub_visual, font=font_subtitle, fill=INK_SUB)
 
 # ─── Footer: URL — mono gray, bottom ───────────────────────────────

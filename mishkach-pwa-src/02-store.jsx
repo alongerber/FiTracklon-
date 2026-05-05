@@ -143,7 +143,21 @@ function loadState() {
         ...initialState.nutrition,
         ...(parsed.nutrition || {}),
         goals: { ...initialState.nutrition.goals, ...((parsed.nutrition || {}).goals || {}) },
-        meals: (parsed.nutrition || {}).meals || {},
+        // v3.17 migration: backfill `meal_type` for any meal saved before
+        // we started capturing it. The default is inferred from the meal's
+        // recorded time. Idempotent — no-op for meals that already have it.
+        meals: (() => {
+          const src = (parsed.nutrition || {}).meals || {};
+          const out = {};
+          for (const date of Object.keys(src)) {
+            out[date] = (src[date] || []).map(m =>
+              m && !m.meal_type
+                ? { ...m, meal_type: mealTypeFromTime(m.time) }
+                : m
+            );
+          }
+          return out;
+        })(),
         favorites: (parsed.nutrition || {}).favorites || {},
       },
       workouts: {
@@ -240,7 +254,12 @@ function reducer(state, action) {
     case 'ADD_MEAL': {
       const { date, meal } = action;
       const existing = state.nutrition.meals[date] || [];
-      const newMeal = { ...meal, id: meal.id || uid(), createdAt: new Date().toISOString() };
+      // v3.17: every meal must carry a meal_type. Caller may pass one
+      // explicitly (from the chips UI); else default by time.
+      const mealWithType = meal.meal_type
+        ? meal
+        : { ...meal, meal_type: mealTypeFromTime(meal.time) };
+      const newMeal = { ...mealWithType, id: meal.id || uid(), createdAt: new Date().toISOString() };
 
       // Track as favorite (normalized description key)
       const favKey = (meal.description || '').trim().toLowerCase();
@@ -752,6 +771,51 @@ function nutritionStreak(mealsByDay) {
   }
   return streak;
 }
+
+// ─── v3.17: meal type classification ────────────────────────────────
+// Categorical bucket attached to every meal. Used for grouping in the
+// nutrition list and (eventually) cross-meal-type analytics.
+//
+// Buckets per spec:
+//   05:00–10:30 → breakfast
+//   10:31–12:00 → snack
+//   12:01–15:00 → lunch
+//   15:01–17:30 → snack
+//   17:31–21:00 → dinner
+//   21:01–04:59 → night
+//
+// `hhmm` is "HH:MM" (24h). Returns one of:
+//   'breakfast' | 'lunch' | 'dinner' | 'snack' | 'night'
+function mealTypeFromTime(hhmm) {
+  if (!hhmm || typeof hhmm !== 'string') return 'snack';
+  const [hStr, mStr] = hhmm.split(':');
+  const h = parseInt(hStr, 10) || 0;
+  const m = parseInt(mStr, 10) || 0;
+  const minutes = h * 60 + m;
+  // 05:00 = 300, 10:30 = 630, 12:00 = 720, 15:00 = 900,
+  // 17:30 = 1050, 21:00 = 1260
+  if (minutes >= 300 && minutes <= 630)        return 'breakfast';
+  if (minutes >  630 && minutes <= 720)        return 'snack';
+  if (minutes >  720 && minutes <= 900)        return 'lunch';
+  if (minutes >  900 && minutes <= 1050)       return 'snack';
+  if (minutes > 1050 && minutes <= 21 * 60)    return 'dinner';
+  // 21:01–04:59 wraps midnight
+  return 'night';
+}
+
+// Hebrew labels (used in section headers + per-row badges).
+// Plural/singular: list section uses the "ארוחת X" form; the badge uses
+// the bare noun for compactness.
+const MEAL_TYPE_LABELS = {
+  breakfast: { section: 'ארוחת בוקר',   short: 'בוקר'   },
+  lunch:     { section: 'ארוחת צהריים', short: 'צהריים' },
+  dinner:    { section: 'ארוחת ערב',    short: 'ערב'    },
+  snack:     { section: 'נשנושים',      short: 'נשנוש'  },
+  night:     { section: 'ארוחה לילית',  short: 'לילה'   },
+};
+
+// Display order in the nutrition list (chronological flow of a day).
+const MEAL_TYPE_ORDER = ['breakfast', 'snack', 'lunch', 'dinner', 'night'];
 
 // ─── Sorted favorites (most used first, recent wins ties) ───────────
 function sortedFavorites(favoritesMap, limit = 20) {
