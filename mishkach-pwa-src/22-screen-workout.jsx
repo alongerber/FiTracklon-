@@ -528,14 +528,29 @@ function ActiveWorkoutScreen({ onClose }) {
         notes: '',
       };
     }).filter(ex => ex.sets.length > 0);
-    // v3.22 will append bonusExercises here — left empty in v3.21.
+
+    // v3.22: append bonus exercises to the saved workout. Each bonus is
+    // one set; we tag with isBonus so the WorkoutHistory rendering can
+    // surface them visually if it wants to.
+    const bonusExercises = (session.bonusExercises || []).map(b => ({
+      id: uid(),
+      exerciseId: null,
+      name: b.name,
+      muscle: null,
+      hasWeight: b.weight !== null && b.weight > 0,
+      isDuration: false,
+      isBonus: true,
+      sets: [{ reps: b.reps || 0, weight: (b.weight !== null && b.weight !== undefined) ? b.weight : null }],
+      notes: '',
+    }));
+
     const savedWorkout = {
       time: nowHHMM(),
       name: workout.name || 'אימון מתוכנן',
       type: 'strength',
       durationMin,
       notes: '',
-      exercises,
+      exercises: [...exercises, ...bonusExercises],
       planRef: { workoutId: workout.id, planGeneratedAt: plan?.generated_at || null },
     };
     dispatch({
@@ -679,6 +694,10 @@ function ActiveWarmup({ items, onDone, onSkip }) {
 
 // ─── Section: exercise + set ───────────────────────────────────────
 function ActiveExerciseSet({ exercise, exerciseIdx, exerciseCount, setIdx, onComplete, onSkipSet, onSkipExercise }) {
+  // v3.22: bonus exercise modal — opened by the small button under the
+  // skip controls. Modal handles ADD_BONUS_EXERCISE itself; this screen
+  // just toggles visibility.
+  const [bonusOpen, setBonusOpen] = React.useState(false);
   // Default reps from the planned "reps" string — accept "8-12" → 10, "12" → 12.
   const defaultReps = React.useMemo(() => {
     const s = String(exercise?.reps || '').trim();
@@ -762,6 +781,19 @@ function ActiveExerciseSet({ exercise, exerciseIdx, exerciseCount, setIdx, onCom
         <button onClick={onSkipSet} style={skipBtnStyle}>דלג סט</button>
         <button onClick={onSkipExercise} style={skipBtnStyle}>דלג תרגיל</button>
       </div>
+
+      {/* v3.22: bonus exercise — small + button at the bottom */}
+      <div style={{ marginTop: 14, textAlign: 'center' }}>
+        <button onClick={() => setBonusOpen(true)} style={{
+          background: 'transparent', border: 'none',
+          color: T.amber, fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+          cursor: 'pointer', padding: '6px 12px',
+        }}>
+          + תרגיל בונוס
+        </button>
+      </div>
+
+      {bonusOpen && <BonusExerciseDialog onClose={() => setBonusOpen(false)} />}
     </div>
   );
 }
@@ -916,13 +948,19 @@ function ActiveCooldown({ items, onDone, onSkip }) {
 // ─── Section: completion summary + feedback ────────────────────────
 function ActiveCompletion({ session, workout, onSave }) {
   const [feedback, setFeedback] = React.useState(null); // 'easy' | 'right' | 'hard'
+  const bonusList = session.bonusExercises || [];
   const totals = React.useMemo(() => {
     const sets = (session.completedSets || []).length;
     const exercisesUsed = new Set((session.completedSets || []).map(s => s.exerciseId)).size;
+    const bonusCount = bonusList.length;
+    // v3.22: bonus sets count toward totals so the user gets credit for
+    // them in the summary stats. Each bonus is treated as one set.
+    const totalSets = sets + bonusCount;
+    const totalExercises = exercisesUsed + bonusCount;
     const durationMin = _durationMinSince(session.startedAt);
     const kcal = _estimateKcal(workout, durationMin);
-    return { sets, exercisesUsed, durationMin, kcal };
-  }, [session.completedSets, session.startedAt, workout]);
+    return { sets, exercisesUsed, bonusCount, totalSets, totalExercises, durationMin, kcal };
+  }, [session.completedSets, session.startedAt, workout, bonusList.length]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -934,12 +972,45 @@ function ActiveCompletion({ session, workout, onSave }) {
         סיכום האימון:
       </div>
 
-      <Card padding={14} style={{ marginBottom: 22 }}>
-        <SummaryRow label="תרגילים" value={`${totals.exercisesUsed}`} />
-        <SummaryRow label="סטים" value={`${totals.sets}`} />
+      <Card padding={14} style={{ marginBottom: totals.bonusCount > 0 ? 14 : 22 }}>
+        <SummaryRow
+          label="תרגילים"
+          value={totals.bonusCount > 0
+            ? `${totals.exercisesUsed} + ${totals.bonusCount} בונוס`
+            : `${totals.exercisesUsed}`}
+        />
+        <SummaryRow label="סטים" value={`${totals.totalSets}`} />
         <SummaryRow label="משך" value={`${totals.durationMin} דקות`} />
         <SummaryRow label="~ק״ק (משוער)" value={`${totals.kcal}`} isLast />
       </Card>
+
+      {/* v3.22: bonus exercises rendered as a separate amber-tagged list */}
+      {totals.bonusCount > 0 && (
+        <Card padding={14} style={{
+          marginBottom: 22,
+          background: `${T.amber}10`, border: `1px solid ${T.amber}40`,
+        }}>
+          <div style={{
+            fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1,
+            marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <TabIcon name="sparkle" size={11} />
+            <span>תרגילי בונוס</span>
+          </div>
+          {bonusList.map((b, i) => (
+            <div key={i} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+              padding: '6px 0',
+              borderBottom: i === bonusList.length - 1 ? 'none' : `1px solid ${T.stroke}`,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{b.name}</div>
+              <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono }}>
+                {b.reps || 0} חזרות{b.weight ? ` · ${b.weight} ק״ג` : ''}
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
 
       <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 10 }}>איך הרגשת?</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 22 }}>
@@ -1021,6 +1092,377 @@ function ActiveSessionRecoveryDialog({ onResume, onSavePartial, onCancel }) {
             color: T.rose, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
           }}>בטל לגמרי</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// v3.22 — ExerciseEntryPicker (shared by Manual Logging + Bonus modal)
+// ════════════════════════════════════════════════════════════════════
+// Three input methods → all return the same { name, reps, weight } shape.
+// Layout: 3 chips on top, then the active method's body below. Catalog
+// path returns immediately on selection (autofills name); voice + text
+// paths require the user to fill reps/weight manually after the name lands.
+function ExerciseEntryPicker({ initial, onSubmit, onCancel, submitLabel }) {
+  // Chosen input method — chip toggles below the inputs
+  const [method, setMethod] = React.useState('text'); // 'voice' | 'text' | 'catalog'
+  const [name, setName] = React.useState(initial?.name || '');
+  const [reps, setReps] = React.useState(initial?.reps || 10);
+  const [weight, setWeight] = React.useState(initial?.weight || 0);
+  const [voiceOpen, setVoiceOpen] = React.useState(false);
+  const [catalogQuery, setCatalogQuery] = React.useState('');
+
+  const filteredCatalog = React.useMemo(() => {
+    const list = (typeof EXERCISE_CATALOG !== 'undefined' ? EXERCISE_CATALOG : []);
+    if (!catalogQuery.trim()) return list.slice(0, 24); // top 24 by default
+    const q = catalogQuery.trim().toLowerCase();
+    return list.filter(e => (e.name || '').toLowerCase().includes(q)).slice(0, 24);
+  }, [catalogQuery]);
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onSubmit({
+      name: name.trim(),
+      reps: Math.max(0, Math.round(reps || 0)),
+      weight: weight > 0 ? +weight : null,
+    });
+  };
+
+  const methodChip = (id, label) => (
+    <button key={id} onClick={() => setMethod(id)} style={{
+      flex: 1, height: 40,
+      background: method === id ? T.lime : T.bgElev,
+      color: method === id ? T.bg : T.ink,
+      border: `1.5px solid ${method === id ? T.lime : T.stroke}`,
+      borderRadius: 10, fontSize: 12, fontWeight: 700,
+      fontFamily: 'inherit', cursor: 'pointer',
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Method chips */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {methodChip('voice', '🎤 דבר')}
+        {methodChip('text', '✏️ כתיבה')}
+        {methodChip('catalog', '📋 קטלוג')}
+      </div>
+
+      {/* Method body — name capture */}
+      {method === 'voice' && (
+        <div>
+          <button onClick={() => setVoiceOpen(true)} style={{
+            width: '100%', height: 56,
+            background: T.bgElev, color: T.ink,
+            border: `1px dashed ${T.stroke}`, borderRadius: 12,
+            fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+          }}>
+            🎤 לחץ להקלטה
+          </button>
+          {name && (
+            <div style={{ fontSize: 12, color: T.inkSub, marginTop: 6 }}>
+              זוהה: <strong style={{ color: T.ink }}>{name}</strong>
+            </div>
+          )}
+        </div>
+      )}
+      {method === 'text' && (
+        <input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="שם התרגיל (למשל: שכיבות סמיכה)"
+          autoFocus
+          style={{
+            width: '100%', padding: '12px 14px',
+            background: T.bgElev, border: `1px solid ${T.stroke}`,
+            borderRadius: 10, color: T.ink, fontSize: 14,
+            fontFamily: 'inherit', outline: 'none',
+            direction: 'rtl', textAlign: 'right',
+          }}
+        />
+      )}
+      {method === 'catalog' && (
+        <div>
+          <input
+            value={catalogQuery}
+            onChange={e => setCatalogQuery(e.target.value)}
+            placeholder="חפש בקטלוג…"
+            style={{
+              width: '100%', padding: '10px 14px', marginBottom: 8,
+              background: T.bgElev, border: `1px solid ${T.stroke}`,
+              borderRadius: 10, color: T.ink, fontSize: 13,
+              fontFamily: 'inherit', outline: 'none',
+              direction: 'rtl', textAlign: 'right',
+            }}
+          />
+          <div style={{
+            maxHeight: 220, overflowY: 'auto',
+            border: `1px solid ${T.stroke}`, borderRadius: 10,
+            background: T.bg,
+          }}>
+            {filteredCatalog.length === 0 ? (
+              <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: T.inkMute }}>
+                אין התאמות
+              </div>
+            ) : filteredCatalog.map(ex => (
+              <button key={ex.id} onClick={() => { setName(ex.name); setMethod('text'); }} style={{
+                display: 'block', width: '100%',
+                padding: '10px 14px', background: 'transparent',
+                border: 'none', borderBottom: `1px solid ${T.stroke}`,
+                color: T.ink, fontSize: 13, textAlign: 'right', direction: 'rtl',
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+                {ex.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reps + weight (always visible once name set) */}
+      {name && (
+        <Card padding={14}>
+          <ActiveCounterRow label="חזרות" value={reps} unit=""
+            step={1} min={0} max={500} onChange={setReps} />
+          <ActiveCounterRow label="משקל" value={weight} unit="ק״ג"
+            step={2.5} min={0} max={300} onChange={setWeight}
+            valueFmt={(v) => v === 0 ? 'גוף' : v.toString()}
+            extraPad
+          />
+        </Card>
+      )}
+
+      {/* Action buttons */}
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={onCancel}>בטל</Button>
+        <Button onClick={submit}>{submitLabel || 'הוסף'}</Button>
+      </div>
+
+      {/* Voice — reuses existing VoiceInputDialog defined later in this file */}
+      {voiceOpen && (
+        <VoiceInputDialog
+          onClose={() => setVoiceOpen(false)}
+          onResult={(parsed, rawText) => {
+            // parseWorkoutFromVoice returns { exerciseName, reps, durationSec, weight, ... }
+            // We only need name + reps + weight here; durationSec is ignored.
+            const got = parsed?.exerciseName || rawText || '';
+            if (got) setName(got);
+            if (parsed?.reps && parsed.reps > 0) setReps(parsed.reps);
+            if (parsed?.weight && parsed.weight > 0) setWeight(parsed.weight);
+            setVoiceOpen(false);
+            setMethod('text'); // jump to text view so they can review/edit
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ManualLoggingScreen — multi-exercise spontaneous log (v3.22, Task 4)
+// ════════════════════════════════════════════════════════════════════
+// Replaces the v3.21 wiring of the "תיעוד ידני" button to QuickLog.
+// Local state holds the in-progress list; nothing dispatches until Save.
+// Cancel mid-flow: discard with no warning if list is empty, confirm
+// if the user already added an exercise.
+function ManualLoggingScreen({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const [items, setItems] = React.useState([]); // [{ id, name, reps, weight }]
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [confirmCancel, setConfirmCancel] = React.useState(false);
+
+  const addItem = (entry) => {
+    setItems(arr => [...arr, { id: uid(), ...entry }]);
+    setShowAdd(false);
+  };
+  const removeItem = (id) => setItems(arr => arr.filter(x => x.id !== id));
+
+  const tryClose = () => {
+    if (items.length === 0) onClose && onClose();
+    else setConfirmCancel(true);
+  };
+
+  const save = () => {
+    if (items.length === 0) {
+      toast('הוסף לפחות תרגיל אחד', { type: 'error' });
+      return;
+    }
+    // Build a single workout record. Spontaneous logs don't get a
+    // duration; type='other' marks them as non-strength so the analytics
+    // tab counts them under "מעורב". The source field tags the row in
+    // WorkoutHistory ("תיעוד ידני" badge — added in v3.22).
+    const workout = {
+      time: nowHHMM(),
+      name: 'תיעוד ידני',
+      type: 'other',
+      durationMin: 0,
+      notes: '',
+      source: 'manual_logging',
+      exercises: items.map(it => ({
+        id: uid(),
+        exerciseId: null,
+        name: it.name,
+        muscle: null,
+        hasWeight: it.weight !== null && it.weight > 0,
+        isDuration: false,
+        sets: [{ reps: it.reps, weight: it.weight }],
+        notes: '',
+      })),
+    };
+    dispatch({ type: 'ADD_WORKOUT', date: todayISO(), workout });
+    trackEvent('Manual Logging Used', { exercise_count: items.length });
+    toast(personaStr(state, 'workout_saved', 'נשמר. כל הכבוד.'), { type: 'success' });
+    onClose && onClose();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 875,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={tryClose} aria-label="חזור" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>‹</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>
+          תיעוד ידני
+        </div>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 18px 24px' }}>
+        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 18 }}>
+          מה עשית? הוסף כל תרגיל בנפרד. בלי טיימרים, בלי חימום — רק רישום.
+        </div>
+
+        {items.length === 0 ? (
+          <Card padding={20} style={{ textAlign: 'center', border: `1px dashed ${T.stroke}`, background: 'transparent' }}>
+            <div style={{ marginBottom: 8, color: T.inkMute, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="dumbbell" size={32} />
+            </div>
+            <div style={{ fontSize: 13, color: T.inkSub }}>עוד לא הוספת תרגיל</div>
+          </Card>
+        ) : (
+          <Card padding={0} style={{ marginBottom: 14 }}>
+            {items.map((it, i) => (
+              <div key={it.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '12px 14px',
+                borderBottom: i === items.length - 1 ? 'none' : `1px solid ${T.stroke}`,
+              }}>
+                <div style={{
+                  width: 6, height: 6, borderRadius: 3, background: T.lime, flexShrink: 0,
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{it.name}</div>
+                  <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, marginTop: 2 }}>
+                    {it.reps} חזרות{it.weight ? ` · ${it.weight} ק״ג` : ''}
+                  </div>
+                </div>
+                <button onClick={() => removeItem(it.id)} aria-label="הסר תרגיל" style={{
+                  width: 30, height: 30, borderRadius: 15, background: 'transparent',
+                  border: 'none', color: T.inkMute, cursor: 'pointer', fontSize: 16,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>×</button>
+              </div>
+            ))}
+          </Card>
+        )}
+
+        <div style={{ marginTop: 14 }}>
+          <button onClick={() => setShowAdd(true)} style={{
+            width: '100%', padding: 14,
+            background: T.bgElev, color: T.ink,
+            border: `1.5px dashed ${T.lime}`, borderRadius: 12,
+            fontSize: 14, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+          }}>+ הוסף תרגיל</button>
+        </div>
+      </div>
+
+      <div style={{
+        padding: '12px 18px', borderTop: `1px solid ${T.stroke}`, background: T.bg,
+        display: 'flex', gap: 10,
+      }}>
+        <Button variant="ghost" onClick={tryClose}>בטל</Button>
+        <Button onClick={save} disabled={items.length === 0}>שמור</Button>
+      </div>
+
+      {/* Add-exercise modal — uses the shared picker */}
+      {showAdd && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 980,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+          backdropFilter: 'blur(4px)',
+        }} onClick={() => setShowAdd(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+            padding: 20, maxWidth: 420, width: '100%', direction: 'rtl',
+            maxHeight: '90vh', overflowY: 'auto',
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>הוספת תרגיל</div>
+            <ExerciseEntryPicker
+              onSubmit={addItem}
+              onCancel={() => setShowAdd(false)}
+              submitLabel="הוסף"
+            />
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmCancel}
+        title="לבטל את התיעוד?"
+        message={`רשמת ${items.length} ${items.length === 1 ? 'תרגיל' : 'תרגילים'}. ביטול ימחק אותם.`}
+        confirmLabel="בטל"
+        cancelLabel="המשך לרשום"
+        danger
+        onConfirm={() => { setConfirmCancel(false); onClose && onClose(); }}
+        onCancel={() => setConfirmCancel(false)}
+      />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BonusExerciseDialog — modal during ActiveExerciseSet (v3.22, Task 5)
+// ════════════════════════════════════════════════════════════════════
+// Tap "+ תרגיל בונוס" inside an active workout → this opens. Submit
+// dispatches ADD_BONUS_EXERCISE and closes; the user returns to the
+// same set they were on. No state machine change — bonus is purely
+// additive metadata that surfaces in the completion summary.
+function BonusExerciseDialog({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+  const session = state.workouts?.activeSession;
+
+  const submit = (entry) => {
+    dispatch({ type: 'ADD_BONUS_EXERCISE', exercise: entry });
+    trackEvent('Bonus Exercise Added', { workout_id: session?.workoutId || 'unknown' });
+    toast(personaStr(state, 'bonus_added', 'תרגיל בונוס נוסף'), { type: 'success' });
+    onClose && onClose();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 985,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      backdropFilter: 'blur(4px)',
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.amber}55`,
+        padding: 20, maxWidth: 420, width: '100%', direction: 'rtl',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>בונוס</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>הוספת תרגיל בונוס</div>
+        <ExerciseEntryPicker
+          onSubmit={submit}
+          onCancel={onClose}
+          submitLabel="הוסף בונוס"
+        />
       </div>
     </div>
   );
@@ -1195,6 +1637,8 @@ function WorkoutScreen() {
   // v3.21: ActiveWorkoutScreen + recovery dialog
   const [showActive, setShowActive] = React.useState(false);
   const [showRecovery, setShowRecovery] = React.useState(false);
+  // v3.22: ManualLoggingScreen replaces the wiring of "תיעוד ידני" → QuickLog
+  const [showManualLog, setShowManualLog] = React.useState(false);
 
   // Recovery — show the dialog once on mount when there's an in-flight
   // session less than 24h old. >24h is treated as abandoned (auto-clear).
@@ -1297,7 +1741,7 @@ function WorkoutScreen() {
               title="תיעוד ידני"
               desc="רושם תרגילים ספונטניים"
               primary
-              onClick={() => setShowQuickLog(true)}
+              onClick={() => setShowManualLog(true)}
             />
             <div style={{ fontSize: 11, color: T.inkMute, textAlign: 'center', margin: '12px 0 8px' }}>או</div>
             <ModeEntryButton
@@ -1357,7 +1801,7 @@ function WorkoutScreen() {
                     title="תיעוד ידני"
                     desc="רושם תרגיל בודד או רצף ספונטני"
                     variant="ghost"
-                    onClick={() => setShowQuickLog(true)}
+                    onClick={() => setShowManualLog(true)}
                   />
                   <ModeEntryButton
                     title="צפה בפרטי האימון"
@@ -1380,7 +1824,7 @@ function WorkoutScreen() {
                     title="תיעוד ידני"
                     desc="אם החלטת לעשות משהו בכל זאת"
                     primary
-                    onClick={() => setShowQuickLog(true)}
+                    onClick={() => setShowManualLog(true)}
                   />
                   <ModeEntryButton
                     title="ראה תוכנית השבוע"
@@ -1535,6 +1979,8 @@ function WorkoutScreen() {
       />}
       {/* v3.21 — active workout flow + recovery */}
       {showActive && <ActiveWorkoutScreen onClose={() => setShowActive(false)} />}
+      {/* v3.22 — multi-exercise spontaneous log */}
+      {showManualLog && <ManualLoggingScreen onClose={() => setShowManualLog(false)} />}
       {showRecovery && <ActiveSessionRecoveryDialog
         onResume={() => { setShowRecovery(false); setShowActive(true); }}
         onSavePartial={() => {

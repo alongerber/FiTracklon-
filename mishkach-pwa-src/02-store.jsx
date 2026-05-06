@@ -134,6 +134,15 @@ const initialState = {
       days: [],            // e.g. [0, 2, 4] = Sun/Tue/Thu
       time: '17:00',
     },
+    // v3.22: defaults the user can flip per-section, fed into the AI plan
+    // generator. All true = full plan; flipping any to false trims that
+    // section from the next plan (existing plan unchanged until regenerated).
+    workoutDefaults: {
+      includeWarmup: true,
+      includeCardio: true,
+      includeCore: true,
+      includeStretching: true,
+    },
     // Dismissed UI surfaces — single-shot dismissals tracked by their natural key.
     dismissedDayBanner: null,     // YYYY-MM-DD — date the user closed the day banner
     dismissedMonthlyRecap: null,  // YYYY-MM — month whose recap was acknowledged
@@ -179,7 +188,16 @@ function loadState() {
       ...parsed,
       user: { ...initialState.user, ...(parsed.user || {}) },
       goal: { ...initialState.goal, ...(parsed.goal || {}) },
-      settings: { ...initialState.settings, ...(parsed.settings || {}) },
+      settings: {
+        ...initialState.settings,
+        ...(parsed.settings || {}),
+        // v3.22: deep-merge nested objects so users upgrading from pre-v3.22
+        // get the workoutDefaults defaults; users on v3.22+ keep theirs.
+        workoutDefaults: {
+          ...initialState.settings.workoutDefaults,
+          ...((parsed.settings || {}).workoutDefaults || {}),
+        },
+      },
       entries: parsed.entries || {},
       // v3.6: mood feature removed from UI but data preserved if previously saved.
       // Migration-safe: missing key on old states is fine.

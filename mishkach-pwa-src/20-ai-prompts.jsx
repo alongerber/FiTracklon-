@@ -174,6 +174,13 @@ function buildWorkoutPlanPrompt(state, planSettings, currentWeightKg) {
     ? `\n- מגבלה ספציפית: ${planSettings.custom_limitation}`
     : '';
 
+  // v3.22: workout defaults from Profile. Default to all-true if the
+  // user hasn't touched them yet (matches the initialState fallback).
+  const defaults = state?.settings?.workoutDefaults || {
+    includeWarmup: true, includeCardio: true, includeCore: true, includeStretching: true,
+  };
+  const yn = (b) => b ? 'כן' : 'לא';
+
   return template
     .replace('{name}', name)
     .replace('{gender}', genderHe)
@@ -187,7 +194,12 @@ function buildWorkoutPlanPrompt(state, planSettings, currentWeightKg) {
     .replace('{frequency}',  String(planSettings.frequency))
     .replace('{goal}',       goalLabels[planSettings.goal]        || planSettings.goal)
     .replace('{limitations}', limitationsStr)
-    .replace('{customLimitationLine}', customLimitationLine);
+    .replace('{customLimitationLine}', customLimitationLine)
+    // v3.22 placeholders
+    .replace('{includeWarmup}',     yn(defaults.includeWarmup))
+    .replace('{includeCardio}',     yn(defaults.includeCardio))
+    .replace('{includeCore}',       yn(defaults.includeCore))
+    .replace('{includeStretching}', yn(defaults.includeStretching));
 }
 
 // ─── Personal report (Opus) ───────────────────────────────────────

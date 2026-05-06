@@ -156,6 +156,11 @@ function ProfileScreen({ onNavigate }) {
             onClick={() => setShowWorkoutPlanOnboarding(true)} />
         </Section>
 
+        {/* v3.22: workout defaults — toggles flow into the next AI plan */}
+        <WorkoutDefaultsSection
+          onRegenerate={() => setShowWorkoutPlanOnboarding(true)}
+        />
+
         {/* Install app */}
         <InstallPromptSection />
 
@@ -200,7 +205,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.21
+          מִשְׁקַלּוּת · v3.22
         </div>
       </div>
 
@@ -284,6 +289,119 @@ function UnitToggle({ unit, onChange }) {
           fontFamily: T.mono, fontSize: 11, fontWeight: 700,
         }}>{u === 'kg' ? 'ק״ג' : 'lb'}</button>
       ))}
+    </div>
+  );
+}
+
+// ─── v3.22: WorkoutDefaultsSection ──────────────────────────────────
+// 4 toggles for the AI plan generator. Changes are saved on flip
+// (no "save" button). When the user disables a section that the active
+// plan currently includes, an info banner offers to regenerate.
+//
+// Detection of "currently in plan" is conservative — we look for any
+// warmup item / cooldown item / cardio-named exercise / core-named
+// exercise across the plan.workouts. If the plan has none of those
+// in the first place, no banner appears.
+function WorkoutDefaultsSection({ onRegenerate }) {
+  const { state, dispatch } = useStore();
+  const defaults = state.settings?.workoutDefaults || {
+    includeWarmup: true, includeCardio: true, includeCore: true, includeStretching: true,
+  };
+  const plan = state.workouts?.plan;
+
+  // Plan-section detection — used only for the banner copy
+  const planHas = React.useMemo(() => {
+    if (!plan || !Array.isArray(plan.workouts)) {
+      return { warmup: false, cardio: false, core: false, stretching: false };
+    }
+    let warmup = false, stretching = false, cardio = false, core = false;
+    for (const w of plan.workouts) {
+      if ((w.warmup || []).length > 0) warmup = true;
+      if ((w.cooldown || []).length > 0) stretching = true;
+      for (const ex of (w.exercises || [])) {
+        const n = ex.name || '';
+        if (/הליכה|ריצה|אופניים|קפיצה|חבל|אליפטיקל|ארוב/.test(n)) cardio = true;
+        if (/בטן|פלאנק|לוח|רוסי|טוויסט|ליבה/.test(n)) core = true;
+      }
+    }
+    return { warmup, cardio, core, stretching };
+  }, [plan]);
+
+  const flip = (key, label) => {
+    const next = !defaults[key];
+    dispatch({ type: 'SET_SETTING', key: 'workoutDefaults', value: { ...defaults, [key]: next } });
+    if (typeof trackEvent === 'function') {
+      trackEvent('Workout Defaults Changed', { setting: key, value: next });
+    }
+  };
+
+  // Show banner when any disabled toggle still exists in the active plan.
+  const conflicts = [
+    !defaults.includeWarmup     && planHas.warmup     && 'חימום',
+    !defaults.includeCardio     && planHas.cardio     && 'אירובי',
+    !defaults.includeCore       && planHas.core       && 'עבודת ליבה',
+    !defaults.includeStretching && planHas.stretching && 'מתיחות',
+  ].filter(Boolean);
+
+  return (
+    <Section title="ברירות מחדל לאימון">
+      <div style={{ padding: '14px 16px 8px', fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
+        החלק את התוכניות שיכללו:
+      </div>
+      <DefaultToggleRow label="חימום אוטומטי" on={defaults.includeWarmup}     onToggle={() => flip('includeWarmup')} />
+      <DefaultToggleRow label="אירובי"          on={defaults.includeCardio}     onToggle={() => flip('includeCardio')} />
+      <DefaultToggleRow label="עבודת ליבה"      on={defaults.includeCore}       onToggle={() => flip('includeCore')} />
+      <DefaultToggleRow label="מתיחות"          on={defaults.includeStretching} onToggle={() => flip('includeStretching')} isLast />
+
+      {conflicts.length > 0 && (
+        <div style={{
+          padding: '12px 14px',
+          background: `${T.amber}15`, borderTop: `1px solid ${T.amber}33`,
+        }}>
+          <div style={{ fontSize: 12, color: T.amber, fontWeight: 700, marginBottom: 4 }}>
+            התוכנית הנוכחית כוללת {conflicts.join(' / ')}
+          </div>
+          <div style={{ fontSize: 11, color: T.inkSub, lineHeight: 1.5, marginBottom: 8 }}>
+            השינוי ישפיע רק על תוכנית חדשה.
+          </div>
+          <button onClick={onRegenerate} style={{
+            background: T.amber, color: T.bg, border: 'none',
+            padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            fontFamily: 'inherit', cursor: 'pointer',
+          }}>צור תוכנית חדשה</button>
+        </div>
+      )}
+
+      <div style={{
+        padding: '8px 16px 14px', fontSize: 11, color: T.inkMute,
+        lineHeight: 1.5, borderTop: `1px solid ${T.stroke}`,
+      }}>
+        שינויים נשמרים אוטומטית.
+      </div>
+    </Section>
+  );
+}
+
+// Single row toggle inside the workout defaults section
+function DefaultToggleRow({ label, on, onToggle, isLast }) {
+  return (
+    <div onClick={onToggle} style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '12px 16px',
+      borderBottom: isLast ? 'none' : `1px solid ${T.stroke}`,
+      cursor: 'pointer',
+    }}>
+      <div style={{ flex: 1, fontSize: 14, fontWeight: 500, color: T.ink }}>{label}</div>
+      <div style={{
+        width: 44, height: 26, borderRadius: 13, position: 'relative',
+        background: on ? T.lime : T.bgElev2, transition: 'background 200ms',
+      }}>
+        <div style={{
+          position: 'absolute', top: 2, [on ? 'right' : 'left']: 2,
+          width: 22, height: 22, borderRadius: 11, background: '#fff',
+          transition: 'all 200ms',
+        }} />
+      </div>
     </div>
   );
 }
