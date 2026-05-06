@@ -1,10 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.22.1 — emoji cleanup pass
+// מִשְׁקַלּוּת Service Worker v3.22.2 — gender fixes patch
 // ════════════════════════════════════════════════════════════════════
 // /data/*.json (strings/tips/ai-prompts) are cached opportunistically
 // by the same-origin fetch handler on first request.
 
-const CACHE = 'mishkalut-v3221';
+const CACHE = 'mishkalut-v3222';
 const CORE = [
   './',
   './index.html',

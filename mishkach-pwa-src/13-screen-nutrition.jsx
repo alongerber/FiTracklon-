@@ -1776,6 +1776,8 @@ function NutritionGoalsDialog({ onClose }) {
   const [p, setP] = React.useState(currentGoals.protein ?? auto.protein);
   const [c, setC] = React.useState(currentGoals.carbs ?? auto.carbs);
   const [f, setF] = React.useState(currentGoals.fat ?? auto.fat);
+  // v3.22.2: tooltip modal that breaks down the Mifflin-St Jeor calc
+  const [showFormulaInfo, setShowFormulaInfo] = React.useState(false);
 
   const useAuto = () => {
     setCal(auto.calories); setP(auto.protein); setC(auto.carbs); setF(auto.fat);
@@ -1806,7 +1808,21 @@ function NutritionGoalsDialog({ onClose }) {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
         <Card padding={14} style={{ marginBottom: 16, background: `${T.lime}10`, border: `1px solid ${T.lime}40` }}>
-          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>חישוב אוטומטי</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>חישוב אוטומטי</div>
+            {/* v3.22.2: info button → opens Mifflin-St Jeor breakdown.
+                Surfacing the formula prevents "1850 ק״ק for a woman?
+                that can't be right" trust erosion. */}
+            <button onClick={() => setShowFormulaInfo(true)} aria-label="איך זה מחושב" style={{
+              width: 26, height: 26, borderRadius: 13,
+              background: 'transparent', border: `1px solid ${T.stroke}`,
+              color: T.lime, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <TabIcon name="info" size={13} />
+            </button>
+          </div>
           <div style={{ fontSize: 13, color: T.ink, marginTop: 6, lineHeight: 1.5 }}>
             BMR: {auto.bmr} · TDEE: {auto.tdee} · גירעון לפי קצב {PACE_CONFIG[state.goal.pace].kgPerWeek}ק״ג/שב׳
           </div>
@@ -1820,6 +1836,14 @@ function NutritionGoalsDialog({ onClose }) {
             }}>השתמש בחישוב אוטומטי</button>
           </div>
         </Card>
+
+        {showFormulaInfo && <CalorieFormulaInfoDialog
+          user={state.user}
+          stats={stats}
+          auto={auto}
+          paceKey={state.goal.pace}
+          onClose={() => setShowFormulaInfo(false)}
+        />}
 
         <div style={{ fontSize: 11, color: T.inkMute, marginBottom: 6, fontFamily: T.mono, letterSpacing: 1 }}>קלוריות יומי</div>
         <NumberStepper value={cal} onChange={setCal} min={1000} max={5000} step={50} unit="ק״ק" />
@@ -1856,6 +1880,88 @@ function NutritionGoalsDialog({ onClose }) {
           <Button onClick={() => save('manual')}>שמור יעדים</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// v3.22.2 — Mifflin-St Jeor formula breakdown
+// ═════════════════════════════════════════════════════════════════════
+// Surfaces the per-input contribution so users (especially women, who
+// see lower targets than men of the same height/weight) understand
+// the calorie target wasn't pulled out of a hat.
+function CalorieFormulaInfoDialog({ user, stats, auto, paceKey, onClose }) {
+  const isFemale = user?.gender === 'female';
+  const genderLabel = isFemale ? 'נקבה' : 'זכר';
+  const age = user?.ageYears || 35;
+  const heightCm = user?.heightCm || 170;
+  const weightKg = stats?.current ?? user?.startWeight ?? 75;
+  const paceKgPerWeek = PACE_CONFIG[paceKey]?.kgPerWeek || 0.5;
+  const dailyDeficit = Math.round((paceKgPerWeek * 7700) / 7);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 950,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24, backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 380, width: '100%', direction: 'rtl',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ color: T.lime, display: 'inline-flex' }}>
+            <TabIcon name="info" size={16} />
+          </span>
+          <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1 }}>
+            איך זה מחושב
+          </div>
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 14 }}>
+          נוסחת Mifflin-St Jeor
+        </div>
+        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.7, marginBottom: 14 }}>
+          היעד מחושב לפי נוסחה רפואית סטנדרטית שמתחשבת ב:
+        </div>
+
+        <div style={{ background: T.bg, borderRadius: 10, padding: 12, marginBottom: 14, fontFamily: T.mono, fontSize: 12, lineHeight: 1.8 }}>
+          <FormulaRow label="מגדר"     value={genderLabel} />
+          <FormulaRow label="גיל"      value={`${age}`} />
+          <FormulaRow label="גובה"     value={`${heightCm} ס״מ`} />
+          <FormulaRow label="משקל"     value={`${Math.round(weightKg)} ק״ג`} />
+          <FormulaRow label="פעילות"   value="×1.4 (יומית)" />
+          <div style={{ borderTop: `1px solid ${T.stroke}`, marginTop: 8, paddingTop: 8 }}>
+            <FormulaRow label="BMR"     value={`${auto.bmr} ק״ק`} />
+            <FormulaRow label="TDEE"    value={`${auto.tdee} ק״ק`} />
+            <FormulaRow label={`גירעון (${paceKgPerWeek} ק״ג/שב׳)`} value={`-${dailyDeficit} ק״ק`} />
+          </div>
+          <div style={{ borderTop: `1px solid ${T.stroke}`, marginTop: 8, paddingTop: 8 }}>
+            <FormulaRow label="יעד יומי" value={`${auto.calories} ק״ק`} bold accent />
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: T.inkMute, lineHeight: 1.6, marginBottom: 16 }}>
+          {isFemale
+            ? 'הנוסחה לנשים כוללת מקדם נמוך יותר מהנוסחה לגברים — ההבדל הביולוגי ב-BMR הוא ~166 ק״ק/יום בממוצע.'
+            : 'אם אתה מתאמן 3–5 פעמים בשבוע, מומלץ להעלות את היעד ב-10–15% מעבר לחישוב הבסיסי.'}
+        </div>
+
+        <Button onClick={onClose}>הבנתי</Button>
+      </div>
+    </div>
+  );
+}
+
+function FormulaRow({ label, value, bold, accent }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      <span style={{ color: accent ? T.lime : T.inkSub }}>{label}</span>
+      <span style={{
+        color: accent ? T.lime : T.ink,
+        fontWeight: bold ? 800 : 600,
+        fontSize: bold ? 14 : 12,
+      }}>{value}</span>
     </div>
   );
 }

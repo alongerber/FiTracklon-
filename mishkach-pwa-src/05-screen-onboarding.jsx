@@ -84,6 +84,7 @@ function OnboardingScreen() {
         {step === 4 && <PaceStep
           pace={pace} setPace={setPace}
           currentWeight={currentWeight} goalWeight={goalWeight} unit={unit}
+          heightCm={heightCm} ageYears={ageYears} gender={gender}
           onNext={next} onPrev={prev}
         />}
         {step === 5 && <AiSetupStep
@@ -297,10 +298,52 @@ function WeightStep({ unit, setUnit, currentWeight, setCurrentWeight, goalWeight
   );
 }
 
-function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, onNext, onPrev }) {
+// v3.22.2: PaceStep now filters out unsafe pace options at the model level.
+// For each pace, we estimate target daily calories using Mifflin-St Jeor
+// (gender-aware) and disable any option that would push the user below
+// MIN_SAFE_CALORIES — 1200 for women, 1500 for men (clinical floors below
+// which the body usually starts shedding muscle / dropping basal rate).
+//
+// The aggressive 0.8 kg/week tier is the most likely victim: a 60kg
+// female with BMR~1340 ends up at 1000 kcal — below the floor — so the
+// option is greyed out with a tooltip explaining why.
+const MIN_SAFE_CALORIES_FEMALE = 1200;
+const MIN_SAFE_CALORIES_MALE   = 1500;
+
+function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, heightCm, ageYears, gender, onNext, onPrev }) {
   const toKg = (v) => unit === 'lb' ? v / 2.20462 : v;
   const diffDisplay = Math.abs(currentWeight - goalWeight);
   const diffKg = Math.abs(toKg(currentWeight) - toKg(goalWeight));
+  const currentKg = toKg(currentWeight);
+
+  // Per-pace safety check — uses the same Mifflin-St Jeor formula that
+  // calculateNutritionGoals (02-store.jsx) applies after onboarding.
+  // Returns the projected daily calories for this pace.
+  const projectedCalories = (kgPerWeek) => {
+    const isMale = gender !== 'female'; // null/undefined → fall back to male floor (more permissive)
+    const bmr = isMale
+      ? 10 * currentKg + 6.25 * heightCm - 5 * ageYears + 5
+      : 10 * currentKg + 6.25 * heightCm - 5 * ageYears - 161;
+    const tdee = bmr * 1.4;
+    const dailyDeficit = (kgPerWeek * 7700) / 7;
+    return Math.round(tdee - dailyDeficit);
+  };
+  const minSafeCals = gender === 'female' ? MIN_SAFE_CALORIES_FEMALE : MIN_SAFE_CALORIES_MALE;
+
+  // If the currently-selected pace becomes unsafe (e.g. user went back and
+  // shrank their weight), nudge them down to a safe one.
+  React.useEffect(() => {
+    const cur = PACE_CONFIG[pace];
+    if (cur && projectedCalories(cur.kgPerWeek) < minSafeCals) {
+      // Find the most aggressive *safe* pace and switch
+      const safe = Object.entries(PACE_CONFIG)
+        .filter(([, cfg]) => projectedCalories(cfg.kgPerWeek) >= minSafeCals)
+        .sort((a, b) => b[1].kgPerWeek - a[1].kgPerWeek)[0];
+      if (safe) setPace(safe[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentKg, heightCm, ageYears, gender]);
+
   return (
     <div style={{ paddingTop: 20 }}>
       <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>3/3</div>
@@ -311,26 +354,38 @@ function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, onNext, onPr
         {Object.entries(PACE_CONFIG).map(([key, cfg]) => {
           const weeks = Math.ceil(diffKg / cfg.kgPerWeek);
           const sel = pace === key;
+          const cals = projectedCalories(cfg.kgPerWeek);
+          const unsafe = cals < minSafeCals;
+          const handleClick = () => { if (!unsafe) setPace(key); };
           return (
-            <button key={key} onClick={() => setPace(key)} style={{
+            <button key={key} onClick={handleClick} disabled={unsafe} style={{
               display: 'flex', alignItems: 'center', gap: 12, padding: 16,
               border: `1px solid ${sel ? cfg.color : T.stroke}`,
               background: sel ? `${cfg.color}10` : T.bgElev,
-              borderRadius: T.radius, cursor: 'pointer', textAlign: 'right',
-              direction: 'rtl', fontFamily: T.font, color: T.ink,
+              borderRadius: T.radius,
+              cursor: unsafe ? 'not-allowed' : 'pointer',
+              textAlign: 'right', direction: 'rtl', fontFamily: T.font,
+              color: unsafe ? T.inkMute : T.ink,
+              opacity: unsafe ? 0.55 : 1,
+              position: 'relative',
             }}>
               <div style={{
                 width: 22, height: 22, borderRadius: 11,
-                border: `2px solid ${sel ? cfg.color : T.stroke}`,
+                border: `2px solid ${sel ? cfg.color : (unsafe ? T.inkMute : T.stroke)}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 {sel && <div style={{ width: 10, height: 10, borderRadius: 5, background: cfg.color }} />}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{cfg.label}</div>
-                <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginTop: 2 }}>{cfg.kgPerWeek} ק״ג/שבוע</div>
+                <div style={{ fontSize: 11, color: unsafe ? T.inkMute : T.inkSub, fontFamily: T.mono, marginTop: 2 }}>
+                  {cfg.kgPerWeek} ק״ג/שבוע
+                  {unsafe && <span> · ~{cals} ק״ק/יום — לא בטוח</span>}
+                </div>
               </div>
-              <div style={{ fontFamily: T.mono, fontSize: 14, color: cfg.color, fontWeight: 700 }}>{weeks} שב׳</div>
+              {!unsafe && (
+                <div style={{ fontFamily: T.mono, fontSize: 14, color: cfg.color, fontWeight: 700 }}>{weeks} שב׳</div>
+              )}
             </button>
           );
         })}
@@ -338,6 +393,9 @@ function PaceStep({ pace, setPace, currentWeight, goalWeight, unit, onNext, onPr
 
       <div style={{ marginTop: 14, fontSize: 11, color: T.inkMute, lineHeight: 1.6 }}>
         קצב מאוזן (0.5 ק״ג/שבוע) הוא המומלץ הקליני לירידה בת־קיימא. קצב אגרסיבי יותר דורש הקפדה גבוהה ומתאים לטווח קצר.
+        {gender === 'female' && (
+          <span><br/>קצב שמוריד את היעד מתחת ל-{MIN_SAFE_CALORIES_FEMALE} ק״ק/יום מושבת — סף תזונתי מינימלי.</span>
+        )}
       </div>
 
       <div style={{ marginTop: 28, display: 'flex', gap: 10 }}>

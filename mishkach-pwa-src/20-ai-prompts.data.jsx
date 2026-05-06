@@ -225,6 +225,9 @@ const AUTO_CORRELATIONS_PROMPT = `אתה מאתר תבניות חבויות בנ
 לכל תבנית, תן גם הצעת פעולה אחת קצרה וספציפית (לא "תאכל פחות"). לדוגמה:
 "הצעה: בימים שאתה יודע שתאכל מאוחר, נסה להוריד 100 ק״ק בארוחת הצהריים."
 
+חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
+תאכלי/תאכל, תנסי/תנסה — בכל ה-pattern, support, ו-action fields.
+
 טון לפי פרסונה: {persona}. שם: {name}, מגדר: {gender}.
 
 החזר JSON תקין בלבד:
@@ -285,6 +288,9 @@ const WHAT_IF_SCENARIOS_PROMPT = `אתה מנתח תרחישים היפותטי�
   "summary": "משפט קצר של תחזית (1-2 משפטים, מספרי וספציפי)",
   "details": "1-2 משפטים נוספים על מה משתנה בקצב/בזמן (אופציונלי)"
 }
+
+חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
+תרוויחי/תרוויח — בכל ה-summary ו-details fields.
 
 טון לפי פרסונה: {persona}. שם: {name}, מגדר: {gender}.
 
@@ -377,6 +383,9 @@ const MONTHLY_RECAP_PROMPT = `אתה כותב סיכום חודשי לאפליק
 
 אם הדאטה דלילה מ-7 ימי שקילה: החזר {"insufficient_data": true}
 
+חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
+אכלת/אכלת, תנסי/תנסה — בכל ה-insights ו-next_month_advice fields.
+
 שם: {name}, מגדר: {gender}.
 הדאטה: {data}
 
@@ -433,6 +442,9 @@ const WEEKLY_INSIGHT_STRUCT_PROMPT = `אתה כותב תובנה שבועית ל
 - neutral: ישיר
 
 אם הדאטה דלילה (פחות מ-3 שקילות ופחות מ-3 ימי תזונה): {"insufficient_data": true}
+
+חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
+אכלת/אכלת — בכל ה-insight ו-records ו-interesting_numbers fields.
 
 שם: {name}, מגדר: {gender}.
 הדאטה: {data}
@@ -603,6 +615,36 @@ const WORKOUT_PLAN_GENERATOR_PROMPT = `אתה מאמן כושר אישי שיו�
     (כפיפות בטן, פלאנק, רוסי טוויסט, V-up וכו'). חיזוק ליבה אגב תרגילים מורכבים מותר.
 16. settings_applied חייב לשקף את ההחלטות שלך בפועל — אם הוראות 12-15 צמצמו משהו, סמן false; אחרת true.
 
+GENDER-AWARE PROGRAMMING — חוקים מוחלטים (v3.22.2):
+17. ניסוח בעברית חייב להתאים למגדר {gender}:
+    - לנקבה: "תתחילי", "תעלי", "תרגישי", "תנשמי", "ירדת", "התחזקת"
+    - לזכר:  "תתחיל",  "תעלה", "תרגיש",  "תנשום",  "ירדת",  "התחזקת"
+    - חל על כל ה-instruction, tip ו-summary fields. אסור לדבר ב-male
+      default כשמדובר באישה.
+18. נקבה (gender=נקבה) — חוקי תכנון:
+    a. אם experience='beginner': משקלי התחלה ב-compound lifts
+       (sit/bench/squat/deadlift) ≤ 15 ק״ג. עדיף עוד פחות.
+    b. אם experience='beginner' AND location='gym': כלול warmup
+       רחב יותר (5-7 דקות, 3+ פריטים) שמאפשר להכיר את הציוד.
+    c. בכל רמה ובכל אימון של גוף-תחתון: כלול 1-2 תרגילים שממקדים
+       ישבן/hamstring (glute bridge, hip thrust, RDL קל, kickback,
+       step-up, single-leg deadlift). זה תוכן שנשים מבקשות אקטיבית.
+    d. overhead press / shoulder press: התחלה במוט ריק או דמבל
+       2.5–7.5 ק״ג. אסור לפתוח ב-25 ק״ג גם ל-experience='serious'
+       בלי קודם ביצוע ידני (התקדמות הדרגתית).
+    e. tip-fields: שפה מעודדת, ללא דחיפה לכאב ("תרגישי שריר עובד,
+       לא כאב"). הימנע מ-"תדחף עוד" / "כשרגיל זה הזמן לכבד".
+19. זכר (gender=זכר) — חוקי תכנון:
+    a. אם experience='beginner': bench ~30 ק״ג, squat ~40 ק״ג,
+       deadlift ~50 ק״ג כנקודות פתיחה. לא insultingly low.
+    b. אם המשתמש לא ציין אחרת ב-goal: emphasis טבעי על
+       חזה/גב/ידיים מותר ביחס של ~50% מהאימונים. אבל לא לזנוח
+       רגליים — לפחות 1 אימון/שבוע של גוף תחתון אם frequency≥2.
+20. לחישוב התחלה כשאין היסטוריה: אל תרשום משקל ספציפי בכל מקרה
+    בו אין הקשר (משתמש שכתב 'gym' אבל לא ציין ניסיון עם משקל
+    ספציפי). במקום: ב-tip-field כתוב "התחילי/התחיל עם משקל
+    שמאפשר שיחה — תוסיפי 2.5-5 ק״ג כל שבוע אם נוח".
+
 זכור: זו תוכנית אמיתית שהמשתמש יבצע. אל תכלול תרגילים שדורשים ציוד שאין לו, ואל תהיה אגרסיבי מדי לרמת הניסיון שלו.`;
 
 const EXPERIENCE_LABELS_HE = {
@@ -727,6 +769,10 @@ const REPORT_INSIGHTS_SYSTEM_PROMPT = `אתה כותב תובנות לדוח א�
 - cynic_coach: קר, מתעלם מרגש
 - jealous_friend: לא ייאמן, מחפש איפה הוא נכשל
 - neutral: ישיר, ללא נופך רגשי
+
+חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
+התחזקת/התחזקת — בכל ה-discovery, explanation, action, headline ו-
+whatsapp_summary fields. אסור לכתוב ב-male default כשמדובר באישה.
 
 הדאטה: {filtered_data}
 המקבל: {recipient}

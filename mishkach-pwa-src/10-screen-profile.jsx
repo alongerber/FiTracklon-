@@ -205,7 +205,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.22.1
+          מִשְׁקַלּוּת · v3.22.2
         </div>
       </div>
 
@@ -424,17 +424,30 @@ function VariantToggle({ value, onChange }) {
 // ─── Edit profile dialog ────────────────────────────────────────────
 function EditProfileDialog({ onClose }) {
   const { state, dispatch } = useStore();
+  const toast = useToast();
   const [name, setName] = React.useState(state.user.name);
   const [heightCm, setHeightCm] = React.useState(state.user.heightCm);
   const [ageYears, setAgeYears] = React.useState(state.user.ageYears || 35);
   const [gender, setGender] = React.useState(state.user.gender || 'male');
 
   const save = () => {
+    // v3.22.2: detect a gender change so we can surface the recalc to the user.
+    const genderChanged = gender !== state.user.gender;
     dispatch({ type: 'SET_USER', user: { name: name.trim(), heightCm, ageYears, gender } });
     // Recalculate nutrition goals if on auto mode
+    let newCalories = null;
     if (state.nutrition.goals.source === 'auto') {
       const auto = calculateNutritionGoals({ ...state.user, heightCm, ageYears, gender }, state.goal, state.entries[state.user.startDate]?.weight || state.user.startWeight);
       dispatch({ type: 'SET_NUTRITION_GOALS', goals: { ...auto, source: 'auto' } });
+      newCalories = auto.calories;
+    }
+    // v3.22.2: when the user flipped gender, surface the calorie change.
+    // Mifflin-St Jeor differs by ~166 kcal between male/female at the same
+    // height/weight/age — silent recalc would feel like a bug.
+    if (genderChanged && newCalories !== null) {
+      toast(`יעד הקלוריות עודכן ל-${newCalories} ק״ק על בסיס המגדר החדש.`, {
+        type: 'info', duration: 5000,
+      });
     }
     onClose();
   };

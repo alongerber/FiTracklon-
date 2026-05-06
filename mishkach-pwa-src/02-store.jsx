@@ -11,7 +11,14 @@ const initialState = {
     name: '',
     heightCm: 175,
     ageYears: 35,
-    gender: 'male',      // 'male' | 'female'
+    // v3.22.2: default null (was 'male' — biased default removed). The
+    // onboarding NameHeightStep is required before any other screen
+    // renders (gated by settings.firstLaunch), so by the time anything
+    // calls personaStr / resolveTipVoice / calculateNutritionGoals,
+    // gender is always set. Fallbacks to 'male' inside those helpers
+    // remain as defensive last-resort — they only fire on edge cases
+    // (corrupted localStorage import, mid-onboarding edge renders).
+    gender: null,        // 'male' | 'female' | null (only during onboarding)
     startWeight: null,   // kg
     startDate: null,     // YYYY-MM-DD
   },
