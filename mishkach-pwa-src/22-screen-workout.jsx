@@ -765,7 +765,12 @@ function ActiveExerciseSet({ exercise, exerciseIdx, exerciseCount, setIdx, onCom
           padding: '8px 12px', borderRight: `2px solid ${T.amber}`,
           background: `${T.amber}10`, fontSize: 11, color: T.inkSub, lineHeight: 1.5,
           marginBottom: 18,
-        }}>💡 {exercise.tip}</div>
+        }}>
+          <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginLeft: 4 }}>
+            <TabIcon name="lightbulb" size={11} />
+          </span>
+          {exercise.tip}
+        </div>
       )}
 
       {/* Action buttons — primary save + skip variants */}
@@ -1129,7 +1134,7 @@ function ExerciseEntryPicker({ initial, onSubmit, onCancel, submitLabel }) {
     });
   };
 
-  const methodChip = (id, label) => (
+  const methodChip = (id, iconName, label) => (
     <button key={id} onClick={() => setMethod(id)} style={{
       flex: 1, height: 40,
       background: method === id ? T.lime : T.bgElev,
@@ -1137,16 +1142,20 @@ function ExerciseEntryPicker({ initial, onSubmit, onCancel, submitLabel }) {
       border: `1.5px solid ${method === id ? T.lime : T.stroke}`,
       borderRadius: 10, fontSize: 12, fontWeight: 700,
       fontFamily: 'inherit', cursor: 'pointer',
-    }}>{label}</button>
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    }}>
+      <TabIcon name={iconName} size={14} />
+      <span>{label}</span>
+    </button>
   );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Method chips */}
       <div style={{ display: 'flex', gap: 8 }}>
-        {methodChip('voice', '🎤 דבר')}
-        {methodChip('text', '✏️ כתיבה')}
-        {methodChip('catalog', '📋 קטלוג')}
+        {methodChip('voice', 'microphone', 'דבר')}
+        {methodChip('text', 'edit', 'כתיבה')}
+        {methodChip('catalog', 'clipboard-list', 'קטלוג')}
       </div>
 
       {/* Method body — name capture */}
@@ -1157,8 +1166,12 @@ function ExerciseEntryPicker({ initial, onSubmit, onCancel, submitLabel }) {
             background: T.bgElev, color: T.ink,
             border: `1px dashed ${T.stroke}`, borderRadius: 12,
             fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}>
-            🎤 לחץ להקלטה
+            <span style={{ color: T.lime, display: 'inline-flex' }}>
+              <TabIcon name="microphone" size={20} />
+            </span>
+            <span>לחץ להקלטה</span>
           </button>
           {name && (
             <div style={{ fontSize: 12, color: T.inkSub, marginTop: 6 }}>
@@ -1549,7 +1562,10 @@ function PlanWorkoutPreviewDialog({ workout, onClose }) {
                     marginTop: 6, padding: '6px 10px', borderRight: `2px solid ${T.amber}`,
                     background: `${T.amber}10`, fontSize: 11, color: T.inkSub, lineHeight: 1.5,
                   }}>
-                    💡 {ex.tip}
+                    <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginLeft: 4, color: T.amber }}>
+                      <TabIcon name="lightbulb" size={11} />
+                    </span>
+                    {ex.tip}
                   </div>
                 )}
               </div>
@@ -1573,15 +1589,9 @@ function PlanWorkoutPreviewDialog({ workout, onClose }) {
           </Card>
         )}
 
-        {/* v3.19 placeholder — the live ActiveWorkoutScreen lands in v3.20 */}
-        <div style={{
-          padding: '12px 14px', marginTop: 6,
-          background: T.bgElev2, border: `1px dashed ${T.stroke}`, borderRadius: 10,
-          fontSize: 11, color: T.inkMute, lineHeight: 1.6,
-        }}>
-          ✨ מסך אימון פעיל (טיימרים, מנוחות, רישום בזמן אמת) מגיע ב-v3.20.
-          בינתיים — בצעו את האימון, אחר כך רשמו אותו בלחיצה על "רישום מהיר".
-        </div>
+        {/* v3.21 shipped the live ActiveWorkoutScreen — this dialog is the
+            read-only preview ("צפה בפרטי האימון"). Users start the actual
+            session from the WorkoutScreen plan card. */}
       </div>
     </div>
   );
@@ -2054,10 +2064,9 @@ function WorkoutRow({ workout, isLast, onClick }) {
     }}>
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: `${type.color}22`,
+        background: `${type.color}22`, color: type.color,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 18,
-      }}>{type.icon}</div>
+      }}><TabIcon name={type.icon} size={18} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: T.ink, lineHeight: 1.3 }}>
           {workout.name || type.label}
@@ -2217,7 +2226,9 @@ function NewWorkoutDialog({ date, prefill, onClose }) {
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                   fontFamily: T.font,
                 }}>
-                  <div style={{ fontSize: 20 }}>{t.icon}</div>
+                  <div style={{ color: t.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <TabIcon name={t.icon} size={20} />
+                  </div>
                   <div style={{ fontSize: 11, fontWeight: 600 }}>{t.label}</div>
                 </button>
               ))}
@@ -2633,7 +2644,9 @@ function ReviewWorkout({ name, type, duration, setDuration, notes, exercises }) 
     <div>
       <Card padding={14} style={{ marginBottom: 12, background: `${t.color}10`, border: `1px solid ${t.color}44` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <div style={{ fontSize: 24 }}>{t.icon}</div>
+          <div style={{ color: t.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TabIcon name={t.icon} size={24} />
+          </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 700 }}>{displayName}</div>
             <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono }}>
@@ -2648,8 +2661,10 @@ function ReviewWorkout({ name, type, duration, setDuration, notes, exercises }) 
             background: 'transparent', border: `1px dashed ${t.color}88`,
             borderRadius: 8, color: t.color, fontSize: 12, fontWeight: 700,
             cursor: 'pointer', fontFamily: T.font,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
-            🔄 חשב אוטומטית · ~{fmtMinutes(autoDurationMin)}
+            <TabIcon name="repeat" size={12} />
+            <span>חשב אוטומטית · ~{fmtMinutes(autoDurationMin)}</span>
           </button>
         )}
       </Card>
@@ -2738,7 +2753,9 @@ function WorkoutDetailDialog({ date, workout, onClose }) {
         {/* Header card */}
         <Card padding={14} style={{ marginBottom: 12, background: `${t.color}10`, border: `1px solid ${t.color}44` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <div style={{ fontSize: 28 }}>{t.icon}</div>
+            <div style={{ color: t.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TabIcon name={t.icon} size={28} />
+            </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, color: T.inkMute, fontFamily: T.mono }}>{t.label}</div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtMinutes(workout.durationMin || 0)}</div>
@@ -2860,7 +2877,9 @@ function PRBanner({ prs }) {
       border: `1px solid ${T.amber}66`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <div style={{ fontSize: 22 }}>🏆</div>
+        <div style={{ color: T.amber, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <TabIcon name="trophy" size={22} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.amber }}>שיא חדש!</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
@@ -3087,8 +3106,9 @@ function WorkoutSearchDialog({ onClose, onJumpToDate }) {
                   <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 0.5 }}>
                     {fmt.day(w._date)} · {w.time}
                   </div>
-                  <div style={{ fontSize: 10, color: tp.color, fontFamily: T.mono, letterSpacing: 0.5 }}>
-                    {tp.icon} {tp.label}
+                  <div style={{ fontSize: 10, color: tp.color, fontFamily: T.mono, letterSpacing: 0.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <TabIcon name={tp.icon} size={11} />
+                    <span>{tp.label}</span>
                   </div>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: T.ink, lineHeight: 1.4 }}>
@@ -3229,7 +3249,9 @@ function RoutinesDialog({ onClose, onStartRoutine }) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
         {list.length === 0 ? (
           <div style={{ padding: '60px 12px', textAlign: 'center' }}>
-            <div style={{ fontSize: 44, marginBottom: 10, opacity: 0.6 }}>📋</div>
+            <div style={{ marginBottom: 10, color: T.inkMute, opacity: 0.6, display: 'flex', justifyContent: 'center' }}>
+              <TabIcon name="clipboard-list" size={44} />
+            </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
               אין עדיין רוטינות
             </div>
@@ -3264,9 +3286,9 @@ function RoutineRow({ routine, onStart, onDelete }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
         <div style={{
           width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-          background: `${tp.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18,
-        }}>{tp.icon}</div>
+          background: `${tp.color}33`, color: tp.color,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}><TabIcon name={tp.icon} size={18} /></div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {routine.name}
@@ -3277,8 +3299,8 @@ function RoutineRow({ routine, onStart, onDelete }) {
         </div>
         <button onClick={onDelete} aria-label="מחק רוטינה" style={{
           background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
-          padding: 6, fontSize: 16,
-        }}>🗑</button>
+          padding: 6,
+        }}><TabIcon name="trash" size={16} /></button>
       </div>
 
       {routine.useCount > 0 && (
@@ -3787,13 +3809,19 @@ function VoiceInputDialog({ onClose, onResult }) {
           {phase === 'recording'   && 'מקשיב...'}
           {phase === 'transcribed' && 'שמעתי:'}
           {phase === 'parsing'     && 'מבין...'}
-          {phase === 'error'       && '🚫 בעיה'}
+          {phase === 'error'       && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: T.rose }}>
+              <TabIcon name="alert-circle" size={16} /><span>בעיה</span>
+            </span>
+          )}
         </div>
 
         {/* IDLE — start button */}
         {phase === 'idle' && (
           <>
-            <button onClick={startRecording} style={micButton(T.lime, T.bg)}>🎤</button>
+            <button onClick={startRecording} style={micButton(T.lime, T.bg)} aria-label="התחל הקלטה">
+              <TabIcon name="microphone" size={32} />
+            </button>
             <div style={{ marginTop: 14, fontSize: 12, color: T.inkSub, lineHeight: 1.6 }}>
               לחץ והגד למשל:<br/>
               <span style={{ color: T.ink, fontFamily: T.mono }}>"שלושים שכיבות שמיכה"</span><br/>
@@ -3831,20 +3859,28 @@ function VoiceInputDialog({ onClose, onResult }) {
             {transcript ? (
               <>
                 <button onClick={handleSend} style={voiceActionBtn(T.lime, T.bg)}>
-                  ✓ שלח לזיהוי
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <TabIcon name="check-circle" size={16} /><span>שלח לזיהוי</span>
+                  </span>
                 </button>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button onClick={handleEdit} style={voiceActionBtnSmall}>
-                    ✏️ ערוך ידנית
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <TabIcon name="edit" size={12} /><span>ערוך ידנית</span>
+                    </span>
                   </button>
                   <button onClick={handleRetry} style={voiceActionBtnSmall}>
-                    🎤 הקלט שוב
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <TabIcon name="microphone" size={12} /><span>הקלט שוב</span>
+                    </span>
                   </button>
                 </div>
               </>
             ) : (
               <button onClick={handleRetry} style={voiceActionBtn(T.lime, T.bg)}>
-                🎤 נסה שוב
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <TabIcon name="microphone" size={16} /><span>נסה שוב</span>
+                </span>
               </button>
             )}
           </>

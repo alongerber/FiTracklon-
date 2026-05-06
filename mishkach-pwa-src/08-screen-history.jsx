@@ -17,7 +17,7 @@ function HistoryScreen({ onNavigate }) {
           <div style={{ fontSize: 18, fontWeight: 700 }}>כל המספרים שלך</div>
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <EmptyState icon="📊" title="אין עדיין נתונים" message="אחרי שתוסיף כמה שקילות, תראה כאן מגמות וגרפים." />
+          <EmptyState iconName="chart-bar" title="אין עדיין נתונים" message="אחרי שתוסיף כמה שקילות, תראה כאן מגמות וגרפים." />
         </div>
       </div>
     );
@@ -561,7 +561,9 @@ function PlateauCard({ entries }) {
       background: `${T.amber}10`, border: `1px solid ${T.amber}44`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <div style={{ fontSize: 18 }}>🔍</div>
+        <div style={{ color: T.amber, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22 }}>
+          <TabIcon name="search" size={18} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Plateau זוהה</div>
           {plateau && (

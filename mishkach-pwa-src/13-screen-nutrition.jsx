@@ -34,7 +34,7 @@ function NutritionScreen({ onNavigate }) {
           <div style={{ fontSize: 18, fontWeight: 700 }}>יעדים יומיים</div>
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <EmptyState icon="🎯" title="הגדר יעדים" message="כדי להתחיל מעקב תזונה, צריך לקבוע יעדי קלוריות וחלבון."
+          <EmptyState iconName="target" title="הגדר יעדים" message="כדי להתחיל מעקב תזונה, צריך לקבוע יעדי קלוריות וחלבון."
             action={<Button onClick={() => setGoalsOpen(true)}>הגדר עכשיו</Button>} />
         </div>
         {goalsOpen && <NutritionGoalsDialog onClose={() => setGoalsOpen(false)} />}
@@ -62,9 +62,8 @@ function NutritionScreen({ onNavigate }) {
         <button onClick={() => setSearchOpen(true)} style={{
           background: T.bgElev, border: 'none', color: T.ink, cursor: 'pointer',
           width: 36, height: 36, borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16,
         }} aria-label="חיפוש בארוחות">
-          🔍
+          <TabIcon name="search" size={16} />
         </button>
         <button onClick={() => setGoalsOpen(true)} style={{
           background: T.bgElev, border: 'none', color: T.ink, cursor: 'pointer',
@@ -324,7 +323,14 @@ function MealRow({ meal, dateViewing, isLast, onDelete, onClick, onRepeat }) {
     onRepeat?.();
   };
 
-  const sourceIcon = meal.source === 'photo_parse' ? '📷' : meal.source === 'label_parse' ? '🏷️' : meal.source === 'manual' ? '✏️' : meal.source === 'favorite' ? '⭐' : '💬';
+  // v3.22.1: source → TabIcon name (was emoji string).
+  // photo_parse / label_parse → photo icon; manual → edit; favorite → star;
+  // text_parse and anything else → chat.
+  const sourceIconName = meal.source === 'photo_parse' || meal.source === 'label_parse'
+    ? 'photo'
+    : meal.source === 'manual'   ? 'edit'
+    : meal.source === 'favorite' ? 'star'
+    : 'chat';
 
   return (
     <div style={{ position: 'relative', overflow: 'hidden', borderBottom: isLast ? 'none' : `1px solid ${T.stroke}` }}>
@@ -349,8 +355,12 @@ function MealRow({ meal, dateViewing, isLast, onDelete, onClick, onRepeat }) {
         {meal.thumbnail ? (
           <img src={meal.thumbnail} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
         ) : (
-          <div style={{ width: 40, height: 40, borderRadius: 8, background: T.bgElev2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-            {sourceIcon}
+          <div style={{
+            width: 40, height: 40, borderRadius: 8, background: T.bgElev2,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: T.inkSub, flexShrink: 0,
+          }}>
+            <TabIcon name={sourceIconName} size={18} />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -670,8 +680,8 @@ function FavoriteRow({ fav, onClick, onLongPress, onRemove }) {
       </div>
       <button onClick={(e) => { e.stopPropagation(); onRemove?.(); }} style={{
         background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
-        padding: 4, fontSize: 14,
-      }}>🗑</button>
+        padding: 4,
+      }}><TabIcon name="trash" size={14} /></button>
     </div>
   );
 }
@@ -787,8 +797,9 @@ function ModeSelector({ onPick, quickFavorites = [], onQuickAdd }) {
         {quickFavorites.length > 0 ? 'או הוסף ארוחה חדשה:' : 'בחר איך להוסיף את הארוחה:'}
       </div>
       {!hasAI && (
-        <div style={{ padding: '12px 14px', background: `${T.amber}15`, border: `1px solid ${T.amber}44`, borderRadius: 10, fontSize: 12, color: T.amber, marginBottom: 16 }}>
-          ⚠️ המערכת החכמה לא הוגדרה. טקסט ותמונה דורשים חיבור. הזנה ידנית עובדת בלעדיה.
+        <div style={{ padding: '12px 14px', background: `${T.amber}15`, border: `1px solid ${T.amber}44`, borderRadius: 10, fontSize: 12, color: T.amber, marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <span style={{ flexShrink: 0, marginTop: 2, display: 'inline-flex' }}><TabIcon name="alert-circle" size={14} /></span>
+          <span>המערכת החכמה לא הוגדרה. טקסט ותמונה דורשים חיבור. הזנה ידנית עובדת בלעדיה.</span>
         </div>
       )}
       <Col gap={10}>

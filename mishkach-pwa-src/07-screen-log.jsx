@@ -161,7 +161,7 @@ function LogScreen({ onClose, onSaved }) {
         if (reached) {
           dispatch({ type: 'SET_SETTING', key: 'goalReachedAt', value: today });
           setTimeout(() => {
-            toast(personaStr(state, 'goal_reached', 'הגעת ליעד! 🎯'), { type: 'success', duration: 6000 });
+            toast(personaStr(state, 'goal_reached', 'הגעת ליעד.'), { type: 'success', duration: 6000 });
           }, 1500);
         }
       }

@@ -2,14 +2,16 @@
 // 21-workout-catalog.jsx — Hebrew exercise catalog + workout helpers
 // ════════════════════════════════════════════════════════════════════
 
+// v3.22.1: `icon` is now a TabIcon name string (rendered via <TabIcon />),
+// not an emoji literal. Renderers must do <TabIcon name={type.icon} />.
 const WORKOUT_TYPES = [
-  { id: 'strength',  label: 'כוח',         icon: '🏋️', color: '#FFA500' },
-  { id: 'cardio',    label: 'אירובי',      icon: '🏃', color: '#FF4458' },
-  { id: 'hiit',      label: 'HIIT',        icon: '🔥', color: '#FFD700' },
-  { id: 'flexibility', label: 'גמישות',    icon: '🧘', color: '#A8DEFF' },
-  { id: 'sport',     label: 'ספורט',       icon: '⚽', color: '#7FFF7F' },
-  { id: 'walking',   label: 'הליכה',       icon: '🚶', color: '#94FF66' },
-  { id: 'other',     label: 'אחר',         icon: '💪', color: '#999999' },
+  { id: 'strength',  label: 'כוח',         icon: 'dumbbell',    color: '#FFA500' },
+  { id: 'cardio',    label: 'אירובי',      icon: 'running',     color: '#FF4458' },
+  { id: 'hiit',      label: 'HIIT',        icon: 'flame',       color: '#FFD700' },
+  { id: 'flexibility', label: 'גמישות',    icon: 'yoga',        color: '#A8DEFF' },
+  { id: 'sport',     label: 'ספורט',       icon: 'ball-sport',  color: '#7FFF7F' },
+  { id: 'walking',   label: 'הליכה',       icon: 'walking',     color: '#94FF66' },
+  { id: 'other',     label: 'אחר',         icon: 'dumbbell',    color: '#999999' },
 ];
 
 const MUSCLE_GROUPS = [

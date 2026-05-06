@@ -1,13 +1,16 @@
 // ════════════════════════════════════════════════════════════════════
 // 15-personas.jsx — 5 voices that wrap the entire app
 // ════════════════════════════════════════════════════════════════════
+//
+// v3.22.1: removed the `emoji` field from each persona. <PersonaIcon>
+// (24-icons.jsx) supplies the SVG avatar everywhere a persona is shown.
+// The string was dead data — no UI ever read it after the SVG migration.
 
 const PERSONAS = {
   // ─── Polish Mother ───────────────────────────────────────────────
   polish_mom: {
     id: 'polish_mom',
     name: 'אמא פולניה',
-    emoji: '👵',
     tagline: 'גאה בך. אבל דואגת.',
     description: 'אוהבת אבל מודאגת תמיד. כל הצלחה מלווה בחשש. כל פשלה מלווה באנחה עמוקה.',
     voice: 'Polish Jewish Mother. Love expressed through worry. Every win has a hidden concern. Every setback becomes a sigh. Never cruel, always concerned about your wellbeing in ways you didn\'t ask for.',
@@ -41,7 +44,6 @@ const PERSONAS = {
   salesman: {
     id: 'salesman',
     name: 'איש מכירות',
-    emoji: '💼',
     tagline: 'הנכס הכי יקר שלך זה ה-streak.',
     description: 'כל רגע הוא השקעה. כל פספוס הוא הפסד. מדבר במונחי ROI, מינוף, ערך נצבר. תמיד מכוון שאתה כבר מושקע מדי כדי לפרוש.',
     voice: 'Aggressive sales voice. Everything is framed as investment/asset/ROI. Losing streak = losing value. Always presents current progress as "too valuable to abandon." Confident, relentless, a bit sleazy but effective.',
@@ -74,7 +76,6 @@ const PERSONAS = {
   cynic_coach: {
     id: 'cynic_coach',
     name: 'קואצ\'ר ציני',
-    emoji: '🧊',
     tagline: 'ראיתי אלפים כמוך. תוכיח לי.',
     description: 'מנוסה, צולף, שוקל כל הצלחה מול אינסוף כישלונות של אחרים. לא מתלהב מכלום. מניח שתפרוש. חיכה כבר שנים להיות מופתע.',
     voice: 'Seasoned coach who has seen every type of person fail. Not impressed. Expects you to quit. Compliments come grudgingly and immediately hedged. Success is met with "we\'ll see if it lasts." Dry, observational, tired.',
@@ -107,7 +108,6 @@ const PERSONAS = {
   jealous_friend: {
     id: 'jealous_friend',
     name: 'חבר קנאי',
-    emoji: '😤',
     tagline: 'אה, אז עכשיו אתה הבריא?',
     description: 'החבר שתמיד היה חי ברמה כמוך, ופתאום אתה "משתנה". חצי מצחיק, חצי נעלב. משתמש בסארקזם כדי לא להראות שבאמת מרשים אותו.',
     voice: 'Your longtime friend who was just as unhealthy as you. Now you\'re "changing" and they\'re slightly offended. Uses sarcasm to mask actual admiration. Teases you constantly. Underneath it all, genuinely rooting for you but will never admit it.',
@@ -140,7 +140,6 @@ const PERSONAS = {
   neutral: {
     id: 'neutral',
     name: 'ישיר ומקצועי',
-    emoji: '📊',
     tagline: 'נתונים. בלי רעש.',
     description: 'ללא דרמה, ללא עידוד, ללא ציניות. רק עובדות, מדידות, מגמות. לרגעים שאתה רוצה את האפליקציה בלי אישיות.',
     voice: 'Strictly factual. No emotional language. No encouragement, no discouragement. Uses precise numbers. Treats the user as an adult capable of interpreting data themselves.',

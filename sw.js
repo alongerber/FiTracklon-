@@ -1,10 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.22 — offline-first, auto-invalidate cache
+// מִשְׁקַלּוּת Service Worker v3.22.1 — emoji cleanup pass
 // ════════════════════════════════════════════════════════════════════
 // /data/*.json (strings/tips/ai-prompts) are cached opportunistically
 // by the same-origin fetch handler on first request.
 
-const CACHE = 'mishkalut-v322';
+const CACHE = 'mishkalut-v3221';
 const CORE = [
   './',
   './index.html',

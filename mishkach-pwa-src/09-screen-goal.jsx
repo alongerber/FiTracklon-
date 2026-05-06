@@ -170,9 +170,9 @@ function GoalCalibrationCard() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <div style={{
           width: 28, height: 28, borderRadius: 14,
-          background: `${T.lime}25`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 14,
-        }}>✨</div>
+          background: `${T.lime}25`, color: T.lime,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}><TabIcon name="sparkle" size={14} /></div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>כיול יעד חכם</div>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>

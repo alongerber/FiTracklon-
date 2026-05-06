@@ -17,12 +17,14 @@
 const REPORT_MIN_DAYS = 7;
 
 // ─── Recipient catalog (single source of truth for labels/icons) ────
+// v3.22.1: `icon` is now a TabIcon name string. Renderers do
+// <TabIcon name={r.icon} />, not direct string render.
 const REPORT_RECIPIENTS = [
-  { id: 'self',    icon: '🧑',   label: 'לעצמי',           tone: 'personal' },
-  { id: 'doctor',  icon: '👨‍⚕️', label: 'רופא/דיאטנית',    tone: 'clinical' },
-  { id: 'trainer', icon: '🏋️',   label: 'מאמן כושר',       tone: 'performance' },
-  { id: 'friend',  icon: '👫',   label: 'חבר/משפחה',       tone: 'warm' },
-  { id: 'other',   icon: '✏️',   label: 'אחר',             tone: 'neutral' },
+  { id: 'self',    icon: 'user',         label: 'לעצמי',           tone: 'personal' },
+  { id: 'doctor',  icon: 'stethoscope',  label: 'רופא/דיאטנית',    tone: 'clinical' },
+  { id: 'trainer', icon: 'dumbbell',     label: 'מאמן כושר',       tone: 'performance' },
+  { id: 'friend',  icon: 'users',        label: 'חבר/משפחה',       tone: 'warm' },
+  { id: 'other',   icon: 'edit',         label: 'אחר',             tone: 'neutral' },
 ];
 
 const REPORT_PERIODS = [
@@ -252,9 +254,9 @@ function ReportRecipientStep({ value, customValue, onChange, onCustomChange, onN
             <div style={{
               width: 42, height: 42, borderRadius: 14,
               background: value === r.id ? `${T.lime}22` : T.bgElev2,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 22, flexShrink: 0,
-            }}>{r.icon}</div>
+              color: value === r.id ? T.lime : T.inkSub,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}><TabIcon name={r.icon} size={22} /></div>
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700 }}>{r.label}</div>
             {value === r.id && (
               <div style={{
@@ -423,8 +425,10 @@ function ReportIncludesStep({ includes, setIncludes, recipient, customRecipient,
                 marginTop: 8, padding: '6px 10px',
                 background: `${T.amber}20`, border: `1px solid ${T.amber}55`,
                 borderRadius: 6, fontSize: 11, color: T.amber, lineHeight: 1.5,
+                display: 'flex', alignItems: 'flex-start', gap: 6,
               }}>
-                ⚠️ ההערות אישיות שלך — בדוק שאתה לא חולק משהו פרטי בטעות
+                <span style={{ flexShrink: 0, marginTop: 1, display: 'inline-flex' }}><TabIcon name="alert-circle" size={12} /></span>
+                <span>ההערות אישיות שלך — בדוק שאתה לא חולק משהו פרטי בטעות</span>
               </div>
             )}
           </div>
@@ -464,7 +468,7 @@ function ReportIncludesStep({ includes, setIncludes, recipient, customRecipient,
         {includes.ai_insights && (
           daysWithData < REPORT_MIN_DAYS
             ? ` · נדרשים ${REPORT_MIN_DAYS} לפחות לתובנות חכמות`
-            : hasApi ? ' · המערכת פעילה' : ' · ⚠️ המערכת לא הוגדרה בפרופיל'
+            : hasApi ? ' · המערכת פעילה' : ' · המערכת לא הוגדרה בפרופיל'
         )}
       </div>
 
@@ -1007,7 +1011,7 @@ function ReportWorkoutPage({ snapshot }) {
   const types = Object.entries(snapshot.workouts_by_type)
     .sort((a, b) => b[1] - a[1])
     .map(([id, count]) => {
-      const t = (typeof getWorkoutType === 'function' ? getWorkoutType(id) : { label: id, color: T.lime, icon: '💪' });
+      const t = (typeof getWorkoutType === 'function' ? getWorkoutType(id) : { label: id, color: T.lime, icon: 'dumbbell' });
       return { id, label: t.label, color: t.color, icon: t.icon, count };
     });
   return (
@@ -1025,10 +1029,9 @@ function ReportWorkoutPage({ snapshot }) {
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <div style={{
-              width: 28, height: 28, borderRadius: 8, background: `${t.color}22`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 14, flexShrink: 0,
-            }}>{t.icon}</div>
+              width: 28, height: 28, borderRadius: 8, background: `${t.color}22`, color: t.color,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}><TabIcon name={t.icon} size={14} /></div>
             <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{t.label}</div>
             <div style={{ fontFamily: T.mono, fontSize: 13, fontWeight: 700, color: t.color }}>{t.count}</div>
           </div>
@@ -1037,8 +1040,12 @@ function ReportWorkoutPage({ snapshot }) {
 
       {snapshot.workouts_prs.length > 0 && (
         <>
-          <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
-            🏆 שיאים שנשברו בתקופה
+          {/* v3.22.1: workout PRs (reps/weight/volume) — emoji removed,
+              the term "שיא" stays since it's about exercise records (going
+              UP is unambiguously good here, unlike weight extremes). */}
+          <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <TabIcon name="trophy" size={12} />
+            <span>שיאים שנשברו בתקופה</span>
           </div>
           <Col gap={6}>
             {snapshot.workouts_prs.slice(0, 6).map((pr, i) => {
@@ -1155,6 +1162,14 @@ async function loadPdfLibs() {
 }
 
 // ─── Fallback summary (when AI didn't run) ─────────────────────────
+// EMOJI POLICY (v3.22.1): emojis are stripped from in-app UI per the
+// design pass, BUT permitted in strings that are EXPORTED OUT of the
+// app — WhatsApp share, email body, PDF report bodies, etc. The
+// rationale: WhatsApp / SMS previews lean on emoji for visual hierarchy;
+// stripping them makes shared text feel sterile in the recipient's chat
+// window. The function below targets a WhatsApp share, so the emojis
+// stay. Same applies to anything inside snapshot.whatsapp_summary
+// returned by the AI report generator.
 function buildFallbackSummary(snapshot) {
   const ws = snapshot.weight_summary;
   const name = snapshot.user.name || 'משתמש';

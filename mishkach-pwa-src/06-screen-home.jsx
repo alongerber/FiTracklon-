@@ -21,27 +21,31 @@ function HomeScreen({ onNavigate }) {
 // showing on the wrong day — no data corruption.
 //
 // kind: 'holiday' (yom tov) | 'eve' (erev chag) | 'minor' (purim, lag baomer)
+//
+// v3.22.1: emoji per holiday removed (the {EMOJI} placeholder in
+// banner_holiday persona strings now resolves to '' — DayBanner renders
+// a single sparkle SVG icon instead, consistent with the rest of the UI).
 const HOLIDAYS = [
   // ── 5786 / 2026 ─────────────────────────────────────────────────
-  { date: '2026-03-03', name: 'פורים',           emoji: '🎭', kind: 'minor' },
-  { date: '2026-04-01', name: 'ערב פסח',         emoji: '🍷', kind: 'eve' },
-  { date: '2026-04-02', name: 'פסח',             emoji: '🍷', kind: 'holiday' },
-  { date: '2026-04-08', name: 'שביעי של פסח',    emoji: '🍷', kind: 'holiday' },
-  { date: '2026-04-14', name: 'יום השואה',       emoji: '🕯️', kind: 'minor' },
-  { date: '2026-04-22', name: 'יום הזיכרון',     emoji: '🇮🇱', kind: 'minor' },
-  { date: '2026-04-23', name: 'יום העצמאות',     emoji: '🇮🇱', kind: 'holiday' },
-  { date: '2026-05-05', name: 'ל״ג בעומר',       emoji: '🔥', kind: 'minor' },
-  { date: '2026-05-22', name: 'שבועות',          emoji: '🌾', kind: 'holiday' },
-  { date: '2026-09-12', name: 'ערב ראש השנה',    emoji: '🍯', kind: 'eve' },
-  { date: '2026-09-13', name: 'ראש השנה',        emoji: '🍯', kind: 'holiday' },
-  { date: '2026-09-21', name: 'יום כיפור',       emoji: '🤍', kind: 'holiday' },
-  { date: '2026-09-26', name: 'סוכות',           emoji: '🌿', kind: 'holiday' },
-  { date: '2026-10-04', name: 'שמחת תורה',       emoji: '📜', kind: 'holiday' },
-  { date: '2026-12-05', name: 'חנוכה',           emoji: '🕎', kind: 'minor' },
+  { date: '2026-03-03', name: 'פורים',           emoji: '', kind: 'minor' },
+  { date: '2026-04-01', name: 'ערב פסח',         emoji: '', kind: 'eve' },
+  { date: '2026-04-02', name: 'פסח',             emoji: '', kind: 'holiday' },
+  { date: '2026-04-08', name: 'שביעי של פסח',    emoji: '', kind: 'holiday' },
+  { date: '2026-04-14', name: 'יום השואה',       emoji: '', kind: 'minor' },
+  { date: '2026-04-22', name: 'יום הזיכרון',     emoji: '', kind: 'minor' },
+  { date: '2026-04-23', name: 'יום העצמאות',     emoji: '', kind: 'holiday' },
+  { date: '2026-05-05', name: 'ל״ג בעומר',       emoji: '', kind: 'minor' },
+  { date: '2026-05-22', name: 'שבועות',          emoji: '', kind: 'holiday' },
+  { date: '2026-09-12', name: 'ערב ראש השנה',    emoji: '', kind: 'eve' },
+  { date: '2026-09-13', name: 'ראש השנה',        emoji: '', kind: 'holiday' },
+  { date: '2026-09-21', name: 'יום כיפור',       emoji: '', kind: 'holiday' },
+  { date: '2026-09-26', name: 'סוכות',           emoji: '', kind: 'holiday' },
+  { date: '2026-10-04', name: 'שמחת תורה',       emoji: '', kind: 'holiday' },
+  { date: '2026-12-05', name: 'חנוכה',           emoji: '', kind: 'minor' },
   // ── 5787 / 2027 (verify before use!) ───────────────────────────
-  { date: '2027-03-23', name: 'פורים',           emoji: '🎭', kind: 'minor' },
-  { date: '2027-04-21', name: 'ערב פסח',         emoji: '🍷', kind: 'eve' },
-  { date: '2027-04-22', name: 'פסח',             emoji: '🍷', kind: 'holiday' },
+  { date: '2027-03-23', name: 'פורים',           emoji: '', kind: 'minor' },
+  { date: '2027-04-21', name: 'ערב פסח',         emoji: '', kind: 'eve' },
+  { date: '2027-04-22', name: 'פסח',             emoji: '', kind: 'holiday' },
 ];
 
 function getHolidayForDate(iso) {
@@ -99,6 +103,10 @@ function DayBanner() {
       borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8,
       direction: 'rtl',
     }}>
+      {/* v3.22.1: single sparkle icon replaces per-holiday emoji */}
+      <span style={{ color: accent, display: 'inline-flex', flexShrink: 0 }}>
+        <TabIcon name="sparkle" size={14} />
+      </span>
       <div style={{ flex: 1, fontSize: 12, color: accent, lineHeight: 1.5 }}>
         {text}
       </div>
@@ -286,7 +294,10 @@ function HomeV1({ onNavigate }) {
               padding: '36px 16px', textAlign: 'center', background: T.bg, borderRadius: 8,
               fontSize: 12, color: T.inkSub, lineHeight: 1.6,
             }}>
-              📊 הוסף עוד {3 - chartData.length} מדידות לראות מגמה
+              <div style={{ marginBottom: 8, color: T.inkMute, display: 'flex', justifyContent: 'center' }}>
+                <TabIcon name="chart" size={28} />
+              </div>
+              הוסף עוד {3 - chartData.length} מדידות לראות מגמה
             </div>
           ) : (
             <WeightChart data={chartData} goal={goal} width={320} height={160} />
@@ -358,7 +369,7 @@ function HomeV2({ onNavigate }) {
       <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
         <HomeHeader onNavigate={onNavigate} />
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <EmptyState icon="⚖️" title="בוא נתחיל" message="הוסף שקילה ראשונה כדי לראות מד מהירות."
+          <EmptyState iconName="scale" title="בוא נתחיל" message="הוסף שקילה ראשונה כדי לראות מד מהירות."
             action={<Button onClick={() => onNavigate('log')}>הוסף שקילה</Button>} />
         </div>
       </div>
@@ -557,7 +568,7 @@ function HomeV3({ onNavigate }) {
       <div style={{ background: T.bg, color: T.ink, fontFamily: T.font, height: '100%', display: 'flex', flexDirection: 'column', direction: 'rtl' }}>
         <HomeHeader onNavigate={onNavigate} />
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <EmptyState icon="🗺️" title="התחל את המסע" message="הוסף שקילה ראשונה כדי לראות את המפה."
+          <EmptyState iconName="target" title="התחל את המסע" message="הוסף שקילה ראשונה כדי לראות את המפה."
             action={<Button onClick={() => onNavigate('log')}>הוסף שקילה</Button>} />
         </div>
       </div>
@@ -663,7 +674,7 @@ function HomeV3({ onNavigate }) {
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 10, fontWeight: 900, color: T.bg,
                 }}>
-                  {m.kind === 'goal' && '★'}
+                  {m.kind === 'goal' && <TabIcon name="star" size={11} />}
                 </div>
               </div>
             );
@@ -693,7 +704,9 @@ function HomeV3({ onNavigate }) {
         {stats.etaDays !== null && goal !== null && (
           <Card padding={14} style={{ marginTop: 16, background: `${T.lime}10`, border: `1px solid ${T.lime}40` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ fontSize: 24 }}>🎯</div>
+              <div style={{ color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26 }}>
+                <TabIcon name="target" size={22} />
+              </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11, color: T.inkSub }}>בקצב הנוכחי תגיע ליעד בעוד</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
@@ -726,7 +739,9 @@ function NutritionWidget({ onNavigate }) {
       <Card padding={14} style={{ marginBottom: 14, background: `${T.lime}08`, border: `1px solid ${T.lime}30`, cursor: 'pointer' }}
         onClick={() => onNavigate('nutrition')}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontSize: 24 }}>🍎</div>
+          <div style={{ color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26 }}>
+            <TabIcon name="apple" size={22} />
+          </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>הוסף מעקב תזונה</div>
             <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>ניתוח חכם מטקסט או תמונה</div>
@@ -1537,7 +1552,10 @@ function MonthlyArchiveDialog({ onClose }) {
         }}>×</button>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>ארכיון</div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>📊 סיכומים חודשיים</div>
+          <div style={{ fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: T.cyan, display: 'inline-flex' }}><TabIcon name="chart-bar" size={16} /></span>
+            סיכומים חודשיים
+          </div>
         </div>
       </div>
 
@@ -1883,8 +1901,9 @@ function WhatIfCard() {
           </div>
 
           {!hasKey && (
-            <div style={{ marginTop: 10, fontSize: 11, color: T.amber, lineHeight: 1.5, textAlign: 'center' }}>
-              ⚠️ הגדר API בפרופיל לקבלת תחזיות
+            <div style={{ marginTop: 10, fontSize: 11, color: T.amber, lineHeight: 1.5, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <TabIcon name="alert-circle" size={12} />
+              <span>הגדר API בפרופיל לקבלת תחזיות</span>
             </div>
           )}
 

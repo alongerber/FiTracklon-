@@ -545,11 +545,11 @@ function AiSetupStep({ mode, setMode, sharedPw, setSharedPw, apiKey, setApiKey, 
                 direction: 'ltr', textAlign: 'left',
               }}
             />
-            <button onClick={() => setShowSecret(s => !s)} style={{
+            <button onClick={() => setShowSecret(s => !s)} aria-label={showSecret ? 'הסתר' : 'הצג'} style={{
               position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
               background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
-              padding: 6, fontSize: 14,
-            }}>{showSecret ? '🙈' : '👁'}</button>
+              padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}><TabIcon name={showSecret ? 'eye-off' : 'eye'} size={16} /></button>
           </div>
           <div style={{ fontSize: 11, color: T.inkMute, marginTop: 10, lineHeight: 1.5 }}>
             אין לך קוד? פנה למי ששיתף איתך את האפליקציה.
@@ -578,11 +578,11 @@ function AiSetupStep({ mode, setMode, sharedPw, setSharedPw, apiKey, setApiKey, 
                 direction: 'ltr', textAlign: 'left',
               }}
             />
-            <button onClick={() => setShowSecret(s => !s)} style={{
+            <button onClick={() => setShowSecret(s => !s)} aria-label={showSecret ? 'הסתר' : 'הצג'} style={{
               position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
               background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
-              padding: 6, fontSize: 14,
-            }}>{showSecret ? '🙈' : '👁'}</button>
+              padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}><TabIcon name={showSecret ? 'eye-off' : 'eye'} size={16} /></button>
           </div>
           <div style={{ fontSize: 11, color: T.inkMute, marginTop: 10, lineHeight: 1.5 }}>
             קבל מפתח ב-<span style={{ color: T.lime, fontFamily: T.mono }}>console.anthropic.com</span>.

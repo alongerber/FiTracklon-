@@ -205,7 +205,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.22
+          מִשְׁקַלּוּת · v3.22.1
         </div>
       </div>
 
@@ -559,7 +559,7 @@ function ApiConfigDialog({ onClose }) {
                 placeholder="sk-ant-api03-..."
                 style={secretInputStyle}
               />
-              <button onClick={() => setShowSecret(s => !s)} style={secretToggleStyle}>{showSecret ? '🙈' : '👁'}</button>
+              <button onClick={() => setShowSecret(s => !s)} aria-label={showSecret ? 'הסתר' : 'הצג'} style={secretToggleStyle}><TabIcon name={showSecret ? 'eye-off' : 'eye'} size={16} /></button>
             </div>
           </>
         ) : (
@@ -578,7 +578,7 @@ function ApiConfigDialog({ onClose }) {
                 inputMode="numeric"
                 style={secretInputStyle}
               />
-              <button onClick={() => setShowSecret(s => !s)} style={secretToggleStyle}>{showSecret ? '🙈' : '👁'}</button>
+              <button onClick={() => setShowSecret(s => !s)} aria-label={showSecret ? 'הסתר' : 'הצג'} style={secretToggleStyle}><TabIcon name={showSecret ? 'eye-off' : 'eye'} size={16} /></button>
             </div>
           </>
         )}
@@ -606,7 +606,7 @@ const secretInputStyle = {
 const secretToggleStyle = {
   position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)',
   background: 'transparent', border: 'none', color: T.inkMute, cursor: 'pointer',
-  padding: 6, fontSize: 14,
+  padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
 // ─── Usage details dialog ───────────────────────────────────────────
@@ -699,7 +699,9 @@ function InstallPromptSection() {
       border: `1px solid ${T.lime}44`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-        <div style={{ fontSize: 22 }}>📱</div>
+        <div style={{ color: T.lime, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <TabIcon name="download-to-phone" size={22} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>התקן כאפליקציה</div>
           <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>

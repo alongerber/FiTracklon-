@@ -387,6 +387,53 @@ function TabIcon({ name, size = 18 }) {
         <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/>
         <path d="M12 15v6M9 18h6"/>
       </svg>;
+    // ── v3.22.1: 8 icons added for the emoji-cleanup pass ──
+    // running / walking / yoga / ball-sport — workout type indicators
+    case 'running':
+      return <svg {...p}>
+        <circle cx="13" cy="4" r="2"/>
+        <path d="M5 21l3-6 3 1 1-4-3-3-3 5M14 13l3-1 2 3M17 7l3 3"/>
+      </svg>;
+    case 'walking':
+      return <svg {...p}>
+        <circle cx="12" cy="4" r="2"/>
+        <path d="M9 21l3-6 4 2-1-5-3-3-3 1-2 4M14 13l4 0"/>
+      </svg>;
+    case 'yoga':
+      return <svg {...p}>
+        <circle cx="12" cy="5" r="2"/>
+        <path d="M12 7v6M5 19c2-2 4-3 7-3s5 1 7 3M9 13l-2 5M15 13l2 5"/>
+      </svg>;
+    case 'ball-sport':
+      return <svg {...p}>
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/>
+      </svg>;
+    // stethoscope / users — report recipient icons
+    case 'stethoscope':
+      return <svg {...p}>
+        <path d="M5 3v6a4 4 0 008 0V3M5 3h2M11 3h2M9 13v3a4 4 0 008 0v-1"/>
+        <circle cx="17" cy="13" r="2"/>
+      </svg>;
+    case 'users':
+      return <svg {...p}>
+        <circle cx="9" cy="8" r="3"/>
+        <circle cx="17" cy="9" r="2.5"/>
+        <path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M14 20c0-2 1.5-3.5 3-3.5s3 1.5 3 3.5"/>
+      </svg>;
+    // eye / eye-off — password visibility toggles
+    case 'eye':
+      return <svg {...p}>
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>;
+    case 'eye-off':
+      return <svg {...p}>
+        <path d="M17.94 17.94A10.07 10.07 0 0112 19c-7 0-10-7-10-7a17.55 17.55 0 015.06-5.94M9.9 4.24A9.94 9.94 0 0112 4c7 0 10 7 10 7a17.5 17.5 0 01-2.16 3.19"/>
+        <path d="M14.12 14.12a3 3 0 01-4.24-4.24"/>
+        <line x1="2" y1="2" x2="22" y2="22"/>
+      </svg>;
+
     // ── v3.14 ──
     case 'repeat':
       // Lucide-style repeat (two arrows in a loop)
@@ -723,13 +770,24 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'אשר', cancelLa
 }
 
 // ─── Empty state ────────────────────────────────────────────────────
-function EmptyState({ icon = '📊', title, message, action }) {
+// v3.22.1: prefer `iconName` (TabIcon name) over the legacy `icon`
+// emoji string. Existing call sites passing emoji strings continue to
+// work — they just render as text inside the same container, so we
+// can convert them in waves without breaking anything mid-flight.
+function EmptyState({ icon, iconName, title, message, action }) {
+  const usedIconName = iconName || (typeof icon === 'string' && /^[a-z-]+$/.test(icon) ? icon : null);
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       padding: '40px 20px', textAlign: 'center', gap: 10, direction: 'rtl',
     }}>
-      <div style={{ fontSize: 48, opacity: 0.5 }}>{icon}</div>
+      {usedIconName ? (
+        <div style={{ color: T.inkMute, opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <TabIcon name={usedIconName} size={42} />
+        </div>
+      ) : icon ? (
+        <div style={{ fontSize: 48, opacity: 0.5 }}>{icon}</div>
+      ) : null}
       <div style={{ fontSize: 16, fontWeight: 700, color: T.ink }}>{title}</div>
       {message && <div style={{ fontSize: 13, color: T.inkSub, maxWidth: 280, lineHeight: 1.5 }}>{message}</div>}
       {action && <div style={{ marginTop: 10, width: '100%' }}>{action}</div>}

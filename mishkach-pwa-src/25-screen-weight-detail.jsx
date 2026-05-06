@@ -69,7 +69,7 @@ function WeightDetailScreen({ params = null, onClose, onNavigate }) {
       {!detail ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <EmptyState
-            icon="⚖️"
+            iconName="scale"
             title="אין שקילות"
             message={params?.monthYM ? 'בחודש הזה לא נרשמו שקילות.' : 'הוסף שקילה ראשונה כדי לראות נתונים מפורטים.'}
           />
