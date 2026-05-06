@@ -18,3 +18,7 @@ Thumbs.db
 
 # Tmp build outputs
 *.tmp
+
+# Python build cache (extract_data.py uses subprocess, not Python imports
+# from cached modules — but this dir gets created anyway).
+mishkach-pwa-src/__pycache__/

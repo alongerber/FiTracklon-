@@ -162,7 +162,13 @@ function ProfileScreen({ onNavigate }) {
         {/* Tips Library */}
         <Section title="טיפים ותובנות">
           <RowItem icon={<TabIcon name="lightbulb" size={18} />} label="ספריית טיפים"
-            value={`${CREATIVE_TIPS.length} תובנות × 5 קולות`} onClick={() => setShowTips(true)} />
+            value={(() => {
+              // v3.20: tips data is lazy. Show the cached count when present,
+              // otherwise the static "80 × 5 קולות" hint that's stable across deploys.
+              const t = (typeof getDataSync === 'function') ? getDataSync('tips-creative') : null;
+              return `${t?.length || 80} תובנות × 5 קולות`;
+            })()}
+            onClick={() => setShowTips(true)} />
         </Section>
 
         {/* Personal report */}
@@ -194,7 +200,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.19
+          מִשְׁקַלּוּת · v3.20
         </div>
       </div>
 

@@ -38,6 +38,21 @@ function Router() {
   // PWA install state — reads canInstall / isIOS / isInstalled
   const installState = useInstallPrompt();
 
+  // v3.20: warm the externalized data cache as soon as React mounts.
+  //  • strings.json — needed for every persona-flavored UI string
+  //  • tips-creative.json — needed by the home tip-of-day card
+  //  • ai-prompts.json — only fetched when an AI feature is invoked
+  //    (each generate*/parse* in 12-claude-api.jsx awaits loadData first).
+  // After each load we dispatch MARK_DATA_LOADED so the store re-renders
+  // and personaStr/useData consumers refresh from the inline fallback to
+  // the persona-flavored variant. Subscribe-once pattern via onDataLoaded.
+  React.useEffect(() => {
+    if (typeof prefetchData === 'function') prefetchData('strings', 'tips-creative');
+    if (typeof onDataLoaded !== 'function') return;
+    const off = onDataLoaded(() => dispatch({ type: 'MARK_DATA_LOADED' }));
+    return off;
+  }, [dispatch]);
+
   // setScreen + push now accept an optional params object that the target
   // screen receives via props. When clearing the stack, also clear params
   // for screens NOT in the new stack so they don't reappear stale.

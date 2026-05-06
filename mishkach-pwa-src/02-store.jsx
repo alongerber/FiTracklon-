@@ -479,6 +479,12 @@ function reducer(state, action) {
       };
     case 'CLEAR_UNDO':
       return { ...state, tempUndo: null };
+    // v3.20: bumped each time a /data/*.json file lands in the loader cache.
+    // Pure no-op for app logic — its only job is to force a re-render so
+    // components that read getDataSync (personaStr, useData, etc.) reflect
+    // the freshly-loaded data without waiting for the next interaction.
+    case 'MARK_DATA_LOADED':
+      return { ...state, _dataReady: ((state._dataReady || 0) + 1) };
     case 'SET_PERSONA':
       return { ...state, settings: { ...state.settings, persona: action.persona } };
     case 'MARK_TIP_SHOWN': {

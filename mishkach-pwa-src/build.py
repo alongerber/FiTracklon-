@@ -35,15 +35,24 @@ OUT = os.path.abspath(os.path.join(SRC, '..'))  # repo root — what Vercel serv
 
 os.makedirs(OUT, exist_ok=True)
 
+# v3.20: extract data-only consts to /data/*.json BEFORE concatenating the
+# JSX bundle. The lean versions of 16-tips-creative.jsx, 18-strings.jsx,
+# and 20-ai-prompts.jsx that ship in the bundle read this data via
+# fetch() at runtime (see 04b-data-loader.jsx). This keeps the giant
+# CREATIVE_TIPS / STRINGS / AI prompt strings out of the boot bundle.
+import extract_data
+data_sizes = extract_data.main()
+
 JSX_FILES = [
     '01-theme.jsx',
     '02-store.jsx',
     '03-charts.jsx',
     '04-ui.jsx',
+    '04b-data-loader.jsx',  # NEW (v3.20): async loader for /data/*.json
     '15-personas.jsx',
-    '18-strings.jsx',       # NEW: UI strings per persona×gender
+    '18-strings.jsx',       # NEW: UI strings per persona×gender (lean — data in /data/strings.json)
     '19-errors.jsx',        # NEW: Error messages per persona×gender
-    '20-ai-prompts.jsx',    # NEW: AI system prompts per persona
+    '20-ai-prompts.jsx',    # NEW: AI system prompts per persona (lean — data in /data/ai-prompts.json)
     '05-screen-onboarding.jsx',
     '06-screen-home.jsx',
     '07-screen-log.jsx',
@@ -52,7 +61,7 @@ JSX_FILES = [
     '10-screen-profile.jsx',
     '12-claude-api.jsx',
     '13-screen-nutrition.jsx',
-    '16-tips-creative.jsx',
+    '16-tips-creative.jsx',  # NEW: Tips library (lean — data in /data/tips-creative.json)
     '17-notifications.jsx',
     '21-workout-catalog.jsx',  # NEW: Hebrew exercise catalog + helpers
     '22-screen-workout.jsx',   # NEW: Workout tracking screen
@@ -166,6 +175,12 @@ HTML = '''<!DOCTYPE html>
   <!-- Icons -->
   <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+
+  <!-- v3.20: prefetch externalized data so the SW can populate the cache
+       in parallel with React boot. strings.json drives every persona text
+       on first paint; tips-creative.json is consumed by the home tip card. -->
+  <link rel="prefetch" as="fetch" href="data/strings.json" crossorigin="anonymous" />
+  <link rel="prefetch" as="fetch" href="data/tips-creative.json" crossorigin="anonymous" />
 
   <!-- Fonts (preload + cache) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />

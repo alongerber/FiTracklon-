@@ -487,12 +487,23 @@ async function refineMealFromQuestions({ foodName, classification, base, answers
   };
 }
 
+// v3.20: ensure /data/ai-prompts.json is in cache before any builder runs.
+// All prompt strings live in the JSON; the build* helpers in 20-ai-prompts.jsx
+// read them via getDataSync. If the load fails we still proceed — the helpers
+// fall back to short inline stubs so the AI call doesn't hard-fail.
+async function _ensureAIPrompts() {
+  if (typeof loadData !== 'function') return;
+  try { await loadData('ai-prompts'); }
+  catch (e) { console.warn('[ai-prompts] load failed', e?.message); }
+}
+
 // ─── High-level: weekly insight (persona-aware) ─────────────────────
 // v3.13: returns STRUCTURED JSON via WEEKLY_INSIGHT_STRUCT_PROMPT.
 //   { insight, records, interesting_numbers } or { insufficient_data: true }
 // Caller (WeeklyInsightCard) renders new layout when payload has `.insight`,
 // otherwise falls back to legacy `.text` rendering for cached pre-v3.13 payloads.
 async function generateWeeklyInsight(snapshot, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = buildWeeklyInsightStructPrompt(state || {}, snapshot);
   const { text } = await callClaude({
     config,
@@ -506,6 +517,7 @@ async function generateWeeklyInsight(snapshot, config, onUsage, state) {
 }
 
 async function generatePlateauAnalysis(snapshot, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = state
     ? buildAISystemPrompt('plateau_analysis', state, 21)
     : PROMPTS.plateauAnalysis.system;
@@ -521,6 +533,7 @@ async function generatePlateauAnalysis(snapshot, config, onUsage, state) {
 }
 
 async function generateGoalCalibration(snapshot, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = state
     ? buildAISystemPrompt('goal_calibration', state, 21)
     : PROMPTS.goalCalibration.system;
@@ -539,6 +552,7 @@ async function generateGoalCalibration(snapshot, config, onUsage, state) {
 // Returns { achievements: string[], next_steps: string }.
 // Caller already shows numeric KPIs — this is the qualitative layer.
 async function generateMonthlyRecap(monthData, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = buildMonthlyRecapPrompt(state, monthData);
   const { text } = await callClaude({
     config,
@@ -556,6 +570,7 @@ async function generateMonthlyRecap(monthData, config, onUsage, state) {
 // { insufficient_data: true } or { correlations: [] } when no patterns
 // hit the >=60% support bar.
 async function generateAutoCorrelations(snapshot, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = buildAutoCorrelationsPrompt(state, snapshot);
   const { text } = await callClaude({
     config,
@@ -572,6 +587,7 @@ async function generateAutoCorrelations(snapshot, config, onUsage, state) {
 // `scenario` is the user-facing question text (preset OR custom).
 // Returns { summary, details } — short, numeric, specific.
 async function generateWhatIf(snapshot, scenarioText, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = buildWhatIfPrompt(state, snapshot, scenarioText);
   const { text } = await callClaude({
     config,
@@ -593,6 +609,7 @@ async function generateWhatIf(snapshot, scenarioText, config, onUsage, state) {
 // (we trust the model + the Hebrew prompt rules but defensive-clamp the
 // most critical fields below). On error throws like other API helpers.
 async function generateWorkoutPlan(planSettings, currentWeightKg, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = buildWorkoutPlanPrompt(state || {}, planSettings, currentWeightKg);
   const { text } = await callClaude({
     config,
@@ -664,6 +681,7 @@ async function generateWorkoutPlan(planSettings, currentWeightKg, config, onUsag
 //     needsConfirmation }
 // Throws on network/auth errors; caller handles them via personaErrorFromException.
 async function parseWorkoutFromVoice(transcriptText, config, onUsage) {
+  await _ensureAIPrompts();
   const system = buildWorkoutVoiceParserPrompt();
   const { text } = await callClaude({
     config,
@@ -691,6 +709,7 @@ async function parseWorkoutFromVoice(transcriptText, config, onUsage) {
 // or { insufficient_data: true } if the model determines there's not enough.
 // `recipient` is one of: 'self' | 'doctor' | 'trainer' | 'friend' | 'other'.
 async function generateReportInsights(snapshot, recipient, customRecipientLabel, config, onUsage, state) {
+  await _ensureAIPrompts();
   const system = buildReportPrompt(state, recipient, customRecipientLabel, snapshot);
   const { text } = await callClaude({
     config,
