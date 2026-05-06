@@ -2,6 +2,442 @@
 // 22-screen-workout.jsx — Workout main screen + dialogs
 // ════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════
+// Stage H (v3.19) — questionnaire option catalog
+// ════════════════════════════════════════════════════════════════════
+// Each entry is { value: <stored in plan_settings>, label: <Hebrew chip> }.
+// The same value strings are sent to the AI prompt builder — keep them
+// in sync with EXPERIENCE_LABELS_HE / LOCATION_LABELS_HE / etc. in
+// 20-ai-prompts.jsx.
+const PLAN_QUESTION_EXPERIENCE = [
+  { value: 'beginner',   label: 'לא התאמנתי שנים, מתחיל מאפס' },
+  { value: 'occasional', label: 'מתאמן מדי פעם, אבל לא קבוע' },
+  { value: 'regular',    label: 'מתאמן באופן קבוע (פעם בשבוע+)' },
+  { value: 'serious',    label: 'מתאמן רציני, יש לי ניסיון' },
+];
+const PLAN_QUESTION_LOCATION = [
+  { value: 'home_no_equipment', label: 'בבית, בלי ציוד' },
+  { value: 'home_weights',      label: 'בבית, יש לי משקולות' },
+  { value: 'gym',               label: 'חדר כושר' },
+  { value: 'flexible',          label: 'גמיש — גם וגם' },
+];
+const PLAN_QUESTION_DURATION = [
+  { value: 15, label: '15-20 דקות' },
+  { value: 30, label: '30 דקות' },
+  { value: 45, label: '45 דקות' },
+  { value: 60, label: 'שעה+' },
+];
+const PLAN_QUESTION_FREQUENCY = [
+  { value: 2, label: '2 פעמים' },
+  { value: 3, label: '3 פעמים' },
+  { value: 4, label: '4 פעמים' },
+  { value: 5, label: '5+ פעמים' },
+];
+const PLAN_QUESTION_GOAL = [
+  { value: 'lose_weight', label: 'לרדת במשקל' },
+  { value: 'strength',    label: 'להיות חזק יותר' },
+  { value: 'aesthetics',  label: 'להיראות יותר טוב' },
+  { value: 'energy',      label: 'להרגיש יותר אנרגטי' },
+];
+const PLAN_QUESTION_LIMITATIONS = [
+  // limitations is multi-select; "none" exclusivity enforced in the UI.
+  { value: 'back',      label: 'בעיות גב' },
+  { value: 'knees',     label: 'בעיות ברכיים' },
+  { value: 'shoulders', label: 'בעיות כתפיים' },
+  { value: 'none',      label: 'אין שום מגבלה' },
+  { value: 'other',     label: 'משהו אחר' },
+];
+
+// ════════════════════════════════════════════════════════════════════
+// WorkoutOnboardingScreen — questionnaire → AI plan generation
+// ════════════════════════════════════════════════════════════════════
+// Single scroll page (no multi-step wizard) so the user can review their
+// answers before submitting. The "צור תוכנית" CTA is sticky at the bottom
+// and disabled until all required fields have an answer.
+//
+// On submit:
+//   1. Save plan_settings (so a regenerate later picks them up).
+//   2. Show loading state ("בונה תוכנית — 30-60 שניות").
+//   3. Call generateWorkoutPlan (Opus); on success, dispatch SET_WORKOUT_PLAN
+//      and close. On failure, show the error inline so the user can retry.
+function WorkoutOnboardingScreen({ onClose, onPlanReady }) {
+  const { state, stats, dispatch } = useStore();
+  const toast = useToast();
+
+  // Pre-fill from existing plan_settings (regenerate flow)
+  const existing = state.workouts?.plan_settings || {};
+  const [experience, setExperience] = React.useState(existing.experience || null);
+  const [location,   setLocation]   = React.useState(existing.location   || null);
+  const [duration,   setDuration]   = React.useState(existing.duration   || null);
+  const [frequency,  setFrequency]  = React.useState(existing.frequency  || null);
+  const [goal,       setGoal]       = React.useState(existing.goal       || null);
+  const [limitations, setLimitations] = React.useState(existing.limitations || []);
+  const [customLimit, setCustomLimit] = React.useState(existing.custom_limitation || '');
+
+  const [generating, setGenerating] = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  const hasAI = apiReady(state.apiConfig);
+  // All single-select required; limitations defaults empty (== "אין"-equivalent if not set)
+  const allAnswered = !!(experience && location && duration && frequency && goal);
+
+  const toggleLimitation = (val) => {
+    setLimitations(prev => {
+      // "none" is exclusive — picking it clears the rest, picking another clears "none"
+      if (val === 'none') {
+        return prev.includes('none') ? [] : ['none'];
+      }
+      const without = prev.filter(v => v !== 'none' && v !== val);
+      return prev.includes(val) ? without : [...without, val];
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!allAnswered) return;
+    if (!hasAI) {
+      toast('הגדר API בפרופיל', { type: 'error' });
+      return;
+    }
+    setError(null);
+    setGenerating(true);
+
+    const settings = {
+      experience, location, duration, frequency, goal,
+      limitations: limitations.length > 0 ? limitations : ['none'],
+      custom_limitation: limitations.includes('other') ? (customLimit.trim() || null) : null,
+    };
+    dispatch({ type: 'SET_PLAN_SETTINGS', settings });
+
+    try {
+      const plan = await generateWorkoutPlan(
+        settings,
+        stats?.current,
+        state.apiConfig,
+        (usage) => {
+          const cost = estimateCost(usage, state.apiConfig.model);
+          dispatch({
+            type: 'TRACK_USAGE',
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+            feature: 'workout_plan',
+            costUSD: cost,
+          });
+        },
+        state,
+      );
+      dispatch({ type: 'SET_WORKOUT_PLAN', plan });
+      // Plausible — analytics for the planning flow
+      try { trackEvent && trackEvent('Workout Plan Generated', { frequency: settings.frequency, location: settings.location }); } catch (_) {}
+      toast(personaStr(state, 'workout_plan_ready', 'התוכנית מוכנה'), { type: 'success' });
+      onPlanReady && onPlanReady();
+    } catch (e) {
+      setError(e.message || 'שגיאה ביצירת התוכנית');
+      toast(personaErrorFromException(state, e), { type: 'error' });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 870,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      {/* Header */}
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} aria-label="סגור" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>
+          תוכנית אימונים מותאמת
+        </div>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 18px 24px' }}>
+        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 22 }}>
+          6 שאלות. ה-AI יבנה לך תוכנית 7 ימים מותאמת — חימום, תרגילים, מנוחות, מתיחות.
+        </div>
+
+        <PlanQuestion title="רמת ניסיון">
+          <ChipColumn options={PLAN_QUESTION_EXPERIENCE} value={experience} onPick={setExperience} />
+        </PlanQuestion>
+
+        <PlanQuestion title="איפה תתאמנו">
+          <ChipColumn options={PLAN_QUESTION_LOCATION} value={location} onPick={setLocation} />
+        </PlanQuestion>
+
+        <PlanQuestion title="כמה זמן יש לכם לכל אימון">
+          <ChipColumn options={PLAN_QUESTION_DURATION} value={duration} onPick={setDuration} columns={2} />
+        </PlanQuestion>
+
+        <PlanQuestion title="כמה פעמים בשבוע">
+          <ChipColumn options={PLAN_QUESTION_FREQUENCY} value={frequency} onPick={setFrequency} columns={2} />
+        </PlanQuestion>
+
+        <PlanQuestion title="מה הכי חשוב">
+          <ChipColumn options={PLAN_QUESTION_GOAL} value={goal} onPick={setGoal} />
+        </PlanQuestion>
+
+        <PlanQuestion title="מגבלות (אפשר לבחור כמה)">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {PLAN_QUESTION_LIMITATIONS.map(opt => (
+              <button key={opt.value}
+                onClick={() => toggleLimitation(opt.value)}
+                style={chipStyle(limitations.includes(opt.value))}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {limitations.includes('other') && (
+            <input
+              value={customLimit}
+              onChange={e => setCustomLimit(e.target.value)}
+              placeholder="פירוט המגבלה (לא חובה)"
+              style={{
+                width: '100%', marginTop: 10, padding: '10px 14px',
+                background: T.bgElev, border: `1px solid ${T.stroke}`,
+                borderRadius: 10, color: T.ink, fontSize: 13,
+                fontFamily: T.font, outline: 'none', direction: 'rtl', textAlign: 'right',
+              }}
+            />
+          )}
+        </PlanQuestion>
+
+        {error && (
+          <div style={{
+            padding: '10px 14px', marginTop: 4,
+            background: `${T.rose}15`, border: `1px solid ${T.rose}44`,
+            borderRadius: 10, fontSize: 12, color: T.rose, lineHeight: 1.5,
+          }}>{error}</div>
+        )}
+      </div>
+
+      {/* Sticky CTA */}
+      <div style={{
+        padding: '12px 18px',
+        borderTop: `1px solid ${T.stroke}`, background: T.bg,
+      }}>
+        <button onClick={handleSubmit}
+          disabled={!allAnswered || generating}
+          style={{
+            width: '100%', height: 56,
+            background: (allAnswered && !generating) ? T.lime : T.bgElev2,
+            color: (allAnswered && !generating) ? T.bg : T.inkMute,
+            border: 'none', borderRadius: 14,
+            fontSize: 16, fontWeight: 800, fontFamily: T.font,
+            cursor: (allAnswered && !generating) ? 'pointer' : 'not-allowed',
+          }}>
+          {generating ? 'בונה תוכנית — 30-60 שניות…' : 'צור תוכנית'}
+        </button>
+        {!hasAI && (
+          <div style={{ fontSize: 11, color: T.amber, textAlign: 'center', marginTop: 8 }}>
+            דורש חיבור AI. הגדר בפרופיל → API.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Helpers for the questionnaire
+function PlanQuestion({ title, children }) {
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 10 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ChipColumn({ options, value, onPick, columns = 1 }) {
+  // Single-select chip list. `value` matches one of the options' `value`.
+  // columns=1 → vertical stack; columns=2 → 2-up grid.
+  return (
+    <div style={{
+      display: columns > 1 ? 'grid' : 'flex',
+      flexDirection: 'column',
+      gridTemplateColumns: columns > 1 ? `repeat(${columns}, 1fr)` : undefined,
+      gap: 8,
+    }}>
+      {options.map(opt => (
+        <button key={String(opt.value)}
+          onClick={() => onPick(opt.value)}
+          style={chipStyle(value === opt.value)}>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function chipStyle(active) {
+  return {
+    width: '100%', minHeight: 48, padding: '10px 14px',
+    border: `1.5px solid ${active ? T.lime : T.stroke}`,
+    background: active ? T.lime : T.bgElev,
+    color: active ? T.bg : T.ink,
+    fontSize: 13, fontWeight: active ? 800 : 600,
+    fontFamily: T.font, cursor: 'pointer',
+    borderRadius: 12, textAlign: 'right', direction: 'rtl',
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// PlanWorkoutPreviewDialog — read-only view of a single planned workout
+// ════════════════════════════════════════════════════════════════════
+// In v3.19 this is the ONLY way to see a generated workout's details
+// (warmup → exercises → cooldown). v3.20 will replace the "[התחל אימון]"
+// CTA with the live ActiveWorkoutScreen flow.
+function PlanWorkoutPreviewDialog({ workout, onClose }) {
+  if (!workout) return null;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 875,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} aria-label="סגור" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>אימון מתוך התוכנית</div>
+          <div style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {workout.name}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 24px' }}>
+        <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginBottom: 14 }}>
+          {workout.duration_estimate} דקות · {workout.exercises?.length || 0} תרגילים
+        </div>
+
+        {/* Warmup */}
+        {workout.warmup?.length > 0 && (
+          <Card padding={14} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="zap" size={11} /><span>חימום</span>
+            </div>
+            {workout.warmup.map((w, i) => (
+              <PlanItemRow key={i}
+                title={w.name}
+                meta={w.duration ? `${w.duration} שניות` : ''}
+                hint={w.instruction}
+                isLast={i === workout.warmup.length - 1}
+              />
+            ))}
+          </Card>
+        )}
+
+        {/* Exercises */}
+        {workout.exercises?.length > 0 && (
+          <Card padding={14} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="dumbbell" size={11} /><span>תרגילים</span>
+            </div>
+            {workout.exercises.map((ex, i) => (
+              <div key={ex.id || i} style={{
+                padding: '10px 0',
+                borderBottom: i === workout.exercises.length - 1 ? 'none' : `1px solid ${T.stroke}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>
+                    {ex.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, fontWeight: 700, flexShrink: 0 }}>
+                    {ex.sets}×{ex.reps}
+                  </div>
+                </div>
+                {ex.instruction && (
+                  <div style={{ fontSize: 12, color: T.inkSub, marginTop: 4, lineHeight: 1.5 }}>
+                    {ex.instruction}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 10, color: T.inkMute, fontFamily: T.mono }}>
+                  <span>מנוחה {ex.rest_seconds}ש׳</span>
+                  {ex.equipment && ex.equipment !== 'none' && <span>· {ex.equipment}</span>}
+                </div>
+                {ex.tip && (
+                  <div style={{
+                    marginTop: 6, padding: '6px 10px', borderRight: `2px solid ${T.amber}`,
+                    background: `${T.amber}10`, fontSize: 11, color: T.inkSub, lineHeight: 1.5,
+                  }}>
+                    💡 {ex.tip}
+                  </div>
+                )}
+              </div>
+            ))}
+          </Card>
+        )}
+
+        {/* Cooldown */}
+        {workout.cooldown?.length > 0 && (
+          <Card padding={14} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="clock" size={11} /><span>מתיחות / קירור</span>
+            </div>
+            {workout.cooldown.map((c, i) => (
+              <PlanItemRow key={i}
+                title={c.name}
+                meta={c.duration ? `${c.duration} שניות` : ''}
+                isLast={i === workout.cooldown.length - 1}
+              />
+            ))}
+          </Card>
+        )}
+
+        {/* v3.19 placeholder — the live ActiveWorkoutScreen lands in v3.20 */}
+        <div style={{
+          padding: '12px 14px', marginTop: 6,
+          background: T.bgElev2, border: `1px dashed ${T.stroke}`, borderRadius: 10,
+          fontSize: 11, color: T.inkMute, lineHeight: 1.6,
+        }}>
+          ✨ מסך אימון פעיל (טיימרים, מנוחות, רישום בזמן אמת) מגיע ב-v3.20.
+          בינתיים — בצעו את האימון, אחר כך רשמו אותו בלחיצה על "רישום מהיר".
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanItemRow({ title, meta, hint, isLast }) {
+  return (
+    <div style={{
+      padding: '8px 0',
+      borderBottom: isLast ? 'none' : `1px solid ${T.stroke}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{title || '—'}</div>
+        {meta && <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, flexShrink: 0 }}>{meta}</div>}
+      </div>
+      {hint && (
+        <div style={{ fontSize: 11, color: T.inkSub, marginTop: 3, lineHeight: 1.5 }}>{hint}</div>
+      )}
+    </div>
+  );
+}
+
+// Map JS Date.getDay() (0=Sun..6=Sat) to the canonical Hebrew day name
+// the AI prompt uses in weekly_schedule.
+const PLAN_DAY_NAMES_HE = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+
+// Find today's planned workout from the active plan, if any. Returns
+// the full workout object (joined from plan.workouts by workout_id) or
+// null when today is a rest day or no plan exists.
+function planWorkoutForDate(plan, isoDate) {
+  if (!plan || !Array.isArray(plan.weekly_schedule) || !Array.isArray(plan.workouts)) return null;
+  const dow = parseDOWFromISO(isoDate); // 0..6 (Sun..Sat) — matches PLAN_DAY_NAMES_HE
+  const dayName = PLAN_DAY_NAMES_HE[dow];
+  const sched = plan.weekly_schedule.find(s => s.day === dayName);
+  if (!sched || !sched.workout_id) return null;
+  return plan.workouts.find(w => w.id === sched.workout_id) || null;
+}
+
 function WorkoutScreen() {
   const { state, dispatch } = useStore();
   const toast = useToast();
@@ -13,6 +449,9 @@ function WorkoutScreen() {
   const [showRoutines, setShowRoutines] = React.useState(false);
   const [showQuickLog, setShowQuickLog] = React.useState(false);
   const [prefill, setPrefill] = React.useState(null); // { name, type, exercises, routineId? } when opening NewWorkoutDialog from a routine
+  // v3.19: AI plan onboarding + read-only preview
+  const [showPlanOnboarding, setShowPlanOnboarding] = React.useState(false);
+  const [showPlanWorkout, setShowPlanWorkout] = React.useState(null); // workout object
 
   const sessions = state.workouts?.sessions || {};
   const workoutsToday = sessions[dateViewing] || [];
@@ -78,6 +517,95 @@ function WorkoutScreen() {
         onRefresh={() => new Promise(r => setTimeout(r, 600))}
         style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 20px' }}
       >
+        {/* v3.19: AI plan card. Either the "create plan" CTA (no plan yet)
+            or the active plan summary with today's workout. The full
+            ActiveWorkoutScreen lands in v3.20 — for now "התחל אימון"
+            opens PlanWorkoutPreviewDialog. */}
+        {!state.workouts?.plan ? (
+          <Card padding={18} style={{
+            marginBottom: 12,
+            background: `linear-gradient(135deg, ${T.lime}15 0%, ${T.bgElev2} 100%)`,
+            border: `1px solid ${T.lime}55`,
+          }}>
+            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TabIcon name="sparkle" size={11} />
+              <span>תוכנית אימונים מותאמת</span>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
+              ה-AI יבנה לכם תוכנית 7 ימים
+            </div>
+            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 14 }}>
+              שאלון של 6 שאלות. חימום, תרגילים עם הוראות, מנוחות, מתיחות — מותאם
+              לרמה, לציוד ולמגבלות שלכם.
+            </div>
+            <button onClick={() => setShowPlanOnboarding(true)} style={{
+              width: '100%', height: 48,
+              background: T.lime, color: T.bg,
+              border: 'none', borderRadius: 12,
+              fontSize: 14, fontWeight: 800, fontFamily: T.font,
+              cursor: 'pointer',
+            }}>
+              צור תוכנית מותאמת
+            </button>
+          </Card>
+        ) : (() => {
+          const plan = state.workouts.plan;
+          const todayWorkout = planWorkoutForDate(plan, todayISO());
+          return (
+            <Card padding={14} style={{
+              marginBottom: 12,
+              background: `linear-gradient(145deg, ${T.bgElev}, ${T.bgElev2})`,
+              border: `1px solid ${T.lime}40`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 10, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 2 }}>
+                    התוכנית שלך
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {plan.plan_name || 'תוכנית'}
+                  </div>
+                </div>
+                <button onClick={() => setShowPlanOnboarding(true)} style={{
+                  background: 'transparent', border: `1px solid ${T.stroke}`,
+                  color: T.inkSub, padding: '6px 10px', borderRadius: 8,
+                  fontSize: 11, fontFamily: T.mono, cursor: 'pointer', flexShrink: 0,
+                }}>עדכן</button>
+              </div>
+
+              {todayWorkout ? (
+                <>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>היום</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginTop: 2 }}>
+                      {todayWorkout.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginTop: 3 }}>
+                      {todayWorkout.duration_estimate} דקות · {todayWorkout.exercises?.length || 0} תרגילים
+                    </div>
+                  </div>
+                  <button onClick={() => setShowPlanWorkout(todayWorkout)} style={{
+                    width: '100%', height: 48,
+                    background: T.lime, color: T.bg,
+                    border: 'none', borderRadius: 12,
+                    fontSize: 14, fontWeight: 800, fontFamily: T.font,
+                    cursor: 'pointer',
+                  }}>
+                    הצג את האימון של היום
+                  </button>
+                </>
+              ) : (
+                <div style={{
+                  padding: '14px 12px', background: T.bgElev, borderRadius: 10,
+                  fontSize: 12, color: T.inkSub, lineHeight: 1.6, textAlign: 'center',
+                }}>
+                  היום אין אימון מתוכנן · יום מנוחה
+                </div>
+              )}
+            </Card>
+          );
+        })()}
+
         {/* Weekly summary card */}
         <Card padding={14} style={{ marginBottom: 12, background: `linear-gradient(145deg, ${T.bgElev}, ${T.bgElev2})` }}>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
@@ -203,6 +731,15 @@ function WorkoutScreen() {
         }}
       />}
       {showQuickLog && <QuickLogDialog onClose={() => setShowQuickLog(false)} />}
+      {/* v3.19 — AI plan flows */}
+      {showPlanOnboarding && <WorkoutOnboardingScreen
+        onClose={() => setShowPlanOnboarding(false)}
+        onPlanReady={() => setShowPlanOnboarding(false)}
+      />}
+      {showPlanWorkout && <PlanWorkoutPreviewDialog
+        workout={showPlanWorkout}
+        onClose={() => setShowPlanWorkout(null)}
+      />}
     </div>
   );
 }

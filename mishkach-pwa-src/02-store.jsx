@@ -57,6 +57,20 @@ const initialState = {
     sessions: {},
     // routines: saved templates the user can repeat
     routines: {}, // { routineId: { name, exercises: [{exerciseId, defaultSets, defaultReps}], lastUsed, useCount } }
+    // ─── v3.19 (Stage H part 1): AI-generated training plan ─────────
+    // plan_settings: snapshot of the onboarding questionnaire — used to
+    // re-prompt the model if the user wants a new plan, and to remember
+    // their preferences across regenerations.
+    //   { experience, location, duration, frequency, goal, limitations[], custom_limitation }
+    plan_settings: null,
+    // plan: the active AI-generated workout plan. Shape mirrors
+    // WORKOUT_PLAN_GENERATOR_PROMPT's output schema (see 20-ai-prompts.jsx)
+    // — { generated_at, plan_name, summary, weekly_schedule[], workouts[], tips[] }
+    // Set to null when the user has no plan yet (first-time WorkoutScreen entry).
+    plan: null,
+    // plan_history: previous plans, most-recent-first. Capped server-side
+    // when SET_WORKOUT_PLAN runs so we don't grow unbounded in localStorage.
+    plan_history: [],
   },
   // תובנות AI config — supports both BYO key (direct) and shared password (proxy)
   apiConfig: {
@@ -179,6 +193,12 @@ function loadState() {
         ...(parsed.workouts || {}),
         sessions: (parsed.workouts || {}).sessions || {},
         routines: (parsed.workouts || {}).routines || {},
+        // v3.19: defaults preserve null/empty for users upgrading from pre-Stage-H.
+        plan_settings: (parsed.workouts || {}).plan_settings || null,
+        plan: (parsed.workouts || {}).plan || null,
+        plan_history: Array.isArray((parsed.workouts || {}).plan_history)
+          ? (parsed.workouts || {}).plan_history
+          : [],
       },
       apiConfig: { ...initialState.apiConfig, ...(parsed.apiConfig || {}) },
       usage: {
@@ -583,6 +603,44 @@ function reducer(state, action) {
       delete routines[action.routineId];
       return { ...state, workouts: { ...state.workouts, routines } };
     }
+
+    // ─── v3.19: AI workout plan ───────────────────────────────────────
+    case 'SET_PLAN_SETTINGS':
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          plan_settings: { ...action.settings },
+        },
+      };
+    // Replace the active plan. The previous plan (if any) is pushed onto
+    // plan_history so the user can roll back from Profile if needed.
+    // History is capped at 5 to keep localStorage tidy.
+    case 'SET_WORKOUT_PLAN': {
+      const PLAN_HISTORY_CAP = 5;
+      const prev = state.workouts.plan;
+      const history = prev
+        ? [prev, ...(state.workouts.plan_history || [])].slice(0, PLAN_HISTORY_CAP)
+        : (state.workouts.plan_history || []);
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          plan: { ...action.plan, generated_at: action.plan.generated_at || new Date().toISOString() },
+          plan_history: history,
+        },
+      };
+    }
+    case 'CLEAR_WORKOUT_PLAN':
+      // Used by "create from scratch" path; preserves plan_settings so the
+      // user doesn't have to re-answer the questionnaire.
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          plan: null,
+        },
+      };
 
     default:
       return state;

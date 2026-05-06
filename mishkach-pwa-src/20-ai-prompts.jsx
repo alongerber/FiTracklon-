@@ -490,6 +490,165 @@ const WORKOUT_VOICE_PARSER_PROMPT = `אתה מפרסר רישום קולי של 
 
 החזר JSON תקין בלבד, ללא markdown, ללא טקסט נוסף.`;
 
+// ════════════════════════════════════════════════════════════════════
+// Stage H (v3.19) — AI workout plan generator
+// ════════════════════════════════════════════════════════════════════
+// Takes the questionnaire (state.workouts.plan_settings) + basic user
+// stats and returns a 7-day plan with warmup/exercises/cooldown per
+// session. Opus 4.7 — quality of programming matters more here than
+// Sonnet's response speed; we only generate this once per cycle.
+//
+// The schema is consumed by:
+//   • WorkoutScreen (renders the plan card + "today's workout")
+//   • PlanWorkoutPreviewDialog (shows full warmup/exercises/cooldown)
+//   • [v3.20] ActiveWorkoutScreen (drives the live session flow)
+const WORKOUT_PLAN_GENERATOR_PROMPT = `אתה מאמן כושר אישי שיוצר תוכנית אימונים שבועית ל-{name} ({gender}).
+
+נתוני המשתמש:
+- גיל: {age}
+- גובה: {heightCm} ס״מ
+- משקל: {weightKg} ק״ג
+- מטרה כללית: {weightGoal}
+
+תשובות לשאלון:
+- רמת ניסיון: {experience}
+- מקום אימון: {location}
+- אורך אימון מועדף: {duration} דקות
+- תדירות שבועית: {frequency} פעמים בשבוע
+- מה הכי חשוב: {goal}
+- מגבלות: {limitations}{customLimitationLine}
+
+צור תוכנית אימונים שבועית מותאמת. החזר JSON תקין בלבד (ללא markdown, ללא טקסט נוסף):
+
+{
+  "plan_name": "<שם תיאורי קצר בעברית, למשל: 'תוכנית 3 ימים בבית'>",
+  "summary": "<פסקה אחת בעברית, מסבירה את הגישה — דגשים, מבנה, למה זה מתאים למשתמש>",
+  "weekly_schedule": [
+    { "day": "ראשון",   "workout_id": "<id|null>" },
+    { "day": "שני",     "workout_id": "<id|null>" },
+    { "day": "שלישי",   "workout_id": "<id|null>" },
+    { "day": "רביעי",   "workout_id": "<id|null>" },
+    { "day": "חמישי",   "workout_id": "<id|null>" },
+    { "day": "שישי",    "workout_id": "<id|null>" },
+    { "day": "שבת",     "workout_id": "<id|null>" }
+  ],
+  "workouts": [
+    {
+      "id": "<id ייחודי, למשל w1>",
+      "name": "<שם האימון בעברית>",
+      "duration_estimate": <מספר דקות, מציאותי>,
+      "warmup": [
+        { "name": "<שם>", "duration": <שניות>, "instruction": "<משפט אחד>" }
+      ],
+      "exercises": [
+        {
+          "id": "<id ייחודי בתוך האימון>",
+          "name": "<שם בעברית>",
+          "instruction": "<משפט–שניים, איך מבצעים>",
+          "sets": <מספר>,
+          "reps": "<למשל \\"8-12\\" או \\"45 שניות\\">",
+          "rest_seconds": <מספר>,
+          "tip": "<שורה אחת — קל יותר/קשה יותר>",
+          "equipment": "<none|dumbbell|barbell|machine|mat|other>"
+        }
+      ],
+      "cooldown": [
+        { "name": "<שם>", "duration": <שניות> }
+      ]
+    }
+  ],
+  "tips": [ "<טיפ כללי 1>", "<טיפ כללי 2>" ]
+}
+
+חוקים מוחלטים:
+1. כל הטקסטים בעברית. שמות תרגילים בעברית. אל תכתוב transliterations באנגלית באמצע ("burpees", "squat") — תרגם לעברית ("ברפיז", "סקוואט").
+2. הוראות פשוטות ל-2nd person — "הניחו ידיים", "ירדו עד..." — בלי ז׳רגון מקצועי (RM, RPE, AMRAP).
+3. מספר האימונים ב-weekly_schedule חייב להיות בדיוק כמו ה-frequency. שאר הימים workout_id = null.
+4. בחר ימים שיש ביניהם הפרשי מנוחה הגיוניים (לא 5 ימים ברצף לבן אחר ביום).
+5. duration_estimate חייב להיות קרוב ל-duration המבוקש (±5 דקות).
+6. בכל אימון: לפחות חימום אחד + גוף האימון + מתיחה אחת.
+7. תאם לציוד שזמין:
+   - home_no_equipment: רק bodyweight + אביזרים יומיומיים (כיסא, מגבת)
+   - home_weights: + dumbbells / kettlebell / resistance bands
+   - gym: גישה מלאה למכשירים ולמוט
+   - flexible: שילוב — אבל ציין equipment בכל תרגיל
+8. מגבלות:
+   - back: בלי deadlift כבד, בלי good morning, בלי כפיפות בטן full sit-up. כן: hip hinge קל, planks, bird-dog.
+   - knees: בלי lunges/jump squats. כן: glute bridges, step-ups נמוכים.
+   - shoulders: בלי overhead press כבד, בלי dips. כן: front raise קל, scapula work.
+   - none: הכל מותר.
+   - other: התייחס ל-customLimitation בכבוד — אם לא ברור, העדף שמרנות.
+9. שמות יומיים: ראשון/שני/שלישי/רביעי/חמישי/שישי/שבת — בדיוק כך, בלי ה' הידיעה ובלי "יום".
+10. equipment חייב להיות אחד מהערכים: none|dumbbell|barbell|machine|mat|other.
+11. tips הוא מערך של 2-4 משפטים — טיפים כלליים לתוכנית כולה (לא לתרגיל ספציפי).
+
+זכור: זו תוכנית אמיתית שהמשתמש יבצע. אל תכלול תרגילים שדורשים ציוד שאין לו, ואל תהיה אגרסיבי מדי לרמת הניסיון שלו.`;
+
+const EXPERIENCE_LABELS_HE = {
+  beginner:   'מתחיל מאפס (לא התאמנתי שנים)',
+  occasional: 'מתאמן מדי פעם, לא קבוע',
+  regular:    'קבוע (פעם בשבוע+)',
+  serious:    'רציני, יש ניסיון',
+};
+const LOCATION_LABELS_HE = {
+  home_no_equipment: 'בבית, בלי ציוד',
+  home_weights:      'בבית, יש משקולות',
+  gym:               'חדר כושר',
+  flexible:          'גמיש — גם וגם',
+};
+const GOAL_LABELS_HE = {
+  lose_weight: 'לרדת במשקל',
+  strength:    'להיות חזק יותר',
+  aesthetics:  'להיראות יותר טוב',
+  energy:      'להרגיש יותר אנרגטי',
+};
+const LIMITATION_LABELS_HE = {
+  back:      'בעיות גב',
+  knees:     'בעיות ברכיים',
+  shoulders: 'בעיות כתפיים',
+  none:      'אין מגבלות',
+  other:     'אחר',
+};
+
+// Build the system prompt — substitutes user data + questionnaire answers
+// into WORKOUT_PLAN_GENERATOR_PROMPT placeholders.
+function buildWorkoutPlanPrompt(state, planSettings, currentWeightKg) {
+  const gender = state?.user?.gender === 'female' ? 'female' : 'male';
+  const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
+  const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
+  const age = state?.user?.ageYears || 35;
+  const heightCm = state?.user?.heightCm || 170;
+  const weightKg = currentWeightKg || state?.user?.startWeight || 75;
+
+  const goalKg = state?.goal?.weight;
+  const weightGoalLine = (goalKg !== null && goalKg !== undefined && weightKg)
+    ? (weightKg > goalKg ? `ירידה של ${(weightKg - goalKg).toFixed(1)} ק״ג` :
+       weightKg < goalKg ? `עלייה של ${(goalKg - weightKg).toFixed(1)} ק״ג` :
+       'שמירה על המשקל')
+    : 'לא הוגדרה';
+
+  const limitations = (planSettings.limitations || []).map(l => LIMITATION_LABELS_HE[l] || l);
+  const limitationsStr = limitations.length > 0 ? limitations.join(', ') : 'אין';
+  const customLimitationLine = planSettings.custom_limitation
+    ? `\n- מגבלה ספציפית: ${planSettings.custom_limitation}`
+    : '';
+
+  return WORKOUT_PLAN_GENERATOR_PROMPT
+    .replace('{name}', name)
+    .replace('{gender}', genderHe)
+    .replace('{age}', String(age))
+    .replace('{heightCm}', String(heightCm))
+    .replace('{weightKg}', String(weightKg))
+    .replace('{weightGoal}', weightGoalLine)
+    .replace('{experience}',  EXPERIENCE_LABELS_HE[planSettings.experience]  || planSettings.experience)
+    .replace('{location}',    LOCATION_LABELS_HE[planSettings.location]      || planSettings.location)
+    .replace('{duration}',    String(planSettings.duration))
+    .replace('{frequency}',   String(planSettings.frequency))
+    .replace('{goal}',        GOAL_LABELS_HE[planSettings.goal]              || planSettings.goal)
+    .replace('{limitations}', limitationsStr)
+    .replace('{customLimitationLine}', customLimitationLine);
+}
+
 // Build the voice parser system prompt with the catalog interpolated
 function buildWorkoutVoiceParserPrompt() {
   // Compact catalog: just what the model needs to map text → id

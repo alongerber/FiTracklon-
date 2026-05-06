@@ -28,6 +28,7 @@ const MODEL_BY_FEATURE = {
   monthly_recap:      'claude-opus-4-7',     // v3.13: cross-data correlations need Opus reasoning
   auto_correlations:  'claude-opus-4-7',     // pattern detection across many days — needs Opus reasoning
   what_if:            'claude-sonnet-4-6',   // forward projection from numbers — Sonnet handles
+  workout_plan:       'claude-opus-4-7',     // v3.19: structured multi-day plan, programming quality matters
 };
 
 const DEFAULT_MODEL = 'claude-opus-4-7';
@@ -581,6 +582,80 @@ async function generateWhatIf(snapshot, scenarioText, config, onUsage, state) {
     onUsage,
   });
   return extractJSON(text);
+}
+
+// ─── v3.19: AI workout plan generator (Opus) ────────────────────────
+// `planSettings` matches state.workouts.plan_settings (questionnaire answers).
+// `currentWeightKg` is sourced from stats.current at the call site so the
+// model can frame the plan around the user's actual current weight.
+//
+// Returns the parsed plan JSON. Caller is responsible for normalizing IDs
+// (we trust the model + the Hebrew prompt rules but defensive-clamp the
+// most critical fields below). On error throws like other API helpers.
+async function generateWorkoutPlan(planSettings, currentWeightKg, config, onUsage, state) {
+  const system = buildWorkoutPlanPrompt(state || {}, planSettings, currentWeightKg);
+  const { text } = await callClaude({
+    config,
+    model: MODEL_BY_FEATURE.workout_plan,
+    system,
+    // Keep the user message tiny — all the substance is in the system prompt.
+    messages: [{ role: 'user', content: 'הוצא JSON תקין לפי הסכמה.' }],
+    maxTokens: 4000, // 7-day plan with multiple workouts × multiple exercises = lots of tokens
+    onUsage,
+  });
+  const parsed = extractJSON(text);
+
+  // Defensive normalization — guard against missing/malformed fields so
+  // the rest of the app can render without null-checks everywhere.
+  const HEBREW_DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+  const safeStr = (v, fallback = '') => typeof v === 'string' ? v : fallback;
+  const safeNum = (v, fallback = 0) => {
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    return isNaN(n) ? fallback : n;
+  };
+
+  // Schedule: pad/truncate to 7 entries in the canonical day order.
+  const inputSchedule = Array.isArray(parsed.weekly_schedule) ? parsed.weekly_schedule : [];
+  const scheduleByDay = {};
+  inputSchedule.forEach(s => { if (s && HEBREW_DAYS.includes(s.day)) scheduleByDay[s.day] = s.workout_id || null; });
+  const weekly_schedule = HEBREW_DAYS.map(day => ({
+    day,
+    workout_id: scheduleByDay[day] || null,
+  }));
+
+  const workouts = (Array.isArray(parsed.workouts) ? parsed.workouts : []).map((w, wi) => ({
+    id: safeStr(w.id, `w${wi + 1}`),
+    name: safeStr(w.name, 'אימון'),
+    duration_estimate: Math.round(safeNum(w.duration_estimate, planSettings.duration || 30)),
+    warmup: (Array.isArray(w.warmup) ? w.warmup : []).map(item => ({
+      name: safeStr(item?.name),
+      duration: Math.round(safeNum(item?.duration, 30)),
+      instruction: safeStr(item?.instruction),
+    })),
+    exercises: (Array.isArray(w.exercises) ? w.exercises : []).map((ex, ei) => ({
+      id: safeStr(ex?.id, `${w.id || 'w' + (wi + 1)}-ex${ei + 1}`),
+      name: safeStr(ex?.name, 'תרגיל'),
+      instruction: safeStr(ex?.instruction),
+      sets: Math.max(1, Math.round(safeNum(ex?.sets, 3))),
+      reps: safeStr(ex?.reps, '8-12'),
+      rest_seconds: Math.max(15, Math.round(safeNum(ex?.rest_seconds, 60))),
+      tip: safeStr(ex?.tip),
+      equipment: safeStr(ex?.equipment, 'none'),
+    })),
+    cooldown: (Array.isArray(w.cooldown) ? w.cooldown : []).map(item => ({
+      name: safeStr(item?.name),
+      duration: Math.round(safeNum(item?.duration, 30)),
+    })),
+  }));
+
+  return {
+    plan_name: safeStr(parsed.plan_name, 'תוכנית אימונים'),
+    summary: safeStr(parsed.summary),
+    weekly_schedule,
+    workouts,
+    tips: Array.isArray(parsed.tips) ? parsed.tips.filter(t => typeof t === 'string') : [],
+    generated_at: new Date().toISOString(),
+  };
 }
 
 // ─── Voice → workout parser (Sonnet) ────────────────────────────────

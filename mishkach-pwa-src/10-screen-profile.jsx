@@ -15,6 +15,8 @@ function ProfileScreen({ onNavigate }) {
   const [showWorkoutReminder, setShowWorkoutReminder] = React.useState(false);
   const [showReport, setShowReport] = React.useState(false);
   const [showMonthlyArchive, setShowMonthlyArchive] = React.useState(false);
+  // v3.19: regenerate AI workout plan from Profile
+  const [showWorkoutPlanOnboarding, setShowWorkoutPlanOnboarding] = React.useState(false);
   const currentPersona = state.settings.persona || 'neutral';
   const personaLabel = PERSONAS[currentPersona]?.name || 'ישיר';
 
@@ -148,6 +150,10 @@ function ProfileScreen({ onNavigate }) {
               return `${dayStr} · ${r.time || '17:00'}`;
             })()}
             onClick={() => setShowWorkoutReminder(true)} />
+          {/* v3.19: regenerate the AI plan. Existing answers are pre-filled. */}
+          <RowItem icon={<TabIcon name="sparkle" size={18} />} label="תוכנית אימונים"
+            value={state.workouts?.plan ? 'עדכן / צור מחדש' : 'צור עכשיו'}
+            onClick={() => setShowWorkoutPlanOnboarding(true)} />
         </Section>
 
         {/* Install app */}
@@ -188,7 +194,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.18
+          מִשְׁקַלּוּת · v3.19
         </div>
       </div>
 
@@ -197,6 +203,10 @@ function ProfileScreen({ onNavigate }) {
       {showUsage && <UsageDetailsDialog onClose={() => setShowUsage(false)} />}
       {showTips && <CreativeTipsLibrary onClose={() => setShowTips(false)} />}
       {showPersona && <PersonaPickerDialog onClose={() => setShowPersona(false)} />}
+      {showWorkoutPlanOnboarding && <WorkoutOnboardingScreen
+        onClose={() => setShowWorkoutPlanOnboarding(false)}
+        onPlanReady={() => setShowWorkoutPlanOnboarding(false)}
+      />}
       {showNotifications && <NotificationsSettingsDialog onClose={() => setShowNotifications(false)} />}
       {showWorkoutReminder && <WorkoutReminderDialog onClose={() => setShowWorkoutReminder(false)} />}
       {showReport && <ReportScreen onClose={() => setShowReport(false)} />}
