@@ -71,6 +71,25 @@ const initialState = {
     // plan_history: previous plans, most-recent-first. Capped server-side
     // when SET_WORKOUT_PLAN runs so we don't grow unbounded in localStorage.
     plan_history: [],
+    // ─── v3.21 (Stage H part 2): in-flight workout session ──────────
+    // Persisted to localStorage so a user who closes the app mid-workout
+    // can resume later. App boot offers a recovery dialog when this is
+    // populated AND startedAt is within the last 24h. Cleared on
+    // COMPLETE_ACTIVE_WORKOUT or ABANDON_ACTIVE_WORKOUT.
+    //   {
+    //     workoutId, date, startedAt, mode: 'full'|'quick',
+    //     currentSection: 'warmup'|'exercise'|'cooldown'|'done',
+    //     currentExerciseIdx, currentSetIdx,
+    //     completedSets: [{exerciseId, setIdx, reps, weight, ts}],
+    //     skippedSections: ['warmup' | 'cooldown' | ...],
+    //     bonusExercises: [{name, sets:[{reps, weight}]}],   // v3.22
+    //     pausedAt: timestamp | null,
+    //   }
+    activeSession: null,
+    // Per-workout subjective feedback the user picks at completion.
+    // Keyed by date — one feedback per workout day. Used by future
+    // adjustment AI (Stage H tail) to scale next session's intensity.
+    feedback: {},
   },
   // תובנות AI config — supports both BYO key (direct) and shared password (proxy)
   apiConfig: {
@@ -199,6 +218,9 @@ function loadState() {
         plan_history: Array.isArray((parsed.workouts || {}).plan_history)
           ? (parsed.workouts || {}).plan_history
           : [],
+        // v3.21
+        activeSession: (parsed.workouts || {}).activeSession || null,
+        feedback: (parsed.workouts || {}).feedback || {},
       },
       apiConfig: { ...initialState.apiConfig, ...(parsed.apiConfig || {}) },
       usage: {
@@ -645,6 +667,156 @@ function reducer(state, action) {
         workouts: {
           ...state.workouts,
           plan: null,
+        },
+      };
+
+    // ─── v3.21: active workout session ────────────────────────────────
+    // Begin a session against a specific planned workout. `mode` controls
+    // whether warmup/cooldown are included by default — quick mode skips
+    // both up front (the user can opt back in for cooldown at completion).
+    case 'START_ACTIVE_WORKOUT': {
+      const { workoutId, date, mode } = action;
+      const isQuick = mode === 'quick';
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: {
+            workoutId,
+            date: date || todayISO(),
+            startedAt: new Date().toISOString(),
+            mode: isQuick ? 'quick' : 'full',
+            // Quick mode jumps straight to the first exercise. Full mode
+            // starts at warmup (the screen renders a "skip warmup" affordance).
+            currentSection: isQuick ? 'exercise' : 'warmup',
+            currentExerciseIdx: 0,
+            currentSetIdx: 0,
+            completedSets: [],
+            // Quick mode pre-marks warmup as skipped — used in the
+            // completion summary AND by the "add cooldown?" prompt.
+            skippedSections: isQuick ? ['warmup'] : [],
+            bonusExercises: [],
+            pausedAt: null,
+          },
+        },
+      };
+    }
+    // Patch the active session — lets the screen advance currentSection /
+    // currentExerciseIdx / currentSetIdx without re-specifying the whole
+    // object. Returns state unchanged if there's no session in flight.
+    case 'PATCH_ACTIVE_SESSION': {
+      if (!state.workouts.activeSession) return state;
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: { ...state.workouts.activeSession, ...action.patch },
+        },
+      };
+    }
+    // Append one completed set to the session's log + advance position.
+    // Caller decides what comes next (resting, advancing exercise, finishing
+    // cooldown) — this just records the data point.
+    case 'COMPLETE_SET': {
+      if (!state.workouts.activeSession) return state;
+      const { exerciseId, setIdx, reps, weight } = action;
+      const completedSets = [
+        ...(state.workouts.activeSession.completedSets || []),
+        { exerciseId, setIdx, reps, weight: weight ?? null, ts: new Date().toISOString() },
+      ];
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: { ...state.workouts.activeSession, completedSets },
+        },
+      };
+    }
+    case 'SKIP_SECTION': {
+      if (!state.workouts.activeSession) return state;
+      const skippedSections = Array.from(new Set([
+        ...(state.workouts.activeSession.skippedSections || []),
+        action.section,
+      ]));
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: { ...state.workouts.activeSession, skippedSections },
+        },
+      };
+    }
+    // v3.22 stub — kept here so the reducer is forward-compat with the
+    // bonus exercise modal landing in the next ship. UI doesn't dispatch
+    // this yet.
+    case 'ADD_BONUS_EXERCISE': {
+      if (!state.workouts.activeSession) return state;
+      const bonusExercises = [
+        ...(state.workouts.activeSession.bonusExercises || []),
+        action.exercise,
+      ];
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: { ...state.workouts.activeSession, bonusExercises },
+        },
+      };
+    }
+    // Finalize: turn the active session into a saved workout (sessions[date])
+    // and clear the in-flight state. The summary helper that drives the
+    // CompletionScreen passes the durationMin + feedback in.
+    case 'COMPLETE_ACTIVE_WORKOUT': {
+      const session = state.workouts.activeSession;
+      if (!session) return state;
+      const { date, durationMin, feedback, workout } = action;
+      const sessions = { ...state.workouts.sessions };
+      const dayList = sessions[date] || [];
+      const newWorkout = {
+        ...workout,
+        id: workout.id || uid(),
+        time: workout.time || nowHHMM(),
+        durationMin: durationMin || 0,
+        createdAt: new Date().toISOString(),
+        // v3.21: tag so the row in WorkoutHistory shows where it came from
+        source: workout.source || (session.mode === 'quick' ? 'plan_quick' : 'plan_full'),
+      };
+      sessions[date] = [...dayList, newWorkout];
+      const feedbackByDate = { ...(state.workouts.feedback || {}) };
+      if (feedback) feedbackByDate[date] = { rating: feedback, ts: new Date().toISOString() };
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          sessions,
+          activeSession: null,
+          feedback: feedbackByDate,
+        },
+      };
+    }
+    case 'ABANDON_ACTIVE_WORKOUT':
+      return {
+        ...state,
+        workouts: { ...state.workouts, activeSession: null },
+      };
+    // Pause / resume just toggle the pausedAt timestamp; no state machine
+    // jump. The screen reads pausedAt to mute its timers.
+    case 'PAUSE_ACTIVE_WORKOUT':
+      if (!state.workouts.activeSession) return state;
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: { ...state.workouts.activeSession, pausedAt: new Date().toISOString() },
+        },
+      };
+    case 'RESUME_ACTIVE_WORKOUT':
+      if (!state.workouts.activeSession) return state;
+      return {
+        ...state,
+        workouts: {
+          ...state.workouts,
+          activeSession: { ...state.workouts.activeSession, pausedAt: null },
         },
       };
 

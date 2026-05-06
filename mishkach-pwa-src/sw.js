@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.20 — offline-first, auto-invalidate cache
+// מִשְׁקַלּוּת Service Worker v3.21 — offline-first, auto-invalidate cache
 // ════════════════════════════════════════════════════════════════════
 // v3.20 note: /data/*.json files (strings/tips/ai-prompts) are NOT in
 // the install precache list — addAll() is atomic, so a missing file
@@ -7,7 +7,7 @@
 // same-origin fetch handler below on first request, and the prefetch
 // link tags in <head> warm them in parallel with React boot.
 
-const CACHE = 'mishkalut-v320';
+const CACHE = 'mishkalut-v321';
 const CORE = [
   './',
   './index.html',

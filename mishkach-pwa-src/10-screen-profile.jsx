@@ -200,7 +200,7 @@ function ProfileScreen({ onNavigate }) {
         </Section>
 
         <div style={{ textAlign: 'center', fontSize: 10, color: T.inkMute, marginTop: 20, fontFamily: T.mono }}>
-          מִשְׁקַלּוּת · v3.20
+          מִשְׁקַלּוּת · v3.21
         </div>
       </div>
 

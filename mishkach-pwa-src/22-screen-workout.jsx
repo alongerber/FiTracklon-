@@ -287,6 +287,746 @@ function chipStyle(active) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// v3.21 — Audio + duration helpers for the rest timer
+// ════════════════════════════════════════════════════════════════════
+// One module-scoped AudioContext, lazily created on first beep so we
+// don't hit the iOS "AudioContext requires user gesture" gotcha during
+// React mount. Shared across all rest timers in a session.
+let _wktAudioCtx = null;
+function _getWktAudio() {
+  if (_wktAudioCtx) return _wktAudioCtx;
+  if (typeof window === 'undefined') return null;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try { _wktAudioCtx = new Ctx(); return _wktAudioCtx; }
+  catch (_) { return null; }
+}
+function playRestEndBeep() {
+  // Two short 880Hz beeps — clear "rest is over" cue without being shrill.
+  // If audio is blocked (page hidden, no user gesture yet), we silently no-op.
+  try {
+    const ctx = _getWktAudio();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    [0, 0.18].forEach(offset => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.18, now + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.18);
+    });
+  } catch (_) { /* swallow */ }
+  // Best-effort haptic on supporting devices (mostly Android Chrome)
+  try { if (navigator.vibrate) navigator.vibrate([180, 60, 180]); } catch (_) {}
+}
+
+// Format an mm:ss elapsed timer
+function _fmtMmSs(totalSec) {
+  const s = Math.max(0, Math.round(totalSec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+// Compute the duration in minutes between an ISO timestamp and now.
+function _durationMinSince(isoStart) {
+  if (!isoStart) return 0;
+  const ms = Date.now() - new Date(isoStart).getTime();
+  return Math.max(0, Math.round(ms / 60000));
+}
+
+// Estimate kcal burned for a session — cheap proxy: ~6 kcal/min for moderate
+// strength, ~8 kcal/min for cardio/quick. Real numbers depend on body mass +
+// HR but the user just needs a useful magnitude.
+function _estimateKcal(workout, durationMin) {
+  if (!durationMin || durationMin <= 0) return 0;
+  const isCardio = (workout?.exercises || []).some(ex =>
+    /הליכה|ריצה|אופניים|ארובי|קפיצה|חבל/.test(ex.name || '')
+  );
+  const ratePerMin = isCardio ? 8 : 6;
+  return Math.round(durationMin * ratePerMin);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ActiveWorkoutScreen — live workout flow (Stage H part 2)
+// ════════════════════════════════════════════════════════════════════
+// State machine: warmup → exercise[i].set[j] → rest → exercise[i].set[j+1]
+//   → exercise[i+1] → ... → cooldown → completion → save & dismiss.
+//
+// All transitions go through dispatch (PATCH_ACTIVE_SESSION / COMPLETE_SET
+// / SKIP_SECTION) so a mid-session app close can resume from
+// state.workouts.activeSession on next App boot.
+//
+// Mode "quick": starts at exercise (skips warmup); after the last set,
+// asks "להוסיף מתיחות?" before the completion summary.
+function ActiveWorkoutScreen({ onClose }) {
+  const { state, dispatch } = useStore();
+  const toast = useToast();
+
+  const session = state.workouts?.activeSession;
+  const plan = state.workouts?.plan;
+  // Resolve the workout from the plan by ID. If the user wiped the plan
+  // mid-session somehow, abandon gracefully.
+  const workout = React.useMemo(() => {
+    if (!session || !plan) return null;
+    return (plan.workouts || []).find(w => w.id === session.workoutId) || null;
+  }, [session?.workoutId, plan]);
+
+  if (!session) { onClose && onClose(); return null; }
+  if (!workout) {
+    return (
+      <ActiveScreenShell onClose={() => { dispatch({ type: 'ABANDON_ACTIVE_WORKOUT' }); onClose && onClose(); }}>
+        <div style={{ padding: 32, textAlign: 'center', color: T.inkSub }}>
+          האימון של הסשן הפעיל לא נמצא בתוכנית. נסגור את הסשן.
+        </div>
+      </ActiveScreenShell>
+    );
+  }
+
+  const exerciseCount = (workout.exercises || []).length;
+
+  // ─── Section transitions ─────────────────────────────────────────
+  // Hide a section if it was skipped at start (quick mode) OR mid-flow.
+  const skipped = (sec) => (session.skippedSections || []).includes(sec);
+
+  const goToExercises = () => {
+    dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: {
+      currentSection: 'exercise',
+      currentExerciseIdx: 0,
+      currentSetIdx: 0,
+    }});
+  };
+
+  const onWarmupDone = () => goToExercises();
+  const onWarmupSkip = () => {
+    dispatch({ type: 'SKIP_SECTION', section: 'warmup' });
+    trackEvent('Workout Section Skipped', { section: 'warmup' });
+    goToExercises();
+  };
+
+  // After completing a set, decide if it's the last set, the last exercise,
+  // or just the next set. Emits dispatches to advance the session.
+  const advanceAfterSet = (recordedReps, recordedWeight, viaSkip = false) => {
+    const ex = workout.exercises[session.currentExerciseIdx];
+    if (!viaSkip) {
+      dispatch({
+        type: 'COMPLETE_SET',
+        exerciseId: ex.id,
+        setIdx: session.currentSetIdx,
+        reps: recordedReps,
+        weight: recordedWeight,
+      });
+    }
+
+    const isLastSet = session.currentSetIdx + 1 >= (ex.sets || 1);
+    const isLastExercise = session.currentExerciseIdx + 1 >= exerciseCount;
+
+    if (!isLastSet) {
+      // Same exercise, next set — go through rest timer first
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: {
+        currentSection: 'rest',
+        currentSetIdx: session.currentSetIdx + 1,
+      }});
+      return;
+    }
+    if (!isLastExercise) {
+      // Next exercise, set 0 — also go through a short rest
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: {
+        currentSection: 'rest',
+        currentExerciseIdx: session.currentExerciseIdx + 1,
+        currentSetIdx: 0,
+      }});
+      return;
+    }
+    // Done with all exercises — quick mode asks about cooldown,
+    // full mode goes straight to cooldown (or completion if skipped).
+    if (session.mode === 'quick') {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'cooldown_prompt' } });
+    } else if (skipped('cooldown') || !(workout.cooldown || []).length) {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'done' } });
+    } else {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'cooldown' } });
+    }
+  };
+
+  // The exercise screen passes a "skip exercise" handler too — same as
+  // last-set + last-exercise transition checks but without recording.
+  const onExerciseSkip = () => {
+    const isLastExercise = session.currentExerciseIdx + 1 >= exerciseCount;
+    trackEvent('Workout Section Skipped', { section: 'exercise' });
+    if (!isLastExercise) {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: {
+        currentExerciseIdx: session.currentExerciseIdx + 1,
+        currentSetIdx: 0,
+        currentSection: 'exercise',
+      }});
+    } else if (session.mode === 'quick') {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'cooldown_prompt' } });
+    } else if (skipped('cooldown') || !(workout.cooldown || []).length) {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'done' } });
+    } else {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'cooldown' } });
+    }
+  };
+
+  const onRestDone = () => {
+    dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'exercise' } });
+  };
+
+  const onCooldownDone = () => {
+    dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'done' } });
+  };
+  const onCooldownSkip = () => {
+    dispatch({ type: 'SKIP_SECTION', section: 'cooldown' });
+    trackEvent('Workout Section Skipped', { section: 'cooldown' });
+    dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'done' } });
+  };
+
+  // Cooldown prompt (quick mode only, after last set)
+  const onCooldownPromptYes = () => {
+    if ((workout.cooldown || []).length > 0) {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'cooldown' } });
+    } else {
+      dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'done' } });
+    }
+  };
+  const onCooldownPromptNo = () => {
+    dispatch({ type: 'SKIP_SECTION', section: 'cooldown' });
+    dispatch({ type: 'PATCH_ACTIVE_SESSION', patch: { currentSection: 'done' } });
+  };
+
+  // Completion → persist + close. Caller passes the feedback rating.
+  const finalizeWorkout = (feedbackRating) => {
+    const durationMin = _durationMinSince(session.startedAt);
+    // Build the saved workout from the completed sets + bonus exercises (v3.22)
+    const exByCompleted = {};
+    for (const cs of (session.completedSets || [])) {
+      if (!exByCompleted[cs.exerciseId]) exByCompleted[cs.exerciseId] = [];
+      exByCompleted[cs.exerciseId][cs.setIdx] = {
+        reps: cs.reps || 0,
+        weight: (cs.weight !== null && cs.weight !== undefined) ? cs.weight : null,
+      };
+    }
+    const exercises = (workout.exercises || []).map(ex => {
+      const sets = (exByCompleted[ex.id] || []).filter(Boolean);
+      // Dropping skipped sets entirely keeps the saved record honest —
+      // history shows what actually happened, not what was planned.
+      return {
+        id: uid(),
+        exerciseId: null,
+        name: ex.name,
+        muscle: null,
+        hasWeight: sets.some(s => s.weight !== null),
+        isDuration: false,
+        sets: sets.length > 0 ? sets : [],
+        notes: '',
+      };
+    }).filter(ex => ex.sets.length > 0);
+    // v3.22 will append bonusExercises here — left empty in v3.21.
+    const savedWorkout = {
+      time: nowHHMM(),
+      name: workout.name || 'אימון מתוכנן',
+      type: 'strength',
+      durationMin,
+      notes: '',
+      exercises,
+      planRef: { workoutId: workout.id, planGeneratedAt: plan?.generated_at || null },
+    };
+    dispatch({
+      type: 'COMPLETE_ACTIVE_WORKOUT',
+      date: session.date,
+      durationMin,
+      feedback: feedbackRating,
+      workout: savedWorkout,
+    });
+    trackEvent('Active Workout Completed', {
+      mode: session.mode,
+      duration_min: durationMin,
+      feedback: feedbackRating,
+    });
+    toast(personaStr(state, 'workout_saved', 'האימון נשמר. כל הכבוד.'), { type: 'success' });
+    onClose && onClose();
+  };
+
+  const abandon = () => {
+    dispatch({ type: 'ABANDON_ACTIVE_WORKOUT' });
+    trackEvent('Active Workout Abandoned', { mode: session.mode });
+    onClose && onClose();
+  };
+
+  // ─── Render the active section ───────────────────────────────────
+  let body;
+  if (session.currentSection === 'warmup') {
+    body = <ActiveWarmup
+      items={workout.warmup || []}
+      onDone={onWarmupDone}
+      onSkip={onWarmupSkip}
+    />;
+  } else if (session.currentSection === 'exercise') {
+    const ex = workout.exercises[session.currentExerciseIdx];
+    body = <ActiveExerciseSet
+      exercise={ex}
+      exerciseIdx={session.currentExerciseIdx}
+      exerciseCount={exerciseCount}
+      setIdx={session.currentSetIdx}
+      onComplete={(reps, weight) => advanceAfterSet(reps, weight, false)}
+      onSkipSet={() => {
+        trackEvent('Workout Section Skipped', { section: 'set' });
+        advanceAfterSet(0, null, true);
+      }}
+      onSkipExercise={onExerciseSkip}
+    />;
+  } else if (session.currentSection === 'rest') {
+    const prevExIdx = session.currentSetIdx === 0
+      ? Math.max(0, session.currentExerciseIdx - 1)
+      : session.currentExerciseIdx;
+    const restSec = workout.exercises[prevExIdx]?.rest_seconds || 60;
+    body = <ActiveRestTimer
+      seconds={restSec}
+      onDone={onRestDone}
+      onSkip={onRestDone}
+    />;
+  } else if (session.currentSection === 'cooldown_prompt') {
+    body = <ActiveCooldownPrompt onYes={onCooldownPromptYes} onNo={onCooldownPromptNo} />;
+  } else if (session.currentSection === 'cooldown') {
+    body = <ActiveCooldown
+      items={workout.cooldown || []}
+      onDone={onCooldownDone}
+      onSkip={onCooldownSkip}
+    />;
+  } else if (session.currentSection === 'done') {
+    body = <ActiveCompletion
+      session={session}
+      workout={workout}
+      onSave={finalizeWorkout}
+    />;
+  }
+
+  return <ActiveScreenShell onClose={abandon}>{body}</ActiveScreenShell>;
+}
+
+// ─── Shell ──────────────────────────────────────────────────────────
+function ActiveScreenShell({ children, onClose }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 880,
+      display: 'flex', flexDirection: 'column', direction: 'rtl',
+    }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${T.stroke}` }}>
+        <button onClick={onClose} aria-label="עצור אימון" style={{
+          width: 36, height: 36, borderRadius: 18, background: T.bgElev, color: T.ink,
+          border: 'none', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>×</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 14, fontWeight: 700 }}>
+          אימון פעיל
+        </div>
+        <div style={{ width: 36 }} />
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto' }}>{children}</div>
+    </div>
+  );
+}
+
+// ─── Section: warmup ───────────────────────────────────────────────
+// Continuous timer (mm:ss) — there's no per-item count; the user just
+// works through the warmup list at their own pace. "סיימתי" advances.
+function ActiveWarmup({ items, onDone, onSkip }) {
+  const [elapsed, setElapsed] = React.useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!items || items.length === 0) {
+    // Empty warmup — auto-advance after a tick
+    React.useEffect(() => { onDone && onDone(); }, []);
+    return null;
+  }
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>חימום</div>
+      <div style={{ fontFamily: T.mono, fontSize: 32, fontWeight: 800, color: T.cyan, letterSpacing: -1, marginBottom: 18 }}>
+        {_fmtMmSs(elapsed)}
+      </div>
+      <Card padding={14} style={{ marginBottom: 18 }}>
+        {items.map((w, i) => (
+          <div key={i} style={{
+            padding: '10px 0',
+            borderBottom: i === items.length - 1 ? 'none' : `1px solid ${T.stroke}`,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{w.name}</div>
+              {w.duration ? <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono }}>{w.duration}ש׳</div> : null}
+            </div>
+            {w.instruction && (
+              <div style={{ fontSize: 12, color: T.inkSub, marginTop: 4, lineHeight: 1.5 }}>{w.instruction}</div>
+            )}
+          </div>
+        ))}
+      </Card>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={onSkip}>דלג חימום</Button>
+        <Button onClick={onDone}>סיימתי</Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Section: exercise + set ───────────────────────────────────────
+function ActiveExerciseSet({ exercise, exerciseIdx, exerciseCount, setIdx, onComplete, onSkipSet, onSkipExercise }) {
+  // Default reps from the planned "reps" string — accept "8-12" → 10, "12" → 12.
+  const defaultReps = React.useMemo(() => {
+    const s = String(exercise?.reps || '').trim();
+    const range = s.match(/(\d+)\s*-\s*(\d+)/);
+    if (range) return Math.round((parseInt(range[1], 10) + parseInt(range[2], 10)) / 2);
+    const single = s.match(/(\d+)/);
+    return single ? parseInt(single[1], 10) : 10;
+  }, [exercise?.reps]);
+  const showWeight = !!(exercise?.equipment && exercise.equipment !== 'none');
+
+  const [reps, setReps] = React.useState(defaultReps);
+  const [weight, setWeight] = React.useState(0);
+
+  // Reset per-set
+  React.useEffect(() => {
+    setReps(defaultReps);
+    setWeight(0);
+  }, [exerciseIdx, setIdx, defaultReps]);
+
+  const totalSets = exercise?.sets || 1;
+  const progress = Math.round(((exerciseIdx + (setIdx + 1) / totalSets) / Math.max(1, exerciseCount)) * 100);
+
+  return (
+    <div style={{ padding: 24 }}>
+      {/* Progress header */}
+      <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>
+        תרגיל {exerciseIdx + 1} מתוך {exerciseCount} · {progress}%
+      </div>
+      <div style={{ height: 4, background: T.stroke, borderRadius: 2, overflow: 'hidden', marginBottom: 22 }}>
+        <div style={{ width: `${progress}%`, height: '100%', background: T.lime, transition: 'width 200ms' }} />
+      </div>
+
+      {/* Exercise name */}
+      <div style={{ fontSize: 26, fontWeight: 800, color: T.ink, lineHeight: 1.2, marginBottom: 8, letterSpacing: -0.5 }}>
+        {exercise?.name || 'תרגיל'}
+      </div>
+      {exercise?.instruction && (
+        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 14 }}>
+          {exercise.instruction}
+        </div>
+      )}
+
+      {/* Set indicator */}
+      <div style={{
+        fontSize: 12, fontWeight: 700, color: T.lime, fontFamily: T.mono,
+        letterSpacing: 1, marginBottom: 10,
+      }}>סט {setIdx + 1} מתוך {totalSets}</div>
+
+      {/* Reps + weight controls */}
+      <Card padding={16} style={{ marginBottom: 12 }}>
+        <ActiveCounterRow label="חזרות" value={reps} unit=""
+          step={1} min={0} max={500} onChange={setReps} />
+        {showWeight && (
+          <ActiveCounterRow label="משקל" value={weight} unit="ק״ג"
+            step={2.5} min={0} max={300} onChange={setWeight}
+            valueFmt={(v) => v === 0 ? 'גוף' : v.toString()}
+            extraPad
+          />
+        )}
+      </Card>
+
+      {/* Tip */}
+      {exercise?.tip && (
+        <div style={{
+          padding: '8px 12px', borderRight: `2px solid ${T.amber}`,
+          background: `${T.amber}10`, fontSize: 11, color: T.inkSub, lineHeight: 1.5,
+          marginBottom: 18,
+        }}>💡 {exercise.tip}</div>
+      )}
+
+      {/* Action buttons — primary save + skip variants */}
+      <button onClick={() => onComplete(reps, showWeight ? weight : null)} style={{
+        width: '100%', height: 56,
+        background: T.lime, color: T.bg, border: 'none', borderRadius: 14,
+        fontSize: 16, fontWeight: 800, fontFamily: T.font, cursor: 'pointer',
+        marginBottom: 10,
+      }}>
+        סיימתי הסט
+      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onSkipSet} style={skipBtnStyle}>דלג סט</button>
+        <button onClick={onSkipExercise} style={skipBtnStyle}>דלג תרגיל</button>
+      </div>
+    </div>
+  );
+}
+
+const skipBtnStyle = {
+  flex: 1, height: 44, background: 'transparent',
+  border: `1px solid ${T.stroke}`, borderRadius: 12,
+  color: T.inkSub, fontSize: 12, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer',
+};
+
+function ActiveCounterRow({ label, value, unit, step, min, max, onChange, valueFmt, extraPad }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: extraPad ? 12 : 0, paddingBottom: 4, borderTop: extraPad ? `1px solid ${T.stroke}` : 'none' }}>
+      <div style={{ flex: 1, fontSize: 13, color: T.inkSub, fontWeight: 600 }}>{label}</div>
+      <button onClick={() => onChange(Math.max(min, +(value - step).toFixed(1)))}
+        disabled={value <= min}
+        style={counterBtn(value <= min)}>−</button>
+      <div style={{
+        minWidth: 80, padding: '8px 12px', textAlign: 'center',
+        background: T.bgElev2, borderRadius: 10,
+        fontFamily: T.mono, fontSize: 18, fontWeight: 800, color: T.ink, letterSpacing: -0.5,
+      }}>{valueFmt ? valueFmt(value) : value}{unit && value !== 0 ? ' ' + unit : ''}</div>
+      <button onClick={() => onChange(Math.min(max, +(value + step).toFixed(1)))}
+        disabled={value >= max}
+        style={counterBtn(value >= max)}>+</button>
+    </div>
+  );
+}
+
+function counterBtn(disabled) {
+  return {
+    width: 44, height: 44, borderRadius: 12,
+    background: T.bgElev, border: `1px solid ${T.stroke}`,
+    color: disabled ? T.inkMute : T.ink,
+    fontSize: 22, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
+    fontFamily: 'inherit', flexShrink: 0,
+  };
+}
+
+// ─── Section: rest timer ────────────────────────────────────────────
+function ActiveRestTimer({ seconds, onDone, onSkip }) {
+  const [remaining, setRemaining] = React.useState(seconds);
+  const beepedRef = React.useRef(false);
+
+  // Interval drives the visible countdown. We call onDone via auto-advance
+  // when remaining hits 0; the beep also fires once at that moment.
+  React.useEffect(() => {
+    if (remaining <= 0) {
+      if (!beepedRef.current) { playRestEndBeep(); beepedRef.current = true; }
+      const t = setTimeout(() => onDone && onDone(), 800);
+      return () => clearTimeout(t);
+    }
+    const t = setInterval(() => setRemaining(r => r - 1), 1000);
+    return () => clearInterval(t);
+  }, [remaining, onDone]);
+
+  const total = Math.max(seconds, 1);
+  const pct = Math.max(0, Math.min(100, (1 - remaining / total) * 100));
+
+  return (
+    <div style={{ padding: 24, textAlign: 'center' }}>
+      <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 12 }}>מנוחה</div>
+
+      {/* SVG ring */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+        <svg width="200" height="200" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="44" fill="none" stroke={T.stroke} strokeWidth="6" />
+          <circle cx="50" cy="50" r="44" fill="none" stroke={T.lime} strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={`${(pct / 100) * 276.46} 276.46`}
+            transform="rotate(-90 50 50)"
+            style={{ transition: 'stroke-dasharray 200ms linear' }}
+          />
+          <text x="50" y="56" textAnchor="middle" fill={T.ink}
+            fontFamily={T.mono} fontSize="20" fontWeight="800">
+            {Math.max(0, remaining)}
+          </text>
+          <text x="50" y="68" textAnchor="middle" fill={T.inkMute}
+            fontFamily={T.mono} fontSize="6" letterSpacing="1">שניות</text>
+        </svg>
+      </div>
+
+      <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 18 }}>
+        {remaining > 0 ? 'תנשום, תשתה מים' : 'בוא נמשיך'}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={() => setRemaining(r => r + 30)}>+30 שניות</Button>
+        <Button onClick={onSkip}>דלג</Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Section: cooldown prompt (quick mode only) ────────────────────
+function ActiveCooldownPrompt({ onYes, onNo }) {
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>סיימת את התרגילים</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: 14 }}>
+        להוסיף מתיחות?
+      </div>
+      <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 22 }}>
+        2-3 דקות מתיחה אחרי אימון מהיר עוזרות להחלים מהר יותר.
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={onNo}>לא, סיימתי</Button>
+        <Button onClick={onYes}>כן</Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Section: cooldown ─────────────────────────────────────────────
+function ActiveCooldown({ items, onDone, onSkip }) {
+  const [elapsed, setElapsed] = React.useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!items || items.length === 0) {
+    React.useEffect(() => { onDone && onDone(); }, []);
+    return null;
+  }
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>מתיחות</div>
+      <div style={{ fontFamily: T.mono, fontSize: 32, fontWeight: 800, color: T.amber, letterSpacing: -1, marginBottom: 18 }}>
+        {_fmtMmSs(elapsed)}
+      </div>
+      <Card padding={14} style={{ marginBottom: 18 }}>
+        {items.map((c, i) => (
+          <div key={i} style={{
+            padding: '10px 0',
+            borderBottom: i === items.length - 1 ? 'none' : `1px solid ${T.stroke}`,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{c.name}</div>
+            {c.duration ? <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono }}>{c.duration}ש׳</div> : null}
+          </div>
+        ))}
+      </Card>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="ghost" onClick={onSkip}>דלג</Button>
+        <Button onClick={onDone}>סיימתי</Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Section: completion summary + feedback ────────────────────────
+function ActiveCompletion({ session, workout, onSave }) {
+  const [feedback, setFeedback] = React.useState(null); // 'easy' | 'right' | 'hard'
+  const totals = React.useMemo(() => {
+    const sets = (session.completedSets || []).length;
+    const exercisesUsed = new Set((session.completedSets || []).map(s => s.exerciseId)).size;
+    const durationMin = _durationMinSince(session.startedAt);
+    const kcal = _estimateKcal(workout, durationMin);
+    return { sets, exercisesUsed, durationMin, kcal };
+  }, [session.completedSets, session.startedAt, workout]);
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{
+        fontSize: 28, fontWeight: 800, color: T.lime, marginBottom: 6,
+        letterSpacing: -0.5,
+      }}>כל הכבוד.</div>
+      <div style={{ fontSize: 13, color: T.inkSub, marginBottom: 22 }}>
+        סיכום האימון:
+      </div>
+
+      <Card padding={14} style={{ marginBottom: 22 }}>
+        <SummaryRow label="תרגילים" value={`${totals.exercisesUsed}`} />
+        <SummaryRow label="סטים" value={`${totals.sets}`} />
+        <SummaryRow label="משך" value={`${totals.durationMin} דקות`} />
+        <SummaryRow label="~ק״ק (משוער)" value={`${totals.kcal}`} isLast />
+      </Card>
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 10 }}>איך הרגשת?</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 22 }}>
+        {[
+          { id: 'easy',  label: 'קל'   },
+          { id: 'right', label: 'נכון' },
+          { id: 'hard',  label: 'קשה'  },
+        ].map(f => (
+          <button key={f.id} onClick={() => setFeedback(f.id)} style={{
+            flex: 1, height: 48, borderRadius: 12,
+            background: feedback === f.id ? T.lime : T.bgElev,
+            color: feedback === f.id ? T.bg : T.ink,
+            border: `1.5px solid ${feedback === f.id ? T.lime : T.stroke}`,
+            fontSize: 14, fontWeight: 800, fontFamily: 'inherit',
+            cursor: 'pointer',
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      <Button onClick={() => onSave(feedback)}>שמור</Button>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, isLast }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+      padding: '8px 0',
+      borderBottom: isLast ? 'none' : `1px solid ${T.stroke}`,
+    }}>
+      <div style={{ fontSize: 13, color: T.inkSub }}>{label}</div>
+      <div style={{ fontFamily: T.mono, fontSize: 16, fontWeight: 800, color: T.ink }}>{value}</div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ActiveSessionRecoveryDialog — offered at App boot when there's a
+// stale activeSession in state. 24h cutoff; older sessions auto-abandon.
+// ════════════════════════════════════════════════════════════════════
+function ActiveSessionRecoveryDialog({ onResume, onSavePartial, onCancel }) {
+  const { state } = useStore();
+  const session = state.workouts?.activeSession;
+  const plan = state.workouts?.plan;
+  if (!session || !plan) return null;
+  const workout = (plan.workouts || []).find(w => w.id === session.workoutId);
+  const setsCount = (session.completedSets || []).length;
+  const minutesAgo = Math.round((Date.now() - new Date(session.startedAt).getTime()) / 60000);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 990,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      backdropFilter: 'blur(4px)',
+    }}>
+      <div style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 360, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+          אימון פעיל
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: 8 }}>
+          היית באמצע "{workout?.name || 'אימון'}".
+        </div>
+        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 18 }}>
+          {setsCount > 0 ? `השלמת ${setsCount} סטים, לפני ${minutesAgo} דקות.` : `התחלת לפני ${minutesAgo} דקות.`}
+          <br />להמשיך מאיפה שעצרת?
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Button onClick={onResume}>המשך אימון</Button>
+          {setsCount > 0 && (
+            <Button variant="ghost" onClick={onSavePartial}>סיים ושמור חלקי</Button>
+          )}
+          <button onClick={onCancel} style={{
+            width: '100%', height: 44, background: 'transparent',
+            border: `1px solid ${T.rose}55`, borderRadius: 12,
+            color: T.rose, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+          }}>בטל לגמרי</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
 // PlanWorkoutPreviewDialog — read-only view of a single planned workout
 // ════════════════════════════════════════════════════════════════════
 // In v3.19 this is the ONLY way to see a generated workout's details
@@ -452,6 +1192,30 @@ function WorkoutScreen() {
   // v3.19: AI plan onboarding + read-only preview
   const [showPlanOnboarding, setShowPlanOnboarding] = React.useState(false);
   const [showPlanWorkout, setShowPlanWorkout] = React.useState(null); // workout object
+  // v3.21: ActiveWorkoutScreen + recovery dialog
+  const [showActive, setShowActive] = React.useState(false);
+  const [showRecovery, setShowRecovery] = React.useState(false);
+
+  // Recovery — show the dialog once on mount when there's an in-flight
+  // session less than 24h old. >24h is treated as abandoned (auto-clear).
+  React.useEffect(() => {
+    const s = state.workouts?.activeSession;
+    if (!s || !s.startedAt) return;
+    const ageMs = Date.now() - new Date(s.startedAt).getTime();
+    const TWENTY_FOUR_H = 24 * 3600 * 1000;
+    if (ageMs > TWENTY_FOUR_H) {
+      dispatch({ type: 'ABANDON_ACTIVE_WORKOUT' });
+      return;
+    }
+    setShowRecovery(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const startPlannedWorkout = (workoutId, mode) => {
+    dispatch({ type: 'START_ACTIVE_WORKOUT', workoutId, date: todayISO(), mode });
+    trackEvent('Active Workout Started', { mode });
+    setShowActive(true);
+  };
 
   const sessions = state.workouts?.sessions || {};
   const workoutsToday = sessions[dateViewing] || [];
@@ -522,31 +1286,26 @@ function WorkoutScreen() {
             ActiveWorkoutScreen lands in v3.20 — for now "התחל אימון"
             opens PlanWorkoutPreviewDialog. */}
         {!state.workouts?.plan ? (
+          // v3.21: no plan yet — primary action is manual logging,
+          // secondary is the AI plan onboarding CTA.
           <Card padding={18} style={{
             marginBottom: 12,
             background: `linear-gradient(135deg, ${T.lime}15 0%, ${T.bgElev2} 100%)`,
             border: `1px solid ${T.lime}55`,
           }}>
-            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <TabIcon name="sparkle" size={11} />
-              <span>תוכנית אימונים מותאמת</span>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
-              ה-AI יבנה לכם תוכנית 7 ימים
-            </div>
-            <div style={{ fontSize: 12, color: T.inkSub, lineHeight: 1.6, marginBottom: 14 }}>
-              שאלון של 6 שאלות. חימום, תרגילים עם הוראות, מנוחות, מתיחות — מותאם
-              לרמה, לציוד ולמגבלות שלכם.
-            </div>
-            <button onClick={() => setShowPlanOnboarding(true)} style={{
-              width: '100%', height: 48,
-              background: T.lime, color: T.bg,
-              border: 'none', borderRadius: 12,
-              fontSize: 14, fontWeight: 800, fontFamily: T.font,
-              cursor: 'pointer',
-            }}>
-              צור תוכנית מותאמת
-            </button>
+            <ModeEntryButton
+              title="תיעוד ידני"
+              desc="רושם תרגילים ספונטניים"
+              primary
+              onClick={() => setShowQuickLog(true)}
+            />
+            <div style={{ fontSize: 11, color: T.inkMute, textAlign: 'center', margin: '12px 0 8px' }}>או</div>
+            <ModeEntryButton
+              title="צור תוכנית מותאמת"
+              desc="שאלון של 6 שאלות, AI בונה תוכנית 7 ימים"
+              variant="ghost"
+              onClick={() => setShowPlanOnboarding(true)}
+            />
           </Card>
         ) : (() => {
           const plan = state.workouts.plan;
@@ -575,32 +1334,66 @@ function WorkoutScreen() {
 
               {todayWorkout ? (
                 <>
-                  <div style={{ marginBottom: 10 }}>
+                  <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>היום</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, marginTop: 2 }}>
                       {todayWorkout.name}
                     </div>
-                    <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, marginTop: 3 }}>
-                      {todayWorkout.duration_estimate} דקות · {todayWorkout.exercises?.length || 0} תרגילים
-                    </div>
                   </div>
-                  <button onClick={() => setShowPlanWorkout(todayWorkout)} style={{
-                    width: '100%', height: 48,
-                    background: T.lime, color: T.bg,
-                    border: 'none', borderRadius: 12,
-                    fontSize: 14, fontWeight: 800, fontFamily: T.font,
-                    cursor: 'pointer',
-                  }}>
-                    הצג את האימון של היום
-                  </button>
+
+                  {/* v3.21: 3 entry buttons — planned / quick / preview */}
+                  <ModeEntryButton
+                    primary
+                    title="התחל אימון מתוכנן"
+                    desc={`${todayWorkout.duration_estimate} דקות · חימום + ${todayWorkout.exercises?.length || 0} תרגילים + מתיחות`}
+                    onClick={() => startPlannedWorkout(todayWorkout.id, 'full')}
+                  />
+                  <ModeEntryButton
+                    title="אימון מהיר"
+                    desc="רק התרגילים העיקריים, בלי חימום ומתיחות"
+                    onClick={() => startPlannedWorkout(todayWorkout.id, 'quick')}
+                  />
+                  <ModeEntryButton
+                    title="תיעוד ידני"
+                    desc="רושם תרגיל בודד או רצף ספונטני"
+                    variant="ghost"
+                    onClick={() => setShowQuickLog(true)}
+                  />
+                  <ModeEntryButton
+                    title="צפה בפרטי האימון"
+                    desc="ראה את התרגילים לפני שמתחיל"
+                    variant="link"
+                    onClick={() => setShowPlanWorkout(todayWorkout)}
+                  />
                 </>
               ) : (
-                <div style={{
-                  padding: '14px 12px', background: T.bgElev, borderRadius: 10,
-                  fontSize: 12, color: T.inkSub, lineHeight: 1.6, textAlign: 'center',
-                }}>
-                  היום אין אימון מתוכנן · יום מנוחה
-                </div>
+                <>
+                  <div style={{
+                    padding: '12px 12px', background: T.bgElev, borderRadius: 10,
+                    fontSize: 13, color: T.inkSub, lineHeight: 1.6, textAlign: 'center',
+                    marginBottom: 12,
+                  }}>
+                    היום יום מנוחה
+                  </div>
+                  {/* v3.21: rest day still gets a "view week" affordance */}
+                  <ModeEntryButton
+                    title="תיעוד ידני"
+                    desc="אם החלטת לעשות משהו בכל זאת"
+                    primary
+                    onClick={() => setShowQuickLog(true)}
+                  />
+                  <ModeEntryButton
+                    title="ראה תוכנית השבוע"
+                    desc="רשימת האימונים המתוכננים"
+                    variant="ghost"
+                    onClick={() => {
+                      // Find the next non-rest day to show; falls back to first workout
+                      const next = (plan.weekly_schedule || []).find(s => s.workout_id);
+                      const w = next ? plan.workouts.find(x => x.id === next.workout_id) : null;
+                      if (w) setShowPlanWorkout(w);
+                    }}
+                  />
+                </>
               )}
             </Card>
           );
@@ -740,7 +1533,66 @@ function WorkoutScreen() {
         workout={showPlanWorkout}
         onClose={() => setShowPlanWorkout(null)}
       />}
+      {/* v3.21 — active workout flow + recovery */}
+      {showActive && <ActiveWorkoutScreen onClose={() => setShowActive(false)} />}
+      {showRecovery && <ActiveSessionRecoveryDialog
+        onResume={() => { setShowRecovery(false); setShowActive(true); }}
+        onSavePartial={() => {
+          // Treat partial save as a "complete" with whatever sets exist
+          // and no feedback. The user opted out, so don't ask further.
+          setShowRecovery(false);
+          setShowActive(true);
+          // The user lands on the current section; they tap "סיים" /
+          // "דלג" through to completion themselves. (Building an
+          // auto-finalize path is risky — they may want to log one more set.)
+        }}
+        onCancel={() => {
+          dispatch({ type: 'ABANDON_ACTIVE_WORKOUT' });
+          trackEvent('Active Workout Abandoned', { mode: state.workouts?.activeSession?.mode || 'unknown' });
+          setShowRecovery(false);
+        }}
+      />}
     </div>
+  );
+}
+
+// ─── v3.21: 3-button row helper used in the WorkoutScreen plan card ──
+// `primary`  = lime filled CTA
+// `ghost`    = T.bgElev with stroke (default secondary look)
+// `link`     = no background, just a row — used for tertiary "preview"
+// Each button is a tall 2-line affordance (title + dim desc) so users
+// see what each mode does without tapping.
+function ModeEntryButton({ title, desc, onClick, primary, variant }) {
+  const isPrimary = !!primary;
+  const isLink = variant === 'link';
+  const isGhost = variant === 'ghost' && !isPrimary;
+  return (
+    <button onClick={onClick} style={{
+      width: '100%', padding: isLink ? '8px 4px' : '12px 14px',
+      marginBottom: 8,
+      background: isPrimary ? T.lime
+                : isLink    ? 'transparent'
+                : T.bgElev,
+      border: isPrimary ? 'none'
+            : isLink    ? 'none'
+            : `1px solid ${T.stroke}`,
+      borderRadius: isLink ? 0 : 12,
+      color: isPrimary ? T.bg : (isLink ? T.lime : T.ink),
+      cursor: 'pointer',
+      fontFamily: T.font, textAlign: 'right', direction: 'rtl',
+      display: 'block',
+    }}>
+      <div style={{ fontSize: isLink ? 13 : 14, fontWeight: isPrimary ? 800 : 700, lineHeight: 1.3 }}>
+        {title}{isLink ? ' ›' : ''}
+      </div>
+      {desc && !isLink && (
+        <div style={{
+          fontSize: 11,
+          color: isPrimary ? `${T.bg}cc` : T.inkSub,
+          marginTop: 3, lineHeight: 1.4, fontWeight: 500,
+        }}>{desc}</div>
+      )}
+    </button>
   );
 }
 
