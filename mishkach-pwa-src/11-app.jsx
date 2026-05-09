@@ -76,25 +76,33 @@ function Router() {
     return <OnboardingScreen />;
   }
 
-  // ── Splash gate ─────────────────────────────────────────────────
-  // Once per calendar day. settings.splashSeenToday holds today's ISO date
-  // when the splash already ran today.
-  const today = todayISO();
-  const splashAlreadyToday = state.settings.splashSeenToday === today;
-  if (!splashDone && !splashAlreadyToday) {
+  // ── Splash gate (v3.23) ──────────────────────────────────────────
+  // Show on cold launches AT MOST every 12 hours (was: once per calendar
+  // day). Suppresses splash on quick reopens during the same morning
+  // session — but plays again later in the day after a meaningful gap.
+  const SPLASH_THROTTLE_MS = 12 * 60 * 60 * 1000;
+  const splashAge = Date.now() - (state.context?.lastSplashShown || 0);
+  if (!splashDone && splashAge > SPLASH_THROTTLE_MS) {
     return <SplashScreen onComplete={() => {
-      dispatch({ type: 'SET_SETTING', key: 'splashSeenToday', value: today });
+      dispatch({ type: 'MARK_SPLASH_SHOWN' });
       setSplashDone(true);
     }} />;
   }
 
-  // ── Install prompt gate (overlay, after splash) ─────────────────
-  // Show iff: not yet installed AND user hasn't declined ≥3 times AND
-  // either we have a deferred prompt (Android/Chrome) or it's an iOS device
-  // (where we fall back to manual instructions).
-  const installDeclined = state.settings.installDeclined || 0;
+  // ── Install prompt gate (v3.23) ──────────────────────────────────
+  // Show iff:
+  //   • onboarding completed (no Install prompt during signup)
+  //   • not yet installed (display-mode detection in useInstallPrompt)
+  //   • prompt count < 3 (3-strikes rule — never re-show after 3 dismissals)
+  //   • permanent dismiss flag not set
+  //   • this session hasn't already dismissed
+  //   • either Android/Chrome (canInstall) or iOS Safari (manual flow)
+  const installCount = state.context?.installPromptCount || 0;
+  const installDismissed = state.context?.installPromptDismissed || false;
   const showInstallPrompt = !installState.isInstalled
-    && installDeclined < 3
+    && !!state.context?.onboardingComplete
+    && !installDismissed
+    && installCount < 3
     && !installDismissedThisSession
     && (installState.canInstall || installState.isIOS);
 
@@ -142,11 +150,34 @@ function Router() {
         else setScreen(tab);
       }} />}
 
-      {showInstallPrompt && <AggressiveInstallDialog
-        onInstalled={() => setInstallDismissedThisSession(true)}
-        onDecline={() => {
-          dispatch({ type: 'SET_SETTING', key: 'installDeclined', value: installDeclined + 1 });
+      {showInstallPrompt && <InstallPromptScreen
+        onInstalled={() => {
+          // Native prompt accepted — count this as a successful install
+          // (browser will fire 'appinstalled', useInstallPrompt updates,
+          //  showInstallPrompt becomes false on next render).
           setInstallDismissedThisSession(true);
+          if (typeof trackEvent === 'function') {
+            trackEvent('Install Prompt Accepted', {});
+          }
+        }}
+        onShown={() => {
+          // Track each unique render so the count survives reload.
+          dispatch({ type: 'INCREMENT_INSTALL_PROMPT_COUNT' });
+          if (typeof trackEvent === 'function') {
+            trackEvent('Install Prompt Shown', { count: installCount + 1 });
+          }
+        }}
+        onDecline={() => {
+          // 3-strikes rule: third dismiss flips the permanent flag.
+          // Up to that point each dismiss only blocks the current session.
+          const nextCount = installCount + 1;
+          if (nextCount >= 3) {
+            dispatch({ type: 'DISMISS_INSTALL_PROMPT_PERMANENT' });
+          }
+          setInstallDismissedThisSession(true);
+          if (typeof trackEvent === 'function') {
+            trackEvent('Install Prompt Dismissed', { count: nextCount });
+          }
         }}
       />}
     </div>
@@ -154,25 +185,22 @@ function Router() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// SplashScreen — 7-stage animation, plays once per day
+// SplashScreen v3.23 — short countdown animation (1500ms total)
 // ════════════════════════════════════════════════════════════════════
+// 8-frame number decay (88.6 → 0.00) over ~880ms, then 300ms fadeout.
+// Color shifts from T.lime to T.inkMute as the count approaches zero
+// — visual metaphor for "weight coming off."
 //
-// Stages (cumulative time in ms):
-//   0-500    'noise'     dark + flickering green dots
-//   500-800  'figure'    logo fades in (no number yet)
-//   800-1300 'settle'    logo settles, scale pulse, weight slot ready
-//   1300-2800 'numbers'  weight readout: 88.6 → 87.4 → 85.2 → ... → 0.00
-//   2800-3300 'tagline'  "להתקרב." appears below
-//   3300-3800 'name'     "מִשְׁקַלּוּת" replaces tagline
-//   3800-4300 'fadeout'  whole thing fades to bg
-//   4300+    onComplete()
+// Gating (Router): replays at most every 12h. The "skip" link appears
+// 500ms in so a returning user can dismiss it manually.
 //
-// Skip: tap or swipe-up jumps straight to fadeout (300ms exit).
-// prefers-reduced-motion: collapse to a 1-second fade with name only.
-//
-// LOGO NOTE (v3.11): currently uses logo-welcome.png from repo root.
-// Once a new branded PNG (with the figure + scale showing 0.00) is dropped
-// in, this component renders it untouched — no code change needed.
+// Replaced the v3.11 7-stage version per the v3.23 brief: simpler,
+// faster, less intrusive. Same logo asset (logo-welcome.png).
+
+const _SPLASH_FRAMES = [88.6, 76.2, 62.1, 41.5, 21.7, 8.3, 2.1, 0.00];
+const _SPLASH_FRAME_MS = 110;
+const _SPLASH_TOTAL_MS = 1500;
+const _SPLASH_FADEOUT_MS = 300;
 
 function SplashScreen({ onComplete }) {
   const reducedMotion = React.useMemo(() => {
@@ -180,225 +208,166 @@ function SplashScreen({ onComplete }) {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
-  const [stage, setStage] = React.useState(reducedMotion ? 'name' : 'noise');
-  const [weight, setWeight] = React.useState(0);
-  const [skipped, setSkipped] = React.useState(false);
+  const [frameIdx, setFrameIdx] = React.useState(0);
+  const [showSkip, setShowSkip] = React.useState(false);
+  const [fadeOut, setFadeOut] = React.useState(false);
 
-  // Schedule the stage transitions
+  // Reduced motion: skip the animation entirely, fade-out only.
   React.useEffect(() => {
     if (reducedMotion) {
-      // Reduced motion: 1s total, just brand name then exit
-      const t1 = setTimeout(() => setStage('fadeout'), 700);
-      const t2 = setTimeout(onComplete, 1000);
-      return () => { clearTimeout(t1); clearTimeout(t2); };
+      const t = setTimeout(() => {
+        setFadeOut(true);
+        setTimeout(onComplete, _SPLASH_FADEOUT_MS);
+      }, 600);
+      return () => clearTimeout(t);
     }
-
-    const timers = [
-      setTimeout(() => setStage('figure'),  500),
-      setTimeout(() => setStage('settle'),  800),
-      setTimeout(() => setStage('numbers'), 1300),
-      setTimeout(() => setStage('tagline'), 2800),
-      setTimeout(() => setStage('name'),    3300),
-      setTimeout(() => setStage('fadeout'), 3800),
-      setTimeout(onComplete,                4300),
-    ];
-    return () => timers.forEach(clearTimeout);
+    // Frame-by-frame decay; pinned to setInterval for predictable cadence.
+    const interval = setInterval(() => {
+      setFrameIdx(i => {
+        const next = i + 1;
+        if (next >= _SPLASH_FRAMES.length) clearInterval(interval);
+        return next;
+      });
+    }, _SPLASH_FRAME_MS);
+    // Skip link appears at 500ms so impatient users have an out
+    const skipTimer = setTimeout(() => setShowSkip(true), 500);
+    // Total budget: full anim + 200ms hold on "0.00" + fadeout
+    const fadeTimer = setTimeout(() => setFadeOut(true), _SPLASH_TOTAL_MS - _SPLASH_FADEOUT_MS);
+    const completeTimer = setTimeout(onComplete, _SPLASH_TOTAL_MS);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(skipTimer);
+      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reducedMotion]);
 
-  // Weight readout countdown — runs through `numbers` stage
-  React.useEffect(() => {
-    if (stage !== 'numbers') return;
-    const sequence = [88.6, 87.4, 85.2, 82.1, 78.5, 74.2, 65.0, 50.1, 32.8, 12.1, 0.0];
-    let i = 0;
-    const interval = setInterval(() => {
-      setWeight(sequence[i]);
-      i++;
-      if (i >= sequence.length) clearInterval(interval);
-    }, 1500 / sequence.length); // span 1500ms across all values
-    return () => clearInterval(interval);
-  }, [stage]);
+  const skip = React.useCallback(() => {
+    setFadeOut(true);
+    setTimeout(onComplete, _SPLASH_FADEOUT_MS);
+  }, [onComplete]);
 
-  // Skip → fadeout immediately
-  const skip = () => {
-    if (skipped) return;
-    setSkipped(true);
-    setStage('fadeout');
-    setTimeout(onComplete, 300);
-  };
-
-  // Touch/swipe-up handler — track Y movement, skip on swipe up
-  const touchStart = React.useRef(0);
-  const onTouchStart = (e) => { touchStart.current = e.touches[0].clientY; };
-  const onTouchMove = (e) => {
-    const dy = touchStart.current - e.touches[0].clientY;
-    if (dy > 30) skip();
-  };
+  // Color blends from lime → inkMute as the count approaches 0
+  const t = Math.min(1, frameIdx / Math.max(1, _SPLASH_FRAMES.length - 1));
+  const numberColor = t < 0.5 ? T.lime : T.inkSub;
+  const currentValue = _SPLASH_FRAMES[Math.min(frameIdx, _SPLASH_FRAMES.length - 1)];
 
   return (
-    <>
-      <style>{`
-        @keyframes mk-splash-pixel {
-          0%, 100% { opacity: 0; }
-          50% { opacity: 0.6; }
-        }
-        @keyframes mk-splash-pop {
-          0% { transform: scale(0.7); opacity: 0; }
-          70% { transform: scale(1.05); opacity: 1; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes mk-splash-settle {
-          0% { transform: scale(1.05); }
-          100% { transform: scale(1); }
-        }
-        @keyframes mk-splash-text-in {
-          0% { opacity: 0; transform: translateY(8px); }
-          100% { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-
-      <div
-        onClick={skip}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 9999,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      opacity: fadeOut ? 0 : 1,
+      transition: `opacity ${_SPLASH_FADEOUT_MS}ms ease`,
+      direction: 'rtl', overflow: 'hidden',
+      padding: '0 24px',
+    }}>
+      {/* Logo 140px per spec */}
+      <img src="./logo-welcome.png"
+        alt="מִשְׁקַלּוּת"
         style={{
-          position: 'fixed', inset: 0, background: T.bg, zIndex: 9999,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          opacity: stage === 'fadeout' ? 0 : 1,
-          transition: 'opacity 480ms ease',
-          cursor: 'pointer', overflow: 'hidden',
+          width: 140, height: 140, objectFit: 'contain',
+          borderRadius: 22,
+          boxShadow: `0 0 60px ${T.lime}33`,
+          marginBottom: 22,
+        }} />
+
+      {/* Brand title */}
+      <div style={{
+        fontSize: 32, fontWeight: 800, color: T.ink,
+        letterSpacing: -0.5, marginBottom: 28,
+        fontFamily: T.font.body || T.font,
+      }}>מִשְׁקַלּוּת.</div>
+
+      {/* Animated number — fades from lime to muted as it counts down */}
+      {!reducedMotion && (
+        <div style={{
+          fontFamily: T.font.mono, fontVariantNumeric: 'tabular-nums',
+          fontSize: 96, fontWeight: 700, letterSpacing: -3,
+          color: numberColor,
+          transition: 'color 420ms ease',
+          lineHeight: 1,
         }}>
+          {currentValue.toFixed(currentValue < 10 ? 2 : 1)}
+        </div>
+      )}
 
-        {/* Stage 1: random green pixels (CSS-only) */}
-        {stage === 'noise' && (
-          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            {Array.from({ length: 30 }).map((_, i) => (
-              <div key={i} style={{
-                position: 'absolute',
-                left: `${(i * 137 % 100)}%`,
-                top: `${(i * 89 % 100)}%`,
-                width: 4, height: 4,
-                background: T.lime,
-                borderRadius: 2,
-                opacity: 0,
-                animation: `mk-splash-pixel ${300 + (i * 17 % 200)}ms ease-in-out infinite`,
-                animationDelay: `${i * 13}ms`,
-              }} />
-            ))}
-          </div>
-        )}
-
-        {/* Logo block — visible from stage 'figure' onward */}
-        {stage !== 'noise' && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18,
-          }}>
-            <div style={{
-              width: 170, height: 170,
-              animation: stage === 'figure' ? 'mk-splash-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
-                       : stage === 'settle' ? 'mk-splash-settle 480ms ease-out forwards'
-                       : 'none',
-              opacity: 1,
-            }}>
-              <img src="./logo-welcome.png"
-                alt="מִשְׁקַלּוּת"
-                style={{
-                  width: '100%', height: '100%', objectFit: 'contain',
-                  borderRadius: 24,
-                  boxShadow: `0 0 60px ${T.lime}40`,
-                }} />
-            </div>
-
-            {/* Weight readout — visible during 'numbers' stage and after */}
-            {(stage === 'numbers' || stage === 'tagline' || stage === 'name' || stage === 'fadeout') && (
-              <div style={{
-                display: 'flex', alignItems: 'baseline', gap: 6,
-                fontFamily: T.font.mono,
-                color: stage === 'numbers' ? T.lime : T.inkSub,
-                transition: 'color 320ms',
-              }}>
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: -1, fontVariantNumeric: 'tabular-nums' }}>
-                  {weight.toFixed(1)}
-                </span>
-                <span style={{ fontSize: 14, opacity: 0.7 }}>ק״ג</span>
-              </div>
-            )}
-
-            {/* Tagline — appears in 'tagline' stage */}
-            {stage === 'tagline' && (
-              <div style={{
-                fontFamily: T.font.body, fontSize: 24, fontWeight: 600, color: T.lime,
-                animation: 'mk-splash-text-in 320ms ease-out',
-              }}>להתקרב.</div>
-            )}
-
-            {/* Brand name — replaces tagline in 'name' stage */}
-            {(stage === 'name' || stage === 'fadeout') && (
-              <div style={{
-                fontFamily: T.font.body, fontSize: 32, fontWeight: 800, color: T.ink,
-                animation: 'mk-splash-text-in 320ms ease-out',
-                letterSpacing: -0.5,
-              }}>מִשְׁקַלּוּת</div>
-            )}
-          </div>
-        )}
-
-        {/* Skip hint at bottom — subtle */}
-        {!reducedMotion && stage !== 'noise' && stage !== 'fadeout' && (
-          <div style={{
-            position: 'absolute', bottom: 32, left: 0, right: 0,
-            textAlign: 'center', fontSize: 11, color: T.inkMute, fontFamily: T.font.mono,
-            opacity: 0.6, letterSpacing: 1,
-          }}>
-            דלג ↑
-          </div>
-        )}
-      </div>
-    </>
+      {/* Skip — appears after 500ms, bottom-right (dim) */}
+      {showSkip && !fadeOut && (
+        <button onClick={skip} style={{
+          position: 'absolute', bottom: 24, left: 24,
+          background: 'transparent', border: 'none', color: T.inkMute,
+          fontSize: 11, fontFamily: T.font.body || T.font,
+          cursor: 'pointer', padding: 8, opacity: 0.7,
+        }}>דלג</button>
+      )}
+    </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════════
-// AggressiveInstallDialog — fullscreen install prompt
+// InstallPromptScreen v3.23 — gendered + 3-strikes
 // ════════════════════════════════════════════════════════════════════
 //
-// Shows after splash (and after onboarding) on devices that:
-//   - aren't installed as PWA
-//   - haven't declined ≥3 times (settings.installDeclined)
-//   - either have a deferred install prompt (Android/Chrome/Edge) OR
-//     are iOS Safari (we'll show manual instructions)
+// Replaces AggressiveInstallDialog. The copy is the cynic_coach voice
+// (dry, observational, treats user like an adult — "remote control"
+// metaphor) but we render the same text regardless of which persona
+// the user picked: Hebrew gender forms switch by state.user.gender,
+// the persona attribution stays internal.
 //
-// No close (X). The decline path is the small underline link at the
-// bottom — psychological friction by design (per the brief copy).
+// Gating in Router:
+//   • onboardingComplete === true (no install nag during signup)
+//   • !installState.isInstalled
+//   • installPromptCount < 3 (3-strikes rule)
+//   • !installPromptDismissed (permanent kill flag set on third strike)
+//
+// onShown fires once per render so the count survives reloads. The
+// "התקנה" CTA is large lime; the decline link is dim and underlined —
+// asymmetric on purpose.
 
-function AggressiveInstallDialog({ onInstalled, onDecline }) {
+function InstallPromptScreen({ onInstalled, onShown, onDecline }) {
+  const { state } = useStore();
   const installState = useInstallPrompt();
   const [showIOSGuide, setShowIOSGuide] = React.useState(false);
 
-  // iOS guide subview — reuses the existing IOSInstallDialog from 04-ui.jsx
+  // Fire onShown exactly once per mount. Wrapped in a ref guard so a
+  // re-render doesn't double-count. dispatch chain: first paint →
+  // INCREMENT_INSTALL_PROMPT_COUNT → state changes → component re-renders
+  // (but the ref blocks the second onShown call).
+  const shownRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!shownRef.current && !showIOSGuide) {
+      shownRef.current = true;
+      onShown && onShown();
+    }
+  }, [onShown, showIOSGuide]);
+
   if (showIOSGuide) {
-    return <IOSInstallDialog onClose={() => {
+    return <IOSInstallStepsScreen onClose={() => {
+      // Showing the iOS steps counts as "user has the info" → mark as
+      // installed so the prompt doesn't re-open this session.
       setShowIOSGuide(false);
-      // Closing the iOS guide counts as "user saw the steps" — let parent
-      // think install completed so the prompt doesn't pop again this session
-      onInstalled?.();
-    }} />;
+      onInstalled && onInstalled();
+    }} gender={state.user?.gender} />;
   }
 
-  const handleInstallClick = async () => {
+  const handleInstall = async () => {
     if (installState.isIOS) {
       setShowIOSGuide(true);
       return;
     }
     const accepted = await installState.install();
-    if (accepted) {
-      onInstalled?.();
-    }
-    // If user dismissed the native prompt, don't auto-decline — they may
-    // try again next session. Just leave the dialog up so they can hit
-    // the explicit decline link if they really mean it.
+    if (accepted) onInstalled && onInstalled();
+    // If user dismissed the native prompt, leave the dialog up — they
+    // can still tap the explicit decline link.
   };
 
-  const installButtonLabel = installState.isIOS ? 'ראה איך להתקין' : 'התקן עכשיו';
+  const isFemale = state.user?.gender === 'female';
+  // Hebrew gender forms (the persona cadence stays the same)
+  const youMust       = isFemale ? 'את לא חייבת'       : 'אתה לא חייב';
+  const youWillNeed   = isFemale ? 'תצטרכי'             : 'תצטרך';
+  const youWillWant   = isFemale ? 'שתרצי'              : 'שתרצה';
+  const continueLink  = 'להמשיך בדפדפן';
 
   return (
     <div style={{
@@ -409,44 +378,79 @@ function AggressiveInstallDialog({ onInstalled, onDecline }) {
       <img src="./logo-welcome.png"
         alt="מִשְׁקַלּוּת"
         style={{
-          width: 120, height: 120, objectFit: 'contain',
-          borderRadius: 24, marginBottom: 28,
+          width: 100, height: 100, objectFit: 'contain',
+          borderRadius: 22, marginBottom: 24,
           boxShadow: `0 0 50px ${T.lime}33`,
         }} />
 
       <div style={{
-        ...T.text.h1, color: T.ink, marginBottom: 28, textAlign: 'center',
-      }}>התקן את האפליקציה.</div>
+        fontSize: 22, fontWeight: 800, color: T.ink,
+        letterSpacing: -0.3, marginBottom: 22, textAlign: 'center',
+      }}>{youMust} להתקין אותי.</div>
 
       <div style={{
-        maxWidth: 360, fontSize: 16, lineHeight: 1.7, color: T.inkSub,
-        fontFamily: T.font.body, textAlign: 'right', marginBottom: 32,
+        maxWidth: 380, fontSize: 15, lineHeight: 1.75, color: T.inkSub,
+        textAlign: 'right', marginBottom: 28,
       }}>
-        <p style={{ margin: '0 0 16px' }}>
-          לא בגלל שהיא יותר מהירה. היא יותר מהירה.
-        </p>
-        <p style={{ margin: '0 0 16px' }}>
-          לא בגלל שהיא עובדת בלי אינטרנט. היא עובדת בלי אינטרנט.
+        <p style={{ margin: '0 0 14px' }}>
+          בלי התקנה, {youWillNeed} לפתוח דפדפן בכל פעם {youWillWant} לשקול את עצמ{isFemale ? 'ך' : 'ך'}.
+          זה כמו לקום מהספה כדי להחליף ערוץ. אפשר... אבל יש שלט, אז למה?
         </p>
         <p style={{ margin: 0, color: T.ink }}>
-          בגלל שאם היא לא על המסך הראשי, אתה לא תפתח אותה. וזה לא בגללה. זה בגללך. שנינו יודעים.
+          ההתקנה לוקחת 5 שניות. אחרי זה אני במסך הבית, לחיצה אחת.
         </p>
       </div>
 
-      <button onClick={handleInstallClick} style={{
-        width: '100%', maxWidth: 360, height: 56,
+      <button onClick={handleInstall} style={{
+        width: '100%', maxWidth: 380, height: 56,
         background: T.lime, color: T.bg, border: 'none',
-        borderRadius: 14, fontSize: 17, fontWeight: 800,
-        fontFamily: T.font.body, cursor: 'pointer',
-        boxShadow: `0 8px 28px ${T.lime}44`,
-      }}>{installButtonLabel}</button>
+        borderRadius: 14, fontSize: 18, fontWeight: 800,
+        fontFamily: T.font.body || T.font, cursor: 'pointer',
+        boxShadow: `0 4px 16px ${T.lime}55`,
+      }}>התקנה</button>
 
       <button onClick={onDecline} style={{
         marginTop: 18, background: 'transparent', border: 'none',
-        color: T.inkMute, fontSize: 13, fontFamily: T.font.body,
+        color: T.inkMute, fontSize: 13, fontFamily: T.font.body || T.font,
         textDecoration: 'underline', cursor: 'pointer',
-        textAlign: 'center', padding: 8, lineHeight: 1.5,
-      }}>אני אבטיח להיכנס דרך הדפדפן · אנחנו יודעים שלא</button>
+        textAlign: 'center', padding: 8,
+      }}>{continueLink}</button>
+    </div>
+  );
+}
+
+// ─── iOS install instructions (gendered) ────────────────────────────
+function IOSInstallStepsScreen({ onClose, gender }) {
+  const isFemale = gender === 'female';
+  const press = isFemale ? 'לחצי' : 'לחץ';
+  const scroll = isFemale ? 'גללי' : 'גלל';
+  const choose = isFemale ? 'בחרי' : 'בחר';
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: T.bg, zIndex: 9001,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: '40px 24px', direction: 'rtl',
+    }}>
+      <div style={{
+        fontSize: 20, fontWeight: 800, color: T.ink, marginBottom: 22, textAlign: 'center',
+      }}>ב-iPhone זה קצת אחרת</div>
+
+      <ol style={{
+        maxWidth: 380, fontSize: 15, lineHeight: 1.9, color: T.inkSub,
+        textAlign: 'right', marginBottom: 28, paddingInlineStart: 22,
+      }}>
+        <li>{press} על כפתור Share למטה (□↑)</li>
+        <li>{scroll} ו-{choose} "Add to Home Screen"</li>
+        <li>{press} "Add"</li>
+      </ol>
+
+      <button onClick={onClose} style={{
+        width: '100%', maxWidth: 380, height: 52,
+        background: T.lime, color: T.bg, border: 'none',
+        borderRadius: 14, fontSize: 16, fontWeight: 800,
+        fontFamily: T.font.body || T.font, cursor: 'pointer',
+      }}>הבנתי</button>
     </div>
   );
 }

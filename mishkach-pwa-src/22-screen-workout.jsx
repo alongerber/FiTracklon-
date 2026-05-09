@@ -1482,6 +1482,167 @@ function BonusExerciseDialog({ onClose }) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// v3.23 — Steps tracking UI
+// ════════════════════════════════════════════════════════════════════
+
+// One-time onboarding question. Fires on WorkoutScreen mount when
+// state.settings.tracksSteps is null. The 'maybe' option is functionally
+// the same as 'no' for now — re-prompt logic is a v3.x TODO.
+function StepsOnboardingDialog({ onClose, onPick }) {
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 970,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24, backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 380, width: '100%', direction: 'rtl',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: T.ink, marginBottom: 14 }}>
+          רגע, שאלה אחת.
+        </div>
+        <div style={{ fontSize: 14, lineHeight: 1.7, color: T.ink, marginBottom: 14 }}>
+          יש לך/ך דרך לדעת כמה צעדים עשית/ית היום? שעון, אפליקציה אחרת, הרגשה כללית — כל דבר.
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.6, color: T.inkSub, marginBottom: 20 }}>
+          המידע הזה נותן ערך רק אם תזין/י גם תזונה ומשקל באותם הימים. אחרת זה רעש.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Button onClick={() => onPick('yes')}>יש לי דרך</Button>
+          <Button variant="ghost" onClick={() => onPick('no')}>לא רלוונטי לי</Button>
+          <button onClick={() => onPick('maybe')} style={{
+            background: 'transparent', border: 'none',
+            color: T.inkMute, fontSize: 12, fontFamily: 'inherit',
+            cursor: 'pointer', padding: 10,
+          }}>אולי בעתיד</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Card on the WorkoutScreen showing today's steps + week aggregate.
+// Two layouts: with-data and empty.
+function StepsWidget({ stepsToday, steps, onEdit }) {
+  const today = todayISO();
+  // Compute last-7-day total + average (only days with a count > 0)
+  const { weekTotal, weekAvg } = React.useMemo(() => {
+    let total = 0, days = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = addDaysISO(today, -i);
+      const s = steps?.[d];
+      if (s && s.count > 0) { total += s.count; days += 1; }
+    }
+    return {
+      weekTotal: total,
+      weekAvg: days > 0 ? Math.round(total / days) : 0,
+    };
+  }, [steps, today]);
+
+  if (!stepsToday) {
+    return (
+      <Card padding={14} style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 6 }}>
+          צעדים היום
+        </div>
+        <div style={{ fontSize: 13, color: T.inkSub, marginBottom: 12 }}>
+          לא תועדו עדיין
+        </div>
+        <button onClick={onEdit} style={{
+          width: '100%', padding: 12,
+          background: T.bgElev, color: T.ink,
+          border: `1.5px dashed ${T.lime}`, borderRadius: 12,
+          fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}>
+          <TabIcon name="plus" size={14} />
+          <span>הוספה</span>
+        </button>
+      </Card>
+    );
+  }
+
+  return (
+    <Card padding={14} style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1 }}>
+          צעדים היום
+        </div>
+        <button onClick={onEdit} aria-label="עריכה" style={{
+          background: 'transparent', border: `1px solid ${T.stroke}`, borderRadius: 8,
+          color: T.inkSub, padding: '4px 10px', fontSize: 11, fontFamily: 'inherit',
+          cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+        }}>
+          <TabIcon name="edit" size={11} />
+          <span>עריכה</span>
+        </button>
+      </div>
+      <div style={{
+        fontFamily: T.mono, fontSize: 28, fontWeight: 800, color: T.ink,
+        letterSpacing: -0.5, marginBottom: 8,
+      }}>
+        {stepsToday.count.toLocaleString('he-IL')}
+      </div>
+      {weekTotal > 0 && (
+        <div style={{ fontSize: 11, color: T.inkSub, fontFamily: T.mono, lineHeight: 1.6 }}>
+          השבוע: {weekTotal.toLocaleString('he-IL')}
+          <br />
+          ממוצע: {weekAvg.toLocaleString('he-IL')}/יום
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Single-input dialog — the user types whatever the watch shows.
+// No max validation — user knows their own number better than we do.
+function StepsLogDialog({ initialCount, onClose, onSave }) {
+  const [count, setCount] = React.useState(initialCount || 0);
+  const handleSave = () => {
+    if (count <= 0) return;
+    onSave(count);
+  };
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 980,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24, backdropFilter: 'blur(4px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
+        padding: 22, maxWidth: 360, width: '100%', direction: 'rtl',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 700, color: T.ink, marginBottom: 18 }}>
+          מה השעון אומר?
+        </div>
+        <input
+          type="number"
+          inputMode="numeric"
+          autoFocus
+          value={count || ''}
+          onChange={e => setCount(parseInt(e.target.value, 10) || 0)}
+          placeholder="8432"
+          style={{
+            width: '100%', padding: '14px 16px',
+            background: T.bg, border: `1px solid ${T.stroke}`,
+            borderRadius: 12, color: T.ink,
+            fontFamily: T.mono, fontSize: 24, fontWeight: 700,
+            textAlign: 'center', outline: 'none',
+            marginBottom: 18,
+          }}
+        />
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Button variant="ghost" onClick={onClose}>ביטול</Button>
+          <Button onClick={handleSave} disabled={count <= 0}>שמירה</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
 // PlanWorkoutPreviewDialog — read-only view of a single planned workout
 // ════════════════════════════════════════════════════════════════════
 // In v3.19 this is the ONLY way to see a generated workout's details
@@ -1671,6 +1832,40 @@ function WorkoutScreen() {
     setShowActive(true);
   };
 
+  // ─── v3.23: Steps tracking ──────────────────────────────────────
+  const tracksSteps = state.settings?.tracksSteps;
+  const [showStepsOnboarding, setShowStepsOnboarding] = React.useState(false);
+  const [showStepsLog, setShowStepsLog] = React.useState(false);
+  const stepsToday = state.steps?.[todayISO()];
+
+  // First-time prompt: ask once if user hasn't been asked yet
+  React.useEffect(() => {
+    if (tracksSteps === null || tracksSteps === undefined) {
+      setShowStepsOnboarding(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reminder toast — fires once when user opens the workout screen
+  // after 22:00 with no log today and no reminder shown yet today.
+  React.useEffect(() => {
+    if (tracksSteps !== 'yes') return;
+    const today = todayISO();
+    if (stepsToday) return; // already logged
+    if (state.context?.lastStepsReminderShown === today) return; // already nudged
+    const hour = new Date().getHours();
+    if (hour < 22) return; // not late enough
+    const text = personaStr(state, 'steps_reminder', 'לא תיעדת צעדים היום.');
+    toast(text, {
+      type: 'info', duration: 6000,
+      actionLabel: 'תיעד',
+      onAction: () => setShowStepsLog(true),
+    });
+    dispatch({ type: 'SET_STEPS_REMINDER_SHOWN', date: today });
+    trackEvent('Steps Reminder Shown', {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracksSteps]);
+
   const sessions = state.workouts?.sessions || {};
   const workoutsToday = sessions[dateViewing] || [];
   const streak = workoutStreak(sessions);
@@ -1853,6 +2048,15 @@ function WorkoutScreen() {
           );
         })()}
 
+        {/* v3.23: Steps widget — only when user opted in */}
+        {tracksSteps === 'yes' && (
+          <StepsWidget
+            stepsToday={stepsToday}
+            steps={state.steps}
+            onEdit={() => setShowStepsLog(true)}
+          />
+        )}
+
         {/* Weekly summary card */}
         <Card padding={14} style={{ marginBottom: 12, background: `linear-gradient(145deg, ${T.bgElev}, ${T.bgElev2})` }}>
           <div style={{ fontSize: 10, color: T.inkMute, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
@@ -1991,6 +2195,30 @@ function WorkoutScreen() {
       {showActive && <ActiveWorkoutScreen onClose={() => setShowActive(false)} />}
       {/* v3.22 — multi-exercise spontaneous log */}
       {showManualLog && <ManualLoggingScreen onClose={() => setShowManualLog(false)} />}
+      {/* v3.23 — Steps tracking */}
+      {showStepsOnboarding && <StepsOnboardingDialog
+        onClose={() => setShowStepsOnboarding(false)}
+        onPick={(value) => {
+          dispatch({ type: 'SET_TRACKS_STEPS', value });
+          trackEvent('Steps Tracking Enabled', { value });
+          setShowStepsOnboarding(false);
+        }}
+      />}
+      {showStepsLog && <StepsLogDialog
+        initialCount={stepsToday?.count || 0}
+        onClose={() => setShowStepsLog(false)}
+        onSave={(count) => {
+          dispatch({ type: 'LOG_STEPS', date: todayISO(), count });
+          // Bucket for analytics so we don't ship raw numbers
+          const bucket = count < 5000 ? '<5k'
+            : count < 10000 ? '5-10k'
+            : count < 15000 ? '10-15k'
+            : '>15k';
+          trackEvent('Steps Logged', { count_range: bucket });
+          toast(personaStr(state, 'steps_logged_toast', `נרשם: ${count.toLocaleString('he-IL')} צעדים`), { type: 'success' });
+          setShowStepsLog(false);
+        }}
+      />}
       {showRecovery && <ActiveSessionRecoveryDialog
         onResume={() => { setShowRecovery(false); setShowActive(true); }}
         onSavePartial={() => {

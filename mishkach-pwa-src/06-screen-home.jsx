@@ -903,6 +903,15 @@ function computeMonthStats(state, ym) {
   const holidays = (typeof holidaysInRange === 'function')
     ? holidaysInRange(monthStart, monthEnd) : [];
 
+  // v3.23: collect step counts in this month for the AI prompt's
+  // steps_history block. Only days with count > 0 are included.
+  const stepsHistory = {};
+  Object.keys(state.steps || {}).forEach(d => {
+    if (!d.startsWith(prefix)) return;
+    const c = state.steps[d]?.count;
+    if (c && c > 0) stepsHistory[d] = c;
+  });
+
   return {
     ym, monthName: monthDisplayName(ym),
     period: { from: monthStart, to: monthEnd },
@@ -916,6 +925,7 @@ function computeMonthStats(state, ym) {
     longest_streak: longestStreak,
     goal_target_kg: state.goal?.weight || null,
     holidays,
+    steps_history: stepsHistory,
   };
 }
 

@@ -844,6 +844,33 @@ const STRINGS = {
       female: 'תזכורת אימון||הגיע מועד האימון המתוכנן.',
     },
   },
+
+  // v3.23 — Steps reminder toast. Fires after 22:00 if the user opted
+  // in to step tracking ('yes') AND hasn't logged today AND no
+  // reminder was already shown today. Each persona keeps its
+  // distinctive voice — these aren't a generic sentence dressed up.
+  steps_reminder: {
+    polish_mom: {
+      male:   'אלון, לא רשמת היום צעדים. תיעוד של שתי שניות לפני השינה ואני אדע שאתה בסדר.',
+      female: 'מירב, לא רשמת היום צעדים. תיעוד של שתי שניות לפני השינה ואני אדע שאת בסדר.',
+    },
+    salesman: {
+      male:   'אלון, היום נסגר בעוד שעתיים. הזנת צעדים = שלמות הדאטה לחודש. לא לוותר על נכס.',
+      female: 'מירב, היום נסגר בעוד שעתיים. הזנת צעדים = שלמות הדאטה לחודש. לא לוותר על נכס.',
+    },
+    cynic_coach: {
+      male:   'לא תיעדת צעדים היום. חמש שניות.',
+      female: 'לא תיעדת צעדים היום. חמש שניות.',
+    },
+    jealous_friend: {
+      male:   'אחי, לא רשמת צעדים. ירידה ברצינות, או סתם שכחת? תוכיח שלא.',
+      female: 'אחותי, לא רשמת צעדים. ירידה ברצינות, או סתם שכחת? תוכיחי שלא.',
+    },
+    neutral: {
+      male:   'לא תועדו צעדים היום.',
+      female: 'לא תועדו צעדים היום.',
+    },
+  },
 };
 
 // ─── Sincerity moments: every N interactions, persona drops the mask once ─

@@ -28,6 +28,11 @@ const initialState = {
   },
   // entries: { 'YYYY-MM-DD': { weight: kg, time: 'HH:mm', note: string, createdAt: iso } }
   entries: {},
+  // v3.23: daily step counts. Keyed by date so we can compute weekly /
+  // monthly aggregates without scanning a list.
+  //   { 'YYYY-MM-DD': { count: 8432, loggedAt: '2026-05-06T19:00:00Z' } }
+  // Only populated when state.settings.tracksSteps === 'yes'.
+  steps: {},
   // mood removed from initialState in v3.6 — feature was retired (low utility).
   // The SET_MOOD/DELETE_MOOD reducer cases + loadState merge are kept dormant
   // so existing user data isn't lost if we revisit. New users get no `mood` key.
@@ -153,10 +158,16 @@ const initialState = {
     // Dismissed UI surfaces — single-shot dismissals tracked by their natural key.
     dismissedDayBanner: null,     // YYYY-MM-DD — date the user closed the day banner
     dismissedMonthlyRecap: null,  // YYYY-MM — month whose recap was acknowledged
-    // v3.11 boot flow
-    splashSeenToday: null,        // YYYY-MM-DD — splash plays once per day
-    installDeclined: 0,           // count of "ignore" presses on install prompt;
-                                  // suppress prompt after 3 declines (give up)
+    // v3.11 boot flow (v3.23 superseded by lastSplashShown / installPromptCount;
+    // keys retained for migration but no longer read).
+    splashSeenToday: null,        // DEPRECATED v3.23 — kept for back-compat
+    installDeclined: 0,           // DEPRECATED v3.23 — kept for back-compat
+    // v3.23 — Steps Tracking onboarding choice
+    //   null  → user not asked yet (StepsOnboardingDialog will fire)
+    //   'yes' → tracking active; widget + reminder enabled
+    //   'no'  → user opted out permanently (Profile can flip back)
+    //   'maybe' → asked, will re-prompt in 7 days (TODO: re-ask logic)
+    tracksSteps: null,
     // Last-used preferences for the personal report generator.
     // Pre-populated as smart defaults next time the user opens the report flow.
     reportPrefs: {
@@ -177,6 +188,17 @@ const initialState = {
   meta: {
     createdAt: null,
     updatedAt: null,
+  },
+  // v3.23 — runtime context. Cross-cutting flags that don't belong in
+  // settings (which is more "user preferences") nor in feature subtrees.
+  // Persisted (not session-only) because we need 12h splash gate to
+  // survive cold loads.
+  context: {
+    lastSplashShown: 0,           // ms timestamp of the last splash render
+    lastStepsReminderShown: null, // YYYY-MM-DD — once per day
+    installPromptCount: 0,        // how many times the install prompt was shown
+    installPromptDismissed: false,// true once user has tapped "להמשיך בדפדפן" 3×
+    onboardingComplete: false,    // mirrors !settings.firstLaunch for clarity
   },
 };
 
@@ -257,6 +279,11 @@ function loadState() {
       },
       insights: { ...initialState.insights, ...(parsed.insights || {}) },
       meta: { ...initialState.meta, ...(parsed.meta || {}) },
+      // v3.23: steps daily map + cross-cutting context. Both default to
+      // empty for users upgrading from pre-v3.23 — first cold load after
+      // upgrade triggers the StepsOnboardingDialog so the user picks.
+      steps: parsed.steps || {},
+      context: { ...initialState.context, ...(parsed.context || {}) },
     };
   } catch (e) {
     console.warn('loadState failed, resetting:', e);
@@ -532,6 +559,63 @@ function reducer(state, action) {
     // the freshly-loaded data without waiting for the next interaction.
     case 'MARK_DATA_LOADED':
       return { ...state, _dataReady: ((state._dataReady || 0) + 1) };
+
+    // ─── v3.23: Steps tracking ──────────────────────────────────────
+    // User picks 'yes' / 'no' / 'maybe' from the StepsOnboardingDialog
+    // exactly once. 'maybe' will re-prompt in 7 days (re-ask logic in
+    // the dialog gate, not here). Profile lets the user flip post-hoc.
+    case 'SET_TRACKS_STEPS':
+      return { ...state, settings: { ...state.settings, tracksSteps: action.value } };
+    // Save a daily step count. Overwrites any existing value for that date.
+    case 'LOG_STEPS': {
+      const { date, count } = action;
+      const safeCount = Math.max(0, Math.round(count || 0));
+      return {
+        ...state,
+        steps: {
+          ...state.steps,
+          [date]: { count: safeCount, loggedAt: new Date().toISOString() },
+        },
+      };
+    }
+    case 'DELETE_STEPS': {
+      const { [action.date]: _, ...rest } = state.steps || {};
+      return { ...state, steps: rest };
+    }
+    // Reminder dedup — one reminder toast per day max.
+    case 'SET_STEPS_REMINDER_SHOWN':
+      return {
+        ...state,
+        context: { ...state.context, lastStepsReminderShown: action.date || todayISO() },
+      };
+
+    // ─── v3.23: Splash + Install gates ──────────────────────────────
+    case 'MARK_SPLASH_SHOWN':
+      return {
+        ...state,
+        context: { ...state.context, lastSplashShown: Date.now() },
+      };
+    // Install prompt — count up on every showing; dismissed flag flips
+    // when user has tapped "להמשיך בדפדפן" enough times that we should
+    // never re-show.
+    case 'INCREMENT_INSTALL_PROMPT_COUNT':
+      return {
+        ...state,
+        context: {
+          ...state.context,
+          installPromptCount: (state.context?.installPromptCount || 0) + 1,
+        },
+      };
+    case 'DISMISS_INSTALL_PROMPT_PERMANENT':
+      return {
+        ...state,
+        context: { ...state.context, installPromptDismissed: true },
+      };
+    case 'MARK_ONBOARDING_COMPLETE':
+      return {
+        ...state,
+        context: { ...state.context, onboardingComplete: true },
+      };
     case 'SET_PERSONA':
       return { ...state, settings: { ...state.settings, persona: action.persona } };
     case 'MARK_TIP_SHOWN': {
@@ -578,6 +662,9 @@ function reducer(state, action) {
           },
         },
         settings: { ...state.settings, firstLaunch: false, unit: action.unit || 'kg' },
+        // v3.23: track that onboarding actually completed (not just firstLaunch
+        // flipped). InstallPromptScreen reads this to gate when to show.
+        context: { ...state.context, onboardingComplete: true },
         meta: { createdAt: state.meta.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() },
       };
     }
@@ -1330,6 +1417,18 @@ function buildInsightSnapshot(state, stats, daysBack = 7) {
     },
     nutrition_by_day: nutritionByDay,
     nutrition_days_logged: Object.keys(nutritionByDay).length,
+    // v3.23: steps history. Empty object when user opted out — the AI
+    // prompt explicitly checks for ≥3 (weekly) / ≥7 (monthly) entries
+    // before mentioning steps in any insight, so no extra gating here.
+    steps_history: (() => {
+      const out = {};
+      for (let i = 0; i < daysBack; i++) {
+        const date = addDaysISO(today, -i);
+        const s = state.steps?.[date];
+        if (s && s.count > 0) out[date] = s.count;
+      }
+      return out;
+    })(),
   };
   // mood_summary removed in v3.6 alongside the mood UI.
 }

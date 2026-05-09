@@ -1,10 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.22.2 — gender fixes patch
+// מִשְׁקַלּוּת Service Worker v3.23 — Steps + Splash + Install refactor
 // ════════════════════════════════════════════════════════════════════
 // /data/*.json (strings/tips/ai-prompts) are cached opportunistically
 // by the same-origin fetch handler on first request.
 
-const CACHE = 'mishkalut-v3222';
+const CACHE = 'mishkalut-v323';
 const CORE = [
   './',
   './index.html',
