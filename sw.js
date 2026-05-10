@@ -1,10 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.23 — Steps + Splash + Install refactor
+// מִשְׁקַלּוּת Service Worker v3.23.1 — Photo vision shared-meal patch
 // ════════════════════════════════════════════════════════════════════
 // /data/*.json (strings/tips/ai-prompts) are cached opportunistically
 // by the same-origin fetch handler on first request.
 
-const CACHE = 'mishkalut-v323';
+const CACHE = 'mishkalut-v3231';
 const CORE = [
   './',
   './index.html',

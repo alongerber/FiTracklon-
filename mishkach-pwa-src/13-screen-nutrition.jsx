@@ -958,6 +958,70 @@ const CLASSIFICATION_LABELS = {
   other:   'אחר',
 };
 
+// ─── v3.23.1: Shared-meal portion dialog ────────────────────────────
+// When the vision model flags is_shared_meal=true, the macros it returned
+// describe the WHOLE visible food (e.g. tray of 5 schnitzels = 1600 kcal).
+// Before saving, ask the user how many of those discrete portions they
+// actually ate. Caller divides macros by (visible / eaten) accordingly.
+function SharedMealPortionDialog({ description, portionsVisible, totalCalories, onSelect }) {
+  const N = Math.max(2, portionsVisible | 0);
+  // Show every count 1..N as a chip; "הכל" = N.
+  const options = [];
+  for (let i = 1; i < N; i++) options.push({ n: i, label: String(i) });
+  options.push({ n: N, label: `הכל (${N})` });
+
+  return (
+    <div style={{ padding: 24, direction: 'rtl' }}>
+      <Card padding={18} style={{
+        background: `linear-gradient(135deg, ${T.amber}12 0%, ${T.bgElev2} 100%)`,
+        border: `1px solid ${T.amber}55`,
+      }}>
+        <div style={{
+          fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1,
+          marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <TabIcon name="sparkle" size={12} />
+          <span>ארוחה משותפת</span>
+        </div>
+
+        <div style={{ fontSize: 14, color: T.ink, lineHeight: 1.5, marginBottom: 6 }}>
+          זיהיתי <b>{N}</b> מנות{description ? ` של ${description}` : ''}.
+        </div>
+        <div style={{ fontSize: 12, color: T.inkSub, marginBottom: 14 }}>
+          סך הכל בתמונה: <span style={{ fontFamily: T.mono, color: T.ink }}>{totalCalories} ק״ק</span>
+        </div>
+
+        <div style={{ fontSize: 13, color: T.ink, fontWeight: 600, marginBottom: 10 }}>
+          כמה אכלת בעצם?
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {options.map(opt => (
+            <button
+              key={opt.n}
+              onClick={() => onSelect(opt.n)}
+              style={{
+                flex: opt.n === N ? '1 1 100%' : '1 1 60px',
+                minHeight: 44,
+                padding: '10px 14px',
+                background: opt.n === N ? T.lime : T.bgElev,
+                color: opt.n === N ? '#000' : T.ink,
+                border: `1px solid ${opt.n === N ? T.lime : T.stroke}`,
+                borderRadius: T.radius,
+                fontFamily: T.mono,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Personalization banner — shown when a learned pattern adjusts AI ────
 // Pure presentational; PhotoParseFlow handles the "המשך" wiring.
 function PersonalizationBanner({ originalCalories, adjustedCalories, sampleSize, onContinue }) {
@@ -1212,6 +1276,38 @@ function PhotoParseFlow({ onParsed }) {
     }
   };
 
+  // v3.23.1: shared the learned-pattern + onParsed routing so we can call it
+  // either directly (normal personal meal) OR after the user picks a portion
+  // count from SharedMealPortionDialog.
+  const applyLearnedAndAdvance = (decorated) => {
+    const adj = getLearnedAdjustment(state, decorated.description);
+    if (adj) {
+      const m = adj.multiplier;
+      const adjusted = {
+        ...decorated,
+        calories: Math.round(decorated.calories * m),
+        protein:  Math.round(decorated.protein  * m),
+        carbs:    Math.round(decorated.carbs    * m),
+        fat:      Math.round(decorated.fat      * m),
+        _aiBaseline: {
+          calories: decorated.calories,
+          multiplier: m,
+          sampleSize: adj.sampleSize,
+        },
+      };
+      setAdjustedResult(adjusted);
+      setAdjustment(adj);
+      setStage('banner');
+    } else {
+      const decoratedWithBaseline = {
+        ...decorated,
+        _aiBaseline: { calories: decorated.calories, multiplier: 1, sampleSize: 0 },
+      };
+      setAdjustedResult(decoratedWithBaseline);
+      advanceFrom(decoratedWithBaseline, decoratedWithBaseline);
+    }
+  };
+
   const handleParse = async () => {
     if (!file) return;
     setLoading(true); setError(null);
@@ -1230,37 +1326,18 @@ function PhotoParseFlow({ onParsed }) {
       const decorated = { ...result, description: desc };
       setVisionResult(decorated);
 
-      // v3.18: check for a learned pattern. If we have one, pre-adjust the
-      // macros and route through the banner so the user knows the system
-      // applied a personal correction. The original vision baseline is
-      // preserved in `_aiBaseline` for the learning step.
-      const adj = getLearnedAdjustment(state, decorated.description);
-      if (adj) {
-        const m = adj.multiplier;
-        const adjusted = {
-          ...decorated,
-          calories: Math.round(decorated.calories * m),
-          protein:  Math.round(decorated.protein  * m),
-          carbs:    Math.round(decorated.carbs    * m),
-          fat:      Math.round(decorated.fat      * m),
-          _aiBaseline: {
-            calories: decorated.calories,
-            multiplier: m,
-            sampleSize: adj.sampleSize,
-          },
-        };
-        setAdjustedResult(adjusted);
-        setAdjustment(adj);
-        setStage('banner');
-      } else {
-        // No learned pattern — adjusted == vision; baseline is the same number
-        const decoratedWithBaseline = {
-          ...decorated,
-          _aiBaseline: { calories: decorated.calories, multiplier: 1, sampleSize: 0 },
-        };
-        setAdjustedResult(decoratedWithBaseline);
-        advanceFrom(decoratedWithBaseline, decoratedWithBaseline);
+      // v3.23.1: shared-meal gate. If the model flagged is_shared_meal=true
+      // and counted >=2 portions, pause for a portion-count question BEFORE
+      // applying any learned pattern. The dialog returns `eaten` (1..N), and
+      // we scale all macros by (eaten / portionsVisible) so the rest of the
+      // pipeline (banner, refinement, learning) sees the user's actual slice.
+      if (decorated.isSharedMeal && decorated.portionsVisible >= 2) {
+        setStage('shared_portion');
+        return;
       }
+
+      // v3.18: learned-pattern routing for normal personal meals.
+      applyLearnedAndAdvance(decorated);
     } catch (e) {
       setError(e.message);
       toast(personaErrorFromException(state, e), { type: 'error' });
@@ -1269,7 +1346,49 @@ function PhotoParseFlow({ onParsed }) {
     }
   };
 
+  // v3.23.1: handler invoked from SharedMealPortionDialog with the count
+  // the user actually ate. Scales macros, then continues into the normal
+  // learned-pattern + refinement flow.
+  const handleSharedPortion = (eaten) => {
+    if (!visionResult) return;
+    const total = Math.max(1, visionResult.portionsVisible | 0);
+    const ratio = Math.max(1, eaten | 0) / total;
+    const desc = visionResult.description;
+    // Adjust description so learning, history, and refinement all reflect
+    // the per-person portion (not the tray).
+    const personDesc = eaten === total
+      ? desc
+      : `${desc} (${eaten}/${total})`;
+    const scaled = {
+      ...visionResult,
+      description: personDesc,
+      calories: Math.max(0, Math.round(visionResult.calories * ratio)),
+      protein:  Math.max(0, Math.round(visionResult.protein  * ratio)),
+      carbs:    Math.max(0, Math.round(visionResult.carbs    * ratio)),
+      fat:      Math.max(0, Math.round(visionResult.fat      * ratio)),
+      // The shared-meal flag has been resolved by user choice; clear it so
+      // downstream code (e.g. learning) doesn't double-handle it.
+      isSharedMeal: false,
+      portionsVisible: 1,
+    };
+    setVisionResult(scaled);
+    applyLearnedAndAdvance(scaled);
+  };
+
   // ─── Render per stage ───────────────────────────────────────────
+  // v3.23.1: shared-meal portion question — shown BEFORE banner/refining
+  // when the model flagged is_shared_meal=true AND counted ≥2 portions.
+  if (stage === 'shared_portion' && visionResult) {
+    return (
+      <SharedMealPortionDialog
+        description={visionResult.description}
+        portionsVisible={visionResult.portionsVisible}
+        totalCalories={visionResult.calories}
+        onSelect={handleSharedPortion}
+      />
+    );
+  }
+
   if (stage === 'banner' && adjustedResult && adjustment) {
     return (
       <PersonalizationBanner

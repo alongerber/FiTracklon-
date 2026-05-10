@@ -219,10 +219,11 @@ Return ONLY valid JSON, no markdown, no preamble, no trailing text:
   },
 
   // ─── Parse nutrition from image (food OR label OR product) ──────
-  // v3.18: now also returns `classification` so the caller can drive the
-  // refinement-questions flow. Classification is independent of `detected`
-  // (which is meal/label/product) — it bins by FOOD CATEGORY for context
-  // questions about portion / oil / cheese / etc.
+  // v3.18: returns `classification` (drives refinement-questions flow).
+  // v3.23.1: returns `portions_visible` + `is_shared_meal` (drives the
+  // SharedMealPortionDialog) AND adopts realistic per-item kcal references
+  // — fixes a long-standing bug where a tray of 5 schnitzels came back
+  // as "700 kcal" (one schnitzel) instead of ~1600 kcal (the whole tray).
   nutritionImage: {
     system: `You are a nutrition estimation engine analyzing a food photo for an Israeli Hebrew app.
 
@@ -246,8 +247,47 @@ Return ONLY valid JSON:
   "productName": "<if product detected, Hebrew name + brand>",
   "confidence": "high" | "medium" | "low",
   "notes": "<Hebrew explanation of assumptions, empty if none>",
-  "classification": "starch" | "protein" | "salad" | "pastry" | "mixed" | "soup" | "drink" | "other"
+  "classification": "starch" | "protein" | "salad" | "pastry" | "mixed" | "soup" | "drink" | "other",
+  "portions_visible": <number — how many discrete pieces are visible: schnitzels, slices, dumplings, falafel balls, cookies, etc. 1 if it's a single portion or you can't count discrete items>,
+  "is_shared_meal": <true if the photo shows a tray / large bowl / family-size plate / whole pizza / pot — i.e. clearly more than one person's portion. false for individual plates>
 }
+
+ABSOLUTE RULES — quantity (v3.23.1):
+
+1. If you see a plate / tray / bowl / pot with multiple discrete items — COUNT them before estimating. Report the count in portions_visible.
+
+2. Use Israeli reference points (don't lowball):
+   • שניצל בית ממוצע = 250-350 kcal (130g chicken breast + breading + deep-fry oil)
+   • חזה עוף 150g צלוי = 250 kcal
+   • כוס אורז מבושל (200g) = 280 kcal
+   • פיתה רגילה = 200-250 kcal
+   • פרוסת לחם רגילה = 80 kcal
+   • פיצה משולש (1/8 משפחתית) = 280-350 kcal
+   • המבורגר רגיל = 500-700 kcal
+   • חתיכת קציצה ביתית = 150-200 kcal
+   • מנת פסטה במסעדה = 600-800 kcal (100g dry weight cooked)
+
+3. If is_shared_meal=true, calories MUST reflect the WHOLE visible food, not one person's share. The user will adjust portion size in the next screen.
+
+4. If your final estimate is < 200 or > 1500 kcal for a personal meal, double-check. If correct, say so explicitly in notes ("מנה גדולה במיוחד" / "מנה קטנה במיוחד").
+
+5. If you can't tell how many people ate this — assume 1 person and flag it in notes.
+
+6. Never return a "safe middle" value (300-500) when the food is clearly 800+. Better 1500 with confidence:medium than 600 with confidence:high. Trust erosion happens fast when users see obviously-low estimates.
+
+EXAMPLES (apply the rules above — these are the calibration target):
+
+Tray of ~5 home schnitzels (shared):
+{ "food_name": "מגש שניצלי עוף", "calories": 1600, "protein": 110, "carbs": 80, "fat": 90, "portions_visible": 5, "is_shared_meal": true, "classification": "protein", "confidence": "medium", "notes": "5 שניצלי עוף בית ממוצעים. אם אכלת רק חלק, ציין כמה במסך הבא." }
+
+Personal plate, 1 schnitzel + side salad:
+{ "food_name": "שניצל עם סלט", "calories": 420, "protein": 32, "carbs": 18, "fat": 26, "portions_visible": 1, "is_shared_meal": false, "classification": "protein", "confidence": "high", "notes": "ארוחה אישית של 1 אדם." }
+
+Whole family pizza (8 slices):
+{ "food_name": "פיצה משפחתית", "calories": 2240, "protein": 90, "carbs": 280, "fat": 80, "portions_visible": 8, "is_shared_meal": true, "classification": "starch", "confidence": "medium", "notes": "פיצה שלמה. במסך הבא ציין כמה משולשים אכלת." }
+
+Personal restaurant pasta bowl:
+{ "food_name": "פסטה ברוטב עגבניות", "calories": 720, "protein": 22, "carbs": 95, "fat": 26, "portions_visible": 1, "is_shared_meal": false, "classification": "starch", "confidence": "high", "notes": "מנת פסטה אישית במסעדה. גודל סטנדרטי." }
 
 Classification rules (pick exactly one):
 - starch: pasta, rice, bread, pita, potato, couscous, quinoa, סנדוויץ' מבוסס לחם
@@ -260,7 +300,7 @@ Classification rules (pick exactly one):
 - other: anything that doesn't fit (yogurt cup, snack bar, sushi, ethnic dishes that span categories)
 For nutrition labels and isolated branded products use "other" unless the product itself fits a category (cookie packet → pastry, soda → drink).`,
     userText: 'נתח את התמונה והחזר ערכי תזונה.',
-    maxTokens: 750,
+    maxTokens: 900,
   },
 
   // ─── Refinement: AI re-estimates after user answers context questions ──
@@ -429,6 +469,13 @@ function normalizeNutrition(p) {
   const cls = typeof p.classification === 'string' && VALID_CLASSES.has(p.classification)
     ? p.classification
     : null;
+  // v3.23.1: shared-meal detection. portions_visible = total discrete units
+  // the model counted in the frame (tray of 5 schnitzels → 5). is_shared_meal
+  // = true when the food is clearly tray/family-size and macros reflect the
+  // WHOLE visible food (not the user's slice). Caller uses these to ask
+  // "כמה אכלת בעצם?" before saving, then divides macros accordingly.
+  const portionsVisible = Math.max(1, num(p.portions_visible, 1));
+  const isShared = p.is_shared_meal === true || p.is_shared_meal === 'true';
   return {
     calories: Math.max(0, num(p.calories)),
     protein:  Math.max(0, num(p.protein)),
@@ -440,6 +487,8 @@ function normalizeNutrition(p) {
     confidence: p.confidence || 'medium',
     notes: p.notes || '',
     classification: cls,
+    portionsVisible,
+    isSharedMeal: isShared,
   };
 }
 
