@@ -937,6 +937,62 @@ function reducer(state, action) {
   }
 }
 
+// ─── v3.23.3 fix #2: linear regression on (date, weight) pairs ──────
+// Returns { slope_kg_per_day, intercept, r_squared, n, days } or null when
+// inputs are too sparse. Slope is daily; multiply by 7 for kg/week.
+// `points` must be sorted by date.
+function _linregOverDays(points) {
+  if (!points || points.length < 4) return null;
+  const dayNums = points.map(p => {
+    const [y, m, d] = p.date.split('-').map(Number);
+    return Date.UTC(y, m - 1, d) / 86400000;
+  });
+  const days = dayNums[dayNums.length - 1] - dayNums[0];
+  if (days < 14) return null; // need at least 2-week range
+  const n = points.length;
+  const xMean = dayNums.reduce((s, x) => s + x, 0) / n;
+  const yMean = points.reduce((s, p) => s + p.weight, 0) / n;
+  let num = 0, denom = 0, ssTot = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = dayNums[i] - xMean;
+    const dy = points[i].weight - yMean;
+    num += dx * dy;
+    denom += dx * dx;
+    ssTot += dy * dy;
+  }
+  if (denom === 0 || ssTot === 0) return null;
+  const slope = num / denom; // kg per day
+  const intercept = yMean - slope * xMean;
+  // R² = 1 - SS_res / SS_tot
+  let ssRes = 0;
+  for (let i = 0; i < n; i++) {
+    const yhat = slope * dayNums[i] + intercept;
+    const r = points[i].weight - yhat;
+    ssRes += r * r;
+  }
+  const r_squared = Math.max(0, 1 - ssRes / ssTot);
+  return { slope_kg_per_day: slope, intercept, r_squared, n, days };
+}
+
+// v3.23.3 fix #2 (exported): linear-regression pace from a sorted list of
+// {date, weight} entries within the last `windowDays`. Returns
+// { pace, r_squared, n_points, days } or null when not dependable.
+// Used by both computeStats (Hero/Home) and WeightDetail (was duplicated).
+function paceKgPerWeekFromList(list, windowDays = 30) {
+  if (!list || list.length === 0) return null;
+  const latest = list[list.length - 1];
+  const cutoff = addDaysISO(latest.date, -windowDays);
+  const span = list.filter(e => e.date >= cutoff);
+  const reg = _linregOverDays(span);
+  if (!reg) return null;
+  return {
+    pace: reg.slope_kg_per_day * 7,
+    r_squared: reg.r_squared,
+    n_points: reg.n,
+    days: reg.days,
+  };
+}
+
 // ─── Stats: derived data from state.entries ──────────────────────────
 function computeStats(state) {
   const list = Object.entries(state.entries)
@@ -954,60 +1010,70 @@ function computeStats(state) {
   const goal = state.goal.weight;
   const startWeight = state.user.startWeight ?? list[0].weight;
 
-  // Find closest entry on or before target date (days back from latest)
-  const findNearPast = (daysBack) => {
+  // v3.23.3 fix #1: tolerance-aware "near past" lookup. The old version
+  // walked backward and returned the FIRST entry ≤ target — for sparse
+  // data this could be 24 days off when the user asked for "7 days ago".
+  // Now: find the entry closest in time to the target, but only return
+  // it if it's within ±tolerance days. Otherwise null → caller hides
+  // the delta entirely (no false "weekly change" labels).
+  const findNearPast = (daysBack, tolerance = 2) => {
     const targetDate = addDaysISO(latest.date, -daysBack);
+    let best = null;
+    let bestDist = Infinity;
     for (let i = n - 1; i >= 0; i--) {
-      if (list[i].date <= targetDate) return list[i];
+      if (list[i].date === latest.date) continue; // never match latest itself
+      const dist = Math.abs(daysBetweenISO(list[i].date, targetDate));
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = list[i];
+      }
+      // Once we're moving further away (sorted ascending), we can stop.
+      if (best && dist > bestDist) break;
     }
-    return null;
+    if (!best || bestDist > tolerance) return null;
+    // Carry the actual offset back so callers can label honestly.
+    return { ...best, _actualDaysBack: daysBetweenISO(best.date, latest.date) };
   };
 
-  const weekAgo = findNearPast(7);
-  const monthAgo = findNearPast(30);
+  // ±2 day tolerance for "weekly", ±4 for "monthly" (more lenient on long span)
+  const weekAgo = findNearPast(7, 2);
+  const monthAgo = findNearPast(30, 4);
 
   const weights = list.map(e => e.weight);
   const peakIdx = weights.indexOf(Math.max(...weights));
   const lowIdx = weights.indexOf(Math.min(...weights));
 
-  // Pace (kg/week): slope over the last 30 days of data available
-  let paceKgPerWeek = null;
-  if (monthAgo && monthAgo.date !== latest.date) {
-    const span = list.filter(e => e.date >= monthAgo.date);
-    if (span.length >= 2) {
-      const days = daysBetweenISO(span[0].date, span[span.length-1].date);
-      if (days > 0) {
-        paceKgPerWeek = ((span[span.length-1].weight - span[0].weight) / days) * 7;
-      }
-    }
-  } else if (list.length >= 2) {
-    // fallback: use all data
-    const days = daysBetweenISO(list[0].date, latest.date);
-    if (days > 0) {
-      paceKgPerWeek = ((latest.weight - list[0].weight) / days) * 7;
-    }
-  }
+  // v3.23.3 fix #2: linear-regression pace over the last 30 days.
+  // Returns null when n<4 or range<14 days. Hero/ETA gates on this null.
+  const paceInfo = paceKgPerWeekFromList(list, 30);
+  const paceKgPerWeek = paceInfo ? paceInfo.pace : null;
+  const paceR2 = paceInfo ? paceInfo.r_squared : null;
+  const paceN = paceInfo ? paceInfo.n_points : 0;
 
   const toGoal = goal !== null && goal !== undefined ? current - goal : null;
 
-  // ETA computation with explicit reasons for failure
+  // v3.23.3 fix #3: ETA only when pace is dependable.
+  // Requires R² > 0.5 AND n >= 4 (already enforced by pace=null) AND
+  // goal/direction sanity. Otherwise etaReason explains why we won't show it.
   let etaDays = null;
-  let etaReason = null; // 'no_goal', 'no_pace', 'wrong_direction', 'reached', 'insufficient_data'
+  let etaReason = null; // 'no_goal','no_pace','wrong_direction','reached','insufficient_data','noisy_pace'
 
   if (toGoal === null) {
     etaReason = 'no_goal';
   } else if (Math.abs(toGoal) < 0.1) {
     etaReason = 'reached';
   } else if (paceKgPerWeek === null) {
-    etaReason = list.length < 3 ? 'insufficient_data' : 'no_pace';
+    // Either <4 entries, <14 day span, or zero variance → not enough to model
+    etaReason = list.length < 4 ? 'insufficient_data' : 'no_pace';
+  } else if (paceR2 !== null && paceR2 < 0.5) {
+    // Pace exists but the data is too noisy to trust the projection
+    etaReason = 'noisy_pace';
   } else if (paceKgPerWeek === 0) {
     etaReason = 'no_pace';
   } else if (Math.sign(paceKgPerWeek) !== -Math.sign(toGoal)) {
-    // Going opposite direction (gaining when wanting to lose)
     etaReason = 'wrong_direction';
   } else {
     etaDays = Math.round(Math.abs(toGoal / paceKgPerWeek) * 7);
-    // Cap at 5 years - longer makes no sense
     if (etaDays > 1825) {
       etaDays = null;
       etaReason = 'no_pace';
@@ -1018,14 +1084,32 @@ function computeStats(state) {
     ? Math.max(0, Math.min(100, 100 * (startWeight - current) / (startWeight - goal)))
     : null;
 
-  // Streak: consecutive days with entries, ending today or yesterday
+  // v3.23.3 fix #4: streak with 1-day grace per 5-day window.
+  // Old version required strict consecutive days; a single missed day
+  // reset to 0. New rule (matches nutritionStreak's lenience): walking
+  // backward from latest, allow at most 1 missed day in any 5-day window.
+  // Stops at the first "broken" miss.
   let streak = 0;
   const daysSinceLatest = daysBetweenISO(latest.date, todayISO());
   if (daysSinceLatest <= 1) {
-    let d = latest.date;
-    while (state.entries[d]) {
-      streak++;
-      d = addDaysISO(d, -1);
+    let cursor = latest.date;
+    let missesInWindow = 0; // missed days in the last 5-day rolling window
+    let stepsSinceLastHit = 0;
+    while (true) {
+      if (state.entries[cursor]) {
+        streak++;
+        // a hit resets the rolling miss counter
+        missesInWindow = 0;
+        stepsSinceLastHit = 0;
+      } else {
+        missesInWindow++;
+        stepsSinceLastHit++;
+        // grace: tolerate 1 miss per 5-day window
+        if (missesInWindow > 1) break;
+        if (stepsSinceLastHit > 5) break; // belt-and-braces
+      }
+      cursor = addDaysISO(cursor, -1);
+      if (streak > 365) break; // sanity
     }
   }
 
@@ -1036,11 +1120,22 @@ function computeStats(state) {
     current,
     previous: prev?.weight ?? null,
     dayDelta: prev ? current - prev.weight : null,
-    deltaWeek: weekAgo && weekAgo.date !== latest.date ? current - weekAgo.weight : null,
-    deltaMonth: monthAgo && monthAgo.date !== latest.date ? current - monthAgo.weight : null,
+    deltaWeek: weekAgo ? current - weekAgo.weight : null,
+    // v3.23.3 fix #11: surface the actual reference date + day-offset so
+    // the Hero Pill can label honestly ("ירידה X ק״ג מ-5.10") instead of
+    // the misleading "ק״ג/שבוע" when the timespan isn't really 7 days.
+    deltaWeekRef: weekAgo
+      ? { date: weekAgo.date, daysBack: weekAgo._actualDaysBack }
+      : null,
+    deltaMonth: monthAgo ? current - monthAgo.weight : null,
+    deltaMonthRef: monthAgo
+      ? { date: monthAgo.date, daysBack: monthAgo._actualDaysBack }
+      : null,
     peak: { weight: weights[peakIdx], date: list[peakIdx].date },
     low: { weight: weights[lowIdx], date: list[lowIdx].date },
     paceKgPerWeek,
+    paceR2,
+    paceN,
     toGoal,
     etaDays,
     etaReason,

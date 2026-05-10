@@ -165,6 +165,23 @@ Rules: [NAME], gender, 80-200 words, no jargon. Focus on sustainability.`,
   },
 };
 
+// v3.23.3 fix #8: shared "gaps rule" appended to every prompt that gets
+// weight data. Applies whenever the snapshot's weight_gaps[] contains any
+// gap of ≥7 days, OR when fewer than half the days in the window have a
+// weighing. Either condition forbids confident "trend" / "loss" / "gain"
+// language — the AI must call out the gaps explicitly instead.
+const WEIGHT_GAPS_RULE = `
+
+חוק חוסר רציפות (חובה):
+1. אם בdata קיים שדה weight_gaps שמכיל gap עם days ≥ 7, או אם
+   weight_entries_count < חצי ממספר הימים בתקופה — אסור להשתמש במילים:
+   "מגמה", "ירדת", "עלית", "טרנד", "שיפור", "התדרדרות".
+2. במקום זה, ציין במפורש: "בתקופה זו היו ימים ללא תיעוד (gap של X ימים),
+   ולכן הניתוח מוגבל." והמשך עם תובנה זהירה שמתבססת על הימים שכן תועדו
+   בלבד, או על תזונה/אימונים שלא תלויים במשקל יומי.
+3. אסור להמציא מגמת משקל מנקודות בודדות (2-3 שקילות עם gap של שבועיים
+   ביניהן ≠ "ירדת").`;
+
 // Build a system prompt for given persona + user, with optional holiday context.
 // `windowDays` (optional) — if provided, the function checks for any holidays
 // in the last N days and appends a single line "Note: this period included
@@ -183,6 +200,11 @@ function buildAISystemPrompt(promptType, state, windowDays) {
 
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
   let prompt = template.replace(/\[NAME\]/g, name).replace(/\[GENDER\]/g, genderHe);
+
+  // v3.23.3 fix #8: persona prompts (weekly_insight, plateau_analysis,
+  // goal_calibration) all use weight data — append the gaps rule so they
+  // can't claim a trend across a 14-day silence.
+  prompt += WEIGHT_GAPS_RULE;
 
   // Append holiday context if requested + helper is loaded (06-screen-home.jsx)
   if (windowDays && typeof holidaysInRange === 'function') {
@@ -251,7 +273,8 @@ function buildAutoCorrelationsPrompt(state, snapshot) {
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
   const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
-  return AUTO_CORRELATIONS_PROMPT
+  // v3.23.3 fix #8: append gaps rule
+  return (AUTO_CORRELATIONS_PROMPT + WEIGHT_GAPS_RULE)
     .replace('{persona}', personaId)
     .replace('{name}', name)
     .replace('{gender}', genderHe)
@@ -301,7 +324,9 @@ function buildWhatIfPrompt(state, snapshot, scenarioText) {
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
   const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
-  return WHAT_IF_SCENARIOS_PROMPT
+  // v3.23.3 fix #8: append gaps rule (the projection is meaningless if
+  // the baseline pace was computed from sparse data — model must caveat)
+  return (WHAT_IF_SCENARIOS_PROMPT + WEIGHT_GAPS_RULE)
     .replace('{persona}', personaId)
     .replace('{name}', name)
     .replace('{gender}', genderHe)
@@ -381,7 +406,11 @@ const MONTHLY_RECAP_PROMPT = `אתה כותב סיכום חודשי לאפליק
 - salesman: אנליטי-בלי-התלהבות, "BREAKDOWN של החודש:"
 - neutral: ישיר, ללא נופך
 
-אם הדאטה דלילה מ-7 ימי שקילה: החזר {"insufficient_data": true}
+אם אחד מהבאים מתקיים — החזר {"insufficient_data": true} (v3.23.3):
+  • פחות מ-6 ימי שקילה בחודש
+  • כל השקילות מרוכזות בחלון של ≤7 ימים מתוך החודש
+    (למשל 6 שקילות אבל כולן בשבוע הראשון — אסור להגיד "ירדת בחודש")
+  • פחות מ-5 ימי תזונה תועדו
 
 חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
 אכלת/אכלת, תנסי/תנסה — בכל ה-insights ו-next_month_advice fields.
@@ -409,7 +438,8 @@ function buildMonthlyRecapPrompt(state, monthData) {
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
   const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
-  return MONTHLY_RECAP_PROMPT
+  // v3.23.3 fix #8: append gaps rule
+  return (MONTHLY_RECAP_PROMPT + WEIGHT_GAPS_RULE)
     .replace('{persona}', personaId)
     .replace('{name}', name)
     .replace('{gender}', genderHe)
@@ -454,7 +484,8 @@ const WEEKLY_INSIGHT_STRUCT_PROMPT = `אתה כותב תובנה שבועית ל
 - salesman: אנליטי
 - neutral: ישיר
 
-אם הדאטה דלילה (פחות מ-3 שקילות ופחות מ-3 ימי תזונה): {"insufficient_data": true}
+אם הדאטה דלילה (פחות מ-3 שקילות **או** פחות מ-3 ימי תזונה): {"insufficient_data": true}
+[v3.23.3: שונה מ-"וגם" ל-"או" — אם חסר אחד מהם, הניתוח לא יציב]
 
 חובה: השתמש ב-{name} ו-match gender ({gender}) — את/אתה, ירדת/ירדת,
 אכלת/אכלת — בכל ה-insight ו-records ו-interesting_numbers fields.
@@ -478,7 +509,8 @@ function buildWeeklyInsightStructPrompt(state, snapshot) {
   const gender = state?.user?.gender === 'female' ? 'female' : 'male';
   const genderHe = gender === 'female' ? 'נקבה' : 'זכר';
   const name = (state?.user?.name || '').trim() || (gender === 'female' ? 'משתמשת' : 'משתמש');
-  return WEEKLY_INSIGHT_STRUCT_PROMPT
+  // v3.23.3 fix #8: append gaps rule
+  return (WEEKLY_INSIGHT_STRUCT_PROMPT + WEIGHT_GAPS_RULE)
     .replace('{persona}', personaId)
     .replace('{name}', name)
     .replace('{gender}', genderHe)
@@ -839,7 +871,9 @@ function buildReportPrompt(state, recipient, customRecipientLabel, filteredData)
     }
   }
 
-  return REPORT_INSIGHTS_SYSTEM_PROMPT
+  // v3.23.3 fix #8: append gaps rule — Report uses long windows where
+  // a 14-day silence in the middle would otherwise read as a "trend".
+  return (REPORT_INSIGHTS_SYSTEM_PROMPT + WEIGHT_GAPS_RULE)
     .replace('{filtered_data}', JSON.stringify(enrichedData))
     .replace('{recipient}', recipientLabel)
     .replace('{persona}', personaId)

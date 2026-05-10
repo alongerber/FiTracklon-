@@ -227,9 +227,21 @@ function HomeV1({ onNavigate }) {
               <div style={{ fontSize: 11, color: T.inkMute, letterSpacing: 0.4 }}>משקל נוכחי · {fmt.relativeDay(stats.latestDate)}</div>
               <div style={{ fontSize: 11, color: T.inkSub, marginTop: 2 }}>{fmt.day(stats.latestDate)} · {stats.latestTime}</div>
             </div>
-            {stats.deltaWeek !== null && (
+            {/* v3.23.3 fix #11: honest delta label.
+                  - When findNearPast returned null → no Pill (don't fake a weekly delta).
+                  - When the matched entry is exactly 5-9 days back → "ק״ג/שבוע" stays.
+                  - Otherwise → "ירידה X ק״ג מ-{date}" so the user sees the real timespan. */}
+            {stats.deltaWeek !== null && stats.deltaWeekRef && (
               <Pill color={stats.deltaWeek < 0 ? T.lime : T.rose} size="sm">
-                {stats.deltaWeek < 0 ? 'ירידה' : 'עלייה'} {fmt.signed(stats.deltaWeek)} ק״ג/שבוע
+                {(() => {
+                  const dir = stats.deltaWeek < 0 ? 'ירידה' : 'עלייה';
+                  const days = stats.deltaWeekRef.daysBack;
+                  const inWeekWindow = days >= 5 && days <= 9;
+                  if (inWeekWindow) {
+                    return `${dir} ${fmt.signed(stats.deltaWeek)} ק״ג/שבוע`;
+                  }
+                  return `${dir} ${fmt.signed(stats.deltaWeek)} ק״ג מ-${fmt.dayShort(stats.deltaWeekRef.date)}`;
+                })()}
               </Pill>
             )}
           </div>
@@ -267,7 +279,8 @@ function HomeV1({ onNavigate }) {
                     if (stats.etaReason === 'reached') return `הגעת ליעד! ${fmt.kg(toGoalAbs, unit)} ק״ג מהמטרה`;
                     if (stats.etaReason === 'wrong_direction') return `עוד ${fmt.kg(toGoalAbs, unit)} ק״ג ליעד · המגמה כרגע בכיוון ההפוך`;
                     if (stats.etaReason === 'no_pace') return `עוד ${fmt.kg(toGoalAbs, unit)} ק״ג ליעד · המשקל יציב, אין קצב לחזות`;
-                    if (stats.etaReason === 'insufficient_data') return `עוד ${fmt.kg(toGoalAbs, unit)} ק״ג ליעד · צריך לפחות 3 שקילות לחיזוי`;
+                    if (stats.etaReason === 'insufficient_data') return `עוד ${fmt.kg(toGoalAbs, unit)} ק״ג ליעד · צריך לפחות 4 שקילות לחיזוי`;
+                    if (stats.etaReason === 'noisy_pace') return `עוד ${fmt.kg(toGoalAbs, unit)} ק״ג ליעד · הנתונים רועשים מדי לתחזית מדויקת`;
                     return `עוד ${fmt.kg(toGoalAbs, unit)} ק״ג ליעד`;
                   })()}
                 </div>
@@ -330,8 +343,27 @@ function HomeV1({ onNavigate }) {
           const peakIsBad = !hasGoal ? true : wantsToLose;
           return (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
-              <StatChip label="שבוע אחרון" value={stats.deltaWeek !== null ? fmt.signed(stats.deltaWeek) : '—'} unit={stats.deltaWeek !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaWeek < 0 ? T.lime : T.rose} />
-              <StatChip label="חודש אחרון" value={stats.deltaMonth !== null ? fmt.signed(stats.deltaMonth) : '—'} unit={stats.deltaMonth !== null ? fmt.unitLabel(unit) : ''} color={stats.deltaMonth < 0 ? T.lime : T.rose} />
+              {/* v3.23.3 fix #11: chip labels reflect the actual offset
+                   when no entry near 7/30 days exists ("—" instead of a
+                   misleading kg/week number). */}
+              <StatChip
+                label={stats.deltaWeekRef && stats.deltaWeekRef.daysBack >= 5 && stats.deltaWeekRef.daysBack <= 9
+                  ? 'שבוע אחרון'
+                  : stats.deltaWeekRef
+                    ? `${stats.deltaWeekRef.daysBack} ימים אחרונים`
+                    : 'שבוע אחרון'}
+                value={stats.deltaWeek !== null ? fmt.signed(stats.deltaWeek) : '—'}
+                unit={stats.deltaWeek !== null ? fmt.unitLabel(unit) : ''}
+                color={stats.deltaWeek < 0 ? T.lime : T.rose} />
+              <StatChip
+                label={stats.deltaMonthRef && stats.deltaMonthRef.daysBack >= 26 && stats.deltaMonthRef.daysBack <= 34
+                  ? 'חודש אחרון'
+                  : stats.deltaMonthRef
+                    ? `${stats.deltaMonthRef.daysBack} ימים אחרונים`
+                    : 'חודש אחרון'}
+                value={stats.deltaMonth !== null ? fmt.signed(stats.deltaMonth) : '—'}
+                unit={stats.deltaMonth !== null ? fmt.unitLabel(unit) : ''}
+                color={stats.deltaMonth < 0 ? T.lime : T.rose} />
               <StatChip label={peakLabel} value={fmt.kg(stats.peak.weight, unit)} unit={fmt.unitLabel(unit)} sub={fmt.day(stats.peak.date)} color={peakIsBad ? T.rose : T.lime} />
               <StatChip label={lowLabel}  value={fmt.kg(stats.low.weight, unit)}  unit={fmt.unitLabel(unit)} sub={fmt.day(stats.low.date)}  color={peakIsBad ? T.lime : T.rose} />
             </div>
@@ -871,27 +903,68 @@ function computeMonthStats(state, ym) {
   // Nutrition (sums per day for context)
   const nutritionDays = Object.keys(state.nutrition?.meals || {}).filter(d => d.startsWith(prefix));
 
-  // Streak: longest consecutive-day weight streak inside this month
+  // v3.23.3 fix #9 (longest_streak): allow 1 missed day per 5-day window —
+  // matches the new computeStats streak semantics. A single skipped day in
+  // the middle of a logging streak no longer truncates the run to nothing.
   let longestStreak = 0;
   if (entries.length > 0) {
-    let cur = 1;
-    for (let i = 1; i < entries.length; i++) {
-      const prev = entries[i - 1].date;
-      const curr = entries[i].date;
-      const gap = daysBetweenISO(prev, curr);
-      if (gap === 1) {
-        cur += 1;
-      } else {
-        if (cur > longestStreak) longestStreak = cur;
+    let cur = 0;
+    let missesInWindow = 0;
+    let prevDate = null;
+    for (let i = 0; i < entries.length; i++) {
+      const d = entries[i].date;
+      if (prevDate === null) {
         cur = 1;
+        missesInWindow = 0;
+      } else {
+        const gap = daysBetweenISO(prevDate, d);
+        if (gap === 1) {
+          cur += 1;
+          missesInWindow = 0;
+        } else if (gap === 2 && missesInWindow === 0) {
+          // 1-day grace: count as continuation, mark the miss
+          cur += 1;
+          missesInWindow = 1;
+        } else {
+          if (cur > longestStreak) longestStreak = cur;
+          cur = 1;
+          missesInWindow = 0;
+        }
       }
+      prevDate = d;
     }
     if (cur > longestStreak) longestStreak = cur;
   }
 
   const weights = entries.map(e => e.weight);
-  const avgWeight = weights.length ? weights.reduce((s, w) => s + w, 0) / weights.length : null;
-  const deltaWeight = (weights.length >= 2)
+
+  // v3.23.3 fix #9 (avg_weight): time-weighted (trapezoidal) average so
+  // a cluster of weighings in the first week doesn't dominate the result.
+  // Falls back to the simple arithmetic mean when n<3 or all on one day.
+  let avgWeight = null;
+  if (weights.length >= 3) {
+    const days = entries.map(e => {
+      const [y, m, d] = e.date.split('-').map(Number);
+      return Date.UTC(y, m - 1, d) / 86400000;
+    });
+    const span = days[days.length - 1] - days[0];
+    if (span > 0) {
+      let area = 0;
+      for (let i = 1; i < entries.length; i++) {
+        const dt = days[i] - days[i - 1];
+        area += ((weights[i] + weights[i - 1]) / 2) * dt;
+      }
+      avgWeight = area / span;
+    } else {
+      avgWeight = weights.reduce((s, w) => s + w, 0) / weights.length;
+    }
+  } else if (weights.length > 0) {
+    avgWeight = weights.reduce((s, w) => s + w, 0) / weights.length;
+  }
+
+  // v3.23.3 fix #9 (delta_weight): only show delta when n>=4. With 2-3
+  // entries, last-first is too noisy to label as a monthly change.
+  const deltaWeight = (weights.length >= 4)
     ? Math.round((weights[weights.length - 1] - weights[0]) * 10) / 10
     : null;
 
@@ -912,11 +985,27 @@ function computeMonthStats(state, ym) {
     if (c && c > 0) stepsHistory[d] = c;
   });
 
+  // v3.23.3 fix #8/#9: include weight_gaps so the gaps rule appended to
+  // the prompt can actually fire. Also expose `weight_clustered` — true
+  // when all entries fit inside a 7-day window (the new monthly threshold
+  // explicitly mentions this case).
+  const weightGaps = (typeof findGaps === 'function' && entries.length >= 2)
+    ? findGaps(entries.map(e => ({ date: e.date, weight: e.weight })), 3)
+    : [];
+  const weightClustered = (() => {
+    if (entries.length < 2) return false;
+    const span = daysBetweenISO(entries[0].date, entries[entries.length - 1].date);
+    return span <= 7;
+  })();
+
   return {
     ym, monthName: monthDisplayName(ym),
     period: { from: monthStart, to: monthEnd },
     entries_count: entries.length,
     weight_entries: entries,
+    weight_entries_count: entries.length,
+    weight_gaps: weightGaps,
+    weight_clustered: weightClustered,
     avg_weight: avgWeight !== null ? Math.round(avgWeight * 10) / 10 : null,
     delta_weight: deltaWeight,
     workouts_count: workouts.length,

@@ -238,7 +238,9 @@ function computeWeightDetailStats(list, state, unit, goal) {
     });
   }
 
-  // ─── 7-day average (only if ≥3 entries inside that window) ───
+  // ─── v3.23.3 fix #5: 7/30 day averages — always anchored to today
+  // (not to latest weighing), always display n explicitly so the user
+  // sees the sparseness behind the number. <3 entries → "אין מספיק נתונים".
   const today = todayISO();
   const cutoff7  = addDaysISO(today, -7);
   const cutoff30 = addDaysISO(today, -30);
@@ -249,14 +251,20 @@ function computeWeightDetailStats(list, state, unit, goal) {
   const inWindow30 = inRange(cutoff30);
   if (inWindow7.length >= 3) {
     dataRows.push({
-      label: 'ממוצע 7 ימים',
+      label: `ממוצע 7 ימים אחרונים · ${inWindow7.length} שקילות`,
       value: fmt.kg(avg(inWindow7), unit) + ' ' + fmt.unitLabel(unit),
+      date: null,
+    });
+  } else {
+    dataRows.push({
+      label: 'ממוצע 7 ימים אחרונים',
+      value: `אין מספיק (${inWindow7.length}/3)`,
       date: null,
     });
   }
   if (inWindow30.length >= 3 && inWindow30.length > inWindow7.length) {
     dataRows.push({
-      label: 'ממוצע 30 ימים',
+      label: `ממוצע 30 ימים אחרונים · ${inWindow30.length} שקילות`,
       value: fmt.kg(avg(inWindow30), unit) + ' ' + fmt.unitLabel(unit),
       date: null,
     });
@@ -269,19 +277,31 @@ function computeWeightDetailStats(list, state, unit, goal) {
     date: null,
   });
 
-  // ─── Pace (kg/week, computed from filtered range) ───
-  let pace = null;
-  if (list.length >= 2) {
-    const days = daysBetweenISO(list[0].date, latest.date);
-    if (days >= 7) {
-      pace = ((latest.weight - list[0].weight) / days) * 7;
-    }
-  }
-  if (pace !== null && Math.abs(pace) >= 0.05) {
-    const direction = pace < 0 ? 'ירידה' : 'עלייה';
+  // ─── v3.23.3 fix #6: pace via the SAME function that powers Home
+  // (paceKgPerWeekFromList in 02-store.jsx). Previously a divergent
+  // first→last definition lived here, causing the same user to see two
+  // different "kg/week" numbers in different screens. Window stays at the
+  // filtered list's actual range (caller already chose the time slice).
+  // We need a window that covers the filtered list — pass a generous
+  // window equal to the list's range so the regression covers all of it.
+  const listDays = list.length >= 2
+    ? daysBetweenISO(list[0].date, latest.date) + 1
+    : 0;
+  const paceInfo = listDays > 0 ? paceKgPerWeekFromList(list, listDays) : null;
+  if (paceInfo && Math.abs(paceInfo.pace) >= 0.05) {
+    const direction = paceInfo.pace < 0 ? 'ירידה' : 'עלייה';
+    const reliable = paceInfo.r_squared >= 0.5;
     dataRows.push({
-      label: `קצב ${direction}`,
-      value: `${Math.abs(pace).toFixed(2)} ${fmt.unitLabel(unit)}/שב׳`,
+      label: reliable
+        ? `קצב ${direction} · R²=${paceInfo.r_squared.toFixed(2)}`
+        : `קצב ${direction} (רעש גבוה — R²=${paceInfo.r_squared.toFixed(2)})`,
+      value: `${Math.abs(paceInfo.pace).toFixed(2)} ${fmt.unitLabel(unit)}/שב׳`,
+      date: null,
+    });
+  } else if (list.length >= 2 && list.length < 4) {
+    dataRows.push({
+      label: 'קצב',
+      value: `אין מספיק (${list.length}/4)`,
       date: null,
     });
   }

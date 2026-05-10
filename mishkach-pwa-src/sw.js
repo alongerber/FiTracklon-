@@ -1,10 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.23.2 — Critical workout fixes
+// מִשְׁקַלּוּת Service Worker v3.23.3 — Calculation accuracy patch
 // ════════════════════════════════════════════════════════════════════
 // /data/*.json (strings/tips/ai-prompts) are cached opportunistically
 // by the same-origin fetch handler on first request.
 
-const CACHE = 'mishkalut-v3232';
+const CACHE = 'mishkalut-v3233';
 const CORE = [
   './',
   './index.html',
