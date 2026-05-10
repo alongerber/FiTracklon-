@@ -301,13 +301,43 @@ function _getWktAudio() {
   try { _wktAudioCtx = new Ctx(); return _wktAudioCtx; }
   catch (_) { return null; }
 }
-function playRestEndBeep() {
-  // Two short 880Hz beeps — clear "rest is over" cue without being shrill.
-  // If audio is blocked (page hidden, no user gesture yet), we silently no-op.
+
+// v3.23.2 fix #6: prime the AudioContext during a known user gesture
+// (e.g. when the user taps "התחל אימון"). On iOS, an AudioContext created
+// outside a gesture starts in 'suspended' and resume() is async — the
+// first beep used to fire its oscillators BEFORE resume completed and was
+// therefore inaudible. Calling this once during the start gesture unlocks
+// the context (silent zero-volume tone) so all subsequent beeps work.
+function primeWktAudio() {
   try {
     const ctx = _getWktAudio();
     if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    // Schedule a 1ms zero-volume tone to fully unlock the audio graph on iOS.
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001;
+    osc.frequency.value = 440;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.001);
+  } catch (_) { /* swallow */ }
+}
+
+async function playRestEndBeep() {
+  // Two short 880Hz beeps — clear "rest is over" cue without being shrill.
+  // If audio is blocked (page hidden, no user gesture yet), we silently no-op.
+  // v3.23.2 fix #6: AWAIT ctx.resume() before scheduling oscillators. The
+  // previous fire-and-forget pattern caused the first beep to be silent
+  // on iOS when the context was still 'suspended'.
+  try {
+    const ctx = _getWktAudio();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch (_) { /* fall through anyway */ }
+    }
     const now = ctx.currentTime;
     [0, 0.18].forEach(offset => {
       const osc = ctx.createOscillator();
@@ -410,9 +440,27 @@ function ActiveWorkoutScreen({ onClose }) {
     goToExercises();
   };
 
+  // v3.23.2 fix #1: advance-lock + signature debounce.
+  // Two dispatches (COMPLETE_SET + PATCH_ACTIVE_SESSION) read currentSetIdx /
+  // currentExerciseIdx from the closure of the previous render. A double-tap
+  // (~80ms) on "סיימתי הסט" before re-render would trigger advanceAfterSet
+  // twice with the same closure → set duplicated/skipped or progress lost.
+  // Fix: lock keyed by the section-position signature; the lock is cleared
+  // automatically when the underlying state actually advances (the next time
+  // advanceAfterSet is called with a NEW signature).
+  const advanceLockRef = React.useRef({ key: null, until: 0 });
   // After completing a set, decide if it's the last set, the last exercise,
   // or just the next set. Emits dispatches to advance the session.
   const advanceAfterSet = (recordedReps, recordedWeight, viaSkip = false) => {
+    const sig = `${session.currentExerciseIdx}:${session.currentSetIdx}:${session.currentSection}`;
+    const now = Date.now();
+    const lock = advanceLockRef.current;
+    // Drop the call if either: (a) same signature within 200ms (debounce
+    // double-tap before re-render), or (b) same signature already advanced
+    // and the closure hasn't refreshed yet.
+    if (lock.key === sig && now < lock.until) return;
+    advanceLockRef.current = { key: sig, until: now + 200 };
+
     const ex = workout.exercises[session.currentExerciseIdx];
     if (!viaSkip) {
       dispatch({
@@ -652,16 +700,27 @@ function ActiveScreenShell({ children, onClose }) {
 // Continuous timer (mm:ss) — there's no per-item count; the user just
 // works through the warmup list at their own pace. "סיימתי" advances.
 function ActiveWarmup({ items, onDone, onSkip }) {
+  // v3.23.2 fix #2: hooks must always be called at the top level. The
+  // previous useEffect-inside-`if (empty)` branch violated React rules and
+  // would crash with "Rendered more hooks than during the previous render"
+  // when `items` switched from empty → non-empty between renders.
+  const isEmpty = !items || items.length === 0;
   const [elapsed, setElapsed] = React.useState(0);
+  // Capture latest onDone so the auto-advance effect doesn't re-fire when
+  // the parent re-renders and hands us a new closure.
+  const onDoneRef = React.useRef(onDone);
+  onDoneRef.current = onDone;
+
   React.useEffect(() => {
+    if (isEmpty) {
+      onDoneRef.current && onDoneRef.current();
+      return;
+    }
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
     return () => clearInterval(t);
-  }, []);
-  if (!items || items.length === 0) {
-    // Empty warmup — auto-advance after a tick
-    React.useEffect(() => { onDone && onDone(); }, []);
-    return null;
-  }
+  }, [isEmpty]);
+
+  if (isEmpty) return null;
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 11, color: T.cyan, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>חימום</div>
@@ -843,18 +902,34 @@ function counterBtn(disabled) {
 function ActiveRestTimer({ seconds, onDone, onSkip }) {
   const [remaining, setRemaining] = React.useState(seconds);
   const beepedRef = React.useRef(false);
+  // v3.23.2 fix #3: guard against double-fire of onDone. Without this, a
+  // tap on "דלג" within the 800ms window between remaining=0 and the
+  // setTimeout would call onDone twice → PATCH_ACTIVE_SESSION runs twice
+  // on stale closures, corrupting currentSetIdx/currentExerciseIdx.
+  const doneCalledRef = React.useRef(false);
+
+  const safeDone = React.useCallback(() => {
+    if (doneCalledRef.current) return;
+    doneCalledRef.current = true;
+    onDone && onDone();
+  }, [onDone]);
+  const safeSkip = React.useCallback(() => {
+    if (doneCalledRef.current) return;
+    doneCalledRef.current = true;
+    onSkip && onSkip();
+  }, [onSkip]);
 
   // Interval drives the visible countdown. We call onDone via auto-advance
   // when remaining hits 0; the beep also fires once at that moment.
   React.useEffect(() => {
     if (remaining <= 0) {
       if (!beepedRef.current) { playRestEndBeep(); beepedRef.current = true; }
-      const t = setTimeout(() => onDone && onDone(), 800);
+      const t = setTimeout(() => safeDone(), 800);
       return () => clearTimeout(t);
     }
     const t = setInterval(() => setRemaining(r => r - 1), 1000);
     return () => clearInterval(t);
-  }, [remaining, onDone]);
+  }, [remaining, safeDone]);
 
   const total = Math.max(seconds, 1);
   const pct = Math.max(0, Math.min(100, (1 - remaining / total) * 100));
@@ -888,7 +963,7 @@ function ActiveRestTimer({ seconds, onDone, onSkip }) {
 
       <div style={{ display: 'flex', gap: 10 }}>
         <Button variant="ghost" onClick={() => setRemaining(r => r + 30)}>+30 שניות</Button>
-        <Button onClick={onSkip}>דלג</Button>
+        <Button onClick={safeSkip}>דלג</Button>
       </div>
     </div>
   );
@@ -915,15 +990,22 @@ function ActiveCooldownPrompt({ onYes, onNo }) {
 
 // ─── Section: cooldown ─────────────────────────────────────────────
 function ActiveCooldown({ items, onDone, onSkip }) {
+  // v3.23.2 fix #2: same hook-violation fix as ActiveWarmup. See above.
+  const isEmpty = !items || items.length === 0;
   const [elapsed, setElapsed] = React.useState(0);
+  const onDoneRef = React.useRef(onDone);
+  onDoneRef.current = onDone;
+
   React.useEffect(() => {
+    if (isEmpty) {
+      onDoneRef.current && onDoneRef.current();
+      return;
+    }
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
     return () => clearInterval(t);
-  }, []);
-  if (!items || items.length === 0) {
-    React.useEffect(() => { onDone && onDone(); }, []);
-    return null;
-  }
+  }, [isEmpty]);
+
+  if (isEmpty) return null;
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 4 }}>מתיחות</div>
@@ -1061,8 +1143,14 @@ function ActiveSessionRecoveryDialog({ onResume, onSavePartial, onCancel }) {
   const { state } = useStore();
   const session = state.workouts?.activeSession;
   const plan = state.workouts?.plan;
-  if (!session || !plan) return null;
-  const workout = (plan.workouts || []).find(w => w.id === session.workoutId);
+  if (!session) return null;
+  const workout = plan ? (plan.workouts || []).find(w => w.id === session.workoutId) : null;
+  // v3.23.2 fix #4 (defense-in-depth): if plan/workout is gone but the
+  // mount-effect upstream didn't auto-abandon for some reason, render an
+  // orphan-recovery card with a single "Cancel session" button instead of
+  // a null that traps the user. The mount effect should handle this case
+  // first, but render-path safety prevents future regressions.
+  const isOrphan = !plan || !workout;
   const setsCount = (session.completedSets || []).length;
   const minutesAgo = Math.round((Date.now() - new Date(session.startedAt).getTime()) / 60000);
 
@@ -1076,27 +1164,49 @@ function ActiveSessionRecoveryDialog({ onResume, onSavePartial, onCancel }) {
         background: T.bgElev, borderRadius: T.radiusL, border: `1px solid ${T.strokeHi}`,
         padding: 22, maxWidth: 360, width: '100%', direction: 'rtl',
       }}>
-        <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
-          אימון פעיל
-        </div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: 8 }}>
-          היית באמצע "{workout?.name || 'אימון'}".
-        </div>
-        <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 18 }}>
-          {setsCount > 0 ? `השלמת ${setsCount} סטים, לפני ${minutesAgo} דקות.` : `התחלת לפני ${minutesAgo} דקות.`}
-          <br />להמשיך מאיפה שעצרת?
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Button onClick={onResume}>המשך אימון</Button>
-          {setsCount > 0 && (
-            <Button variant="ghost" onClick={onSavePartial}>סיים ושמור חלקי</Button>
-          )}
-          <button onClick={onCancel} style={{
-            width: '100%', height: 44, background: 'transparent',
-            border: `1px solid ${T.rose}55`, borderRadius: 12,
-            color: T.rose, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
-          }}>בטל לגמרי</button>
-        </div>
+        {isOrphan ? (
+          <>
+            <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+              אימון יתום
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: 8 }}>
+              היה לך אימון פעיל אבל התוכנית כבר לא קיימת.
+            </div>
+            <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 18 }}>
+              {setsCount > 0 ? `השלמת ${setsCount} סטים, לפני ${minutesAgo} דקות. ` : ''}
+              נסגור את הסשן.
+            </div>
+            <button onClick={onCancel} style={{
+              width: '100%', height: 44, background: T.rose,
+              border: 'none', borderRadius: 12,
+              color: '#000', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+            }}>סגור סשן</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, color: T.lime, fontFamily: T.mono, letterSpacing: 1, marginBottom: 8 }}>
+              אימון פעיל
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, lineHeight: 1.4, marginBottom: 8 }}>
+              היית באמצע "{workout?.name || 'אימון'}".
+            </div>
+            <div style={{ fontSize: 13, color: T.inkSub, lineHeight: 1.6, marginBottom: 18 }}>
+              {setsCount > 0 ? `השלמת ${setsCount} סטים, לפני ${minutesAgo} דקות.` : `התחלת לפני ${minutesAgo} דקות.`}
+              <br />להמשיך מאיפה שעצרת?
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Button onClick={onResume}>המשך אימון</Button>
+              {setsCount > 0 && (
+                <Button variant="ghost" onClick={onSavePartial}>סיים ושמור חלקי</Button>
+              )}
+              <button onClick={onCancel} style={{
+                width: '100%', height: 44, background: 'transparent',
+                border: `1px solid ${T.rose}55`, borderRadius: 12,
+                color: T.rose, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+              }}>בטל לגמרי</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1600,10 +1710,47 @@ function StepsWidget({ stepsToday, steps, onEdit }) {
 // No max validation — user knows their own number better than we do.
 function StepsLogDialog({ initialCount, onClose, onSave }) {
   const [count, setCount] = React.useState(initialCount || 0);
+  // v3.23.2 fix #5: track raw input separately so we can validate properly
+  // and surface a visible error. iOS may emit non-digit chars (commas,
+  // spaces) when the user pastes a number from a steps app — without
+  // sanitization parseInt returned NaN → silent zero → data loss.
+  const [raw, setRaw] = React.useState(initialCount ? String(initialCount) : '');
+  const [error, setError] = React.useState(null);
+
+  const MAX_STEPS = 200000; // sane upper bound; world record day is ~80k
+
+  const handleChange = (input) => {
+    // Strip commas, spaces, RTL marks — anything that isn't a digit.
+    const cleaned = String(input).replace(/[^\d]/g, '');
+    setRaw(input); // keep what the user typed visible
+    if (cleaned === '') {
+      setCount(0);
+      setError(null);
+      return;
+    }
+    const n = parseInt(cleaned, 10);
+    if (Number.isNaN(n)) {
+      setCount(0);
+      setError('הזן מספר תקין');
+      return;
+    }
+    if (n > MAX_STEPS) {
+      setCount(MAX_STEPS);
+      setError(`המקסימום הוא ${MAX_STEPS.toLocaleString('he-IL')}`);
+      return;
+    }
+    setCount(n);
+    setError(null);
+  };
+
   const handleSave = () => {
-    if (count <= 0) return;
+    if (count <= 0) {
+      setError('הזן מספר חיובי');
+      return;
+    }
     onSave(count);
   };
+
   return (
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 980,
@@ -1618,21 +1765,34 @@ function StepsLogDialog({ initialCount, onClose, onSave }) {
           מה השעון אומר?
         </div>
         <input
-          type="number"
+          type="text"
           inputMode="numeric"
+          pattern="[0-9]*"
           autoFocus
-          value={count || ''}
-          onChange={e => setCount(parseInt(e.target.value, 10) || 0)}
+          value={raw}
+          onChange={e => handleChange(e.target.value)}
           placeholder="8432"
           style={{
             width: '100%', padding: '14px 16px',
-            background: T.bg, border: `1px solid ${T.stroke}`,
+            background: T.bg, border: `1px solid ${error ? T.rose : T.stroke}`,
             borderRadius: 12, color: T.ink,
             fontFamily: T.mono, fontSize: 24, fontWeight: 700,
             textAlign: 'center', outline: 'none',
-            marginBottom: 18,
+            marginBottom: error ? 8 : 18,
           }}
         />
+        {error && (
+          <div style={{
+            fontSize: 12, color: T.rose, marginBottom: 14,
+            textAlign: 'center', fontFamily: T.mono,
+          }}>{error}</div>
+        )}
+        {!error && count > 0 && (
+          <div style={{
+            fontSize: 11, color: T.inkMute, marginBottom: 14,
+            textAlign: 'center', fontFamily: T.mono,
+          }}>נשמר: {count.toLocaleString('he-IL')}</div>
+        )}
         <div style={{ display: 'flex', gap: 10 }}>
           <Button variant="ghost" onClick={onClose}>ביטול</Button>
           <Button onClick={handleSave} disabled={count <= 0}>שמירה</Button>
@@ -1822,11 +1982,29 @@ function WorkoutScreen() {
       dispatch({ type: 'ABANDON_ACTIVE_WORKOUT' });
       return;
     }
+    // v3.23.2 fix #4: orphan-session guard. If the plan was wiped (or the
+    // session's workoutId no longer resolves to a workout in the current
+    // plan), the recovery dialog used to render null forever — leaving the
+    // user with a ghost activeSession they couldn't dismiss. Auto-abandon.
+    const plan = state.workouts?.plan;
+    const planMissing = !plan;
+    const workoutMissing = !!plan && !(plan.workouts || []).some(w => w.id === s.workoutId);
+    if (planMissing || workoutMissing) {
+      dispatch({ type: 'ABANDON_ACTIVE_WORKOUT' });
+      trackEvent('Active Workout Auto-Abandoned', {
+        reason: planMissing ? 'plan_missing' : 'workout_missing',
+      });
+      return;
+    }
     setShowRecovery(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startPlannedWorkout = (workoutId, mode) => {
+    // v3.23.2 fix #6: prime audio inside the user gesture so the first
+    // rest-timer beep is audible on iOS PWA (where AudioContext starts
+    // suspended and resume() is async).
+    primeWktAudio();
     dispatch({ type: 'START_ACTIVE_WORKOUT', workoutId, date: todayISO(), mode });
     trackEvent('Active Workout Started', { mode });
     setShowActive(true);
@@ -2220,10 +2398,16 @@ function WorkoutScreen() {
         }}
       />}
       {showRecovery && <ActiveSessionRecoveryDialog
-        onResume={() => { setShowRecovery(false); setShowActive(true); }}
+        onResume={() => {
+          // v3.23.2 fix #6: prime audio on resume gesture too.
+          primeWktAudio();
+          setShowRecovery(false);
+          setShowActive(true);
+        }}
         onSavePartial={() => {
           // Treat partial save as a "complete" with whatever sets exist
           // and no feedback. The user opted out, so don't ask further.
+          primeWktAudio();
           setShowRecovery(false);
           setShowActive(true);
           // The user lands on the current section; they tap "סיים" /
