@@ -108,7 +108,7 @@ const initialState = {
     mode: 'direct',        // 'direct' (BYO API key) | 'shared' (proxy + password)
     key: '',               // personal Anthropic API key
     sharedPassword: '',    // password for shared proxy
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',   // display fallback only; real model comes from MODEL_BY_FEATURE
     enabled: true,
   },
   // Usage tracking

@@ -6,32 +6,45 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_API_VERSION = '2023-06-01';
 const PROXY_URL = '/api/claude';
 
-// Pricing per 1M tokens (USD) — verified April 2026
+// Pricing per 1M tokens (USD) — verified September 2026 against
+// platform.claude.com/docs/en/about-claude/pricing
 const PRICING = {
+  'claude-opus-5':             { in: 5,  out: 25 },
+  'claude-sonnet-5':           { in: 2,  out: 10 },
   'claude-opus-4-7':           { in: 5,  out: 25 },
   'claude-opus-4-6':           { in: 5,  out: 25 },
   'claude-sonnet-4-6':         { in: 3,  out: 15 },
   'claude-haiku-4-5-20251001': { in: 1,  out: 5 },
 };
 
+// An unknown model must never be billed at zero — that silently disables the
+// weekly cap. Charge the most expensive KNOWN rate instead: a cap that closes
+// slightly early is recoverable, an uncounted spend is not.
+const MAX_KNOWN_PRICE = Object.values(PRICING).reduce(
+  (m, x) => ({ in: Math.max(m.in, x.in), out: Math.max(m.out, x.out) }),
+  { in: 0, out: 0 });
+
 // Model tiering: use the cheaper-but-excellent Sonnet for text parsing,
-// keep Opus 4.7 for vision and reasoning-heavy insights.
+// keep Opus for vision and reasoning-heavy insights.
+// v3.24: Opus 5 costs exactly what Opus 4.7 cost ($5/$25). Sonnet 5 is
+// $2/$10 against Sonnet 4.6's $3/$15 — 33% cheaper, so the weekly cap
+// stretches further than it did before the upgrade.
 const MODEL_BY_FEATURE = {
-  nutrition_text:     'claude-sonnet-4-6',   // 40% cheaper, near-Opus quality on text
-  nutrition_image:    'claude-opus-4-7',     // vision matters for product recognition
-  nutrition_refine:   'claude-sonnet-4-6',   // v3.18: arithmetic on vision output, no reasoning bonus
-  weekly_insight:     'claude-sonnet-4-6',   // v3.13: structured JSON, Sonnet plenty
-  plateau_analysis:   'claude-opus-4-7',
-  goal_calibration:   'claude-opus-4-7',
-  report_insights:    'claude-opus-4-7',     // pattern-finding for personal report
-  workout_voice:      'claude-sonnet-4-6',   // structured Hebrew→JSON, Sonnet handles fine
-  monthly_recap:      'claude-opus-4-7',     // v3.13: cross-data correlations need Opus reasoning
-  auto_correlations:  'claude-opus-4-7',     // pattern detection across many days — needs Opus reasoning
-  what_if:            'claude-sonnet-4-6',   // forward projection from numbers — Sonnet handles
-  workout_plan:       'claude-opus-4-7',     // v3.19: structured multi-day plan, programming quality matters
+  nutrition_text:     'claude-sonnet-5',   // 60% cheaper than Opus, near-Opus on text
+  nutrition_image:    'claude-opus-5',     // vision matters for product recognition
+  nutrition_refine:   'claude-sonnet-5',   // v3.18: arithmetic on vision output, no reasoning bonus
+  weekly_insight:     'claude-sonnet-5',   // v3.13: structured JSON, Sonnet plenty
+  plateau_analysis:   'claude-opus-5',
+  goal_calibration:   'claude-opus-5',
+  report_insights:    'claude-opus-5',     // pattern-finding for personal report
+  workout_voice:      'claude-sonnet-5',   // structured Hebrew→JSON, Sonnet handles fine
+  monthly_recap:      'claude-opus-5',     // v3.13: cross-data correlations need Opus reasoning
+  auto_correlations:  'claude-opus-5',     // pattern detection across many days — needs Opus reasoning
+  what_if:            'claude-sonnet-5',   // forward projection from numbers — Sonnet handles
+  workout_plan:       'claude-opus-5',     // v3.19: structured multi-day plan, programming quality matters
 };
 
-const DEFAULT_MODEL = 'claude-opus-4-7';
+const DEFAULT_MODEL = 'claude-opus-5';
 
 // ─── Low-level API call with dual-mode support ──────────────────────
 // config: { mode: 'direct'|'shared', key, sharedPassword }
@@ -129,8 +142,11 @@ function extractJSON(text) {
 }
 
 // ─── Cost estimation ────────────────────────────────────────────────
+// `model` must be the model the call ACTUALLY used (callClaude passes it
+// back on the usage object), not state.apiConfig.model — the features are
+// tiered, so a Sonnet call billed at the Opus rate over-reports by 2.5x.
 function estimateCost(usage, model = DEFAULT_MODEL) {
-  const p = PRICING[model] || PRICING[DEFAULT_MODEL];
+  const p = PRICING[model] || MAX_KNOWN_PRICE;
   const inCost  = (usage.input_tokens  / 1_000_000) * p.in;
   const outCost = (usage.output_tokens / 1_000_000) * p.out;
   return inCost + outCost;
@@ -242,6 +258,7 @@ Return ONLY valid JSON:
   "protein": <grams>,
   "carbs": <grams>,
   "fat": <grams>,
+  "food_name": "<short Hebrew name for the whole dish, e.g. שניצל עם סלט>",
   "items": [{"name": "<Hebrew>", "amount": "<Hebrew>"}],
   "detected": "meal" | "label" | "product",
   "productName": "<if product detected, Hebrew name + brand>",
@@ -278,16 +295,16 @@ ABSOLUTE RULES — quantity (v3.23.1):
 EXAMPLES (apply the rules above — these are the calibration target):
 
 Tray of ~5 home schnitzels (shared):
-{ "food_name": "מגש שניצלי עוף", "calories": 1600, "protein": 110, "carbs": 80, "fat": 90, "portions_visible": 5, "is_shared_meal": true, "classification": "protein", "confidence": "medium", "notes": "5 שניצלי עוף בית ממוצעים. אם אכלת רק חלק, ציין כמה במסך הבא." }
+{ "food_name": "מגש שניצלי עוף", "items": [{"name": "שניצל חזה עוף מטוגן", "amount": "5 יחידות"}], "calories": 1600, "protein": 110, "carbs": 80, "fat": 90, "detected": "meal", "productName": "", "portions_visible": 5, "is_shared_meal": true, "classification": "protein", "confidence": "medium", "notes": "5 שניצלי עוף בית ממוצעים. אם אכלת רק חלק, ציין כמה במסך הבא." }
 
 Personal plate, 1 schnitzel + side salad:
-{ "food_name": "שניצל עם סלט", "calories": 420, "protein": 32, "carbs": 18, "fat": 26, "portions_visible": 1, "is_shared_meal": false, "classification": "protein", "confidence": "high", "notes": "ארוחה אישית של 1 אדם." }
+{ "food_name": "שניצל עם סלט", "items": [{"name": "שניצל חזה עוף מטוגן", "amount": "יחידה בינונית"}, {"name": "סלט ירקות ישראלי", "amount": "מנה קטנה"}], "calories": 420, "protein": 32, "carbs": 18, "fat": 26, "detected": "meal", "productName": "", "portions_visible": 1, "is_shared_meal": false, "classification": "protein", "confidence": "high", "notes": "ארוחה אישית של 1 אדם." }
 
 Whole family pizza (8 slices):
-{ "food_name": "פיצה משפחתית", "calories": 2240, "protein": 90, "carbs": 280, "fat": 80, "portions_visible": 8, "is_shared_meal": true, "classification": "starch", "confidence": "medium", "notes": "פיצה שלמה. במסך הבא ציין כמה משולשים אכלת." }
+{ "food_name": "פיצה משפחתית", "items": [{"name": "פיצה גבינה", "amount": "8 משולשים"}], "calories": 2240, "protein": 90, "carbs": 280, "fat": 80, "detected": "meal", "productName": "", "portions_visible": 8, "is_shared_meal": true, "classification": "starch", "confidence": "medium", "notes": "פיצה שלמה. במסך הבא ציין כמה משולשים אכלת." }
 
 Personal restaurant pasta bowl:
-{ "food_name": "פסטה ברוטב עגבניות", "calories": 720, "protein": 22, "carbs": 95, "fat": 26, "portions_visible": 1, "is_shared_meal": false, "classification": "starch", "confidence": "high", "notes": "מנת פסטה אישית במסעדה. גודל סטנדרטי." }
+{ "food_name": "פסטה ברוטב עגבניות", "items": [{"name": "פסטה מבושלת ברוטב עגבניות", "amount": "מנה גדולה"}], "calories": 720, "protein": 22, "carbs": 95, "fat": 26, "detected": "meal", "productName": "", "portions_visible": 1, "is_shared_meal": false, "classification": "starch", "confidence": "high", "notes": "מנת פסטה אישית במסעדה. גודל סטנדרטי." }
 
 Classification rules (pick exactly one):
 - starch: pasta, rice, bread, pita, potato, couscous, quinoa, סנדוויץ' מבוסס לחם
@@ -457,6 +474,27 @@ async function parseNutritionFromImage(file, config, onUsage) {
   return { ...normalizeNutrition(parsed), thumbnail: thumb };
 }
 
+// ─── Atwater cross-check ────────────────────────────────────────────
+// 4 kcal per gram of protein and carbohydrate, 9 per gram of fat. A reply
+// whose calorie figure contradicts its OWN macros is internally broken —
+// most often the model summed a plate wrong, or copied a per-100g number
+// onto a 300g portion. `normalizeNutrition` used to accept whatever came
+// back; now the inconsistency is carried on the result so the review screen
+// can show the derived figure instead of silently saving a number we can
+// already prove is wrong.
+const ATWATER_TOLERANCE = 0.18;
+
+function atwaterCheck(m) {
+  const derived = 4 * (m.protein || 0) + 4 * (m.carbs || 0) + 9 * (m.fat || 0);
+  if (derived <= 0) return { ok: true, derived: 0, delta: 0 };
+  const delta = Math.abs((m.calories || 0) - derived) / derived;
+  return {
+    ok: delta <= ATWATER_TOLERANCE,
+    derived: Math.round(derived),
+    delta: Math.round(delta * 100) / 100,
+  };
+}
+
 // ─── Normalize: ensure numbers, default missing ─────────────────────
 function normalizeNutrition(p) {
   const num = (v, def = 0) => {
@@ -476,12 +514,20 @@ function normalizeNutrition(p) {
   // "כמה אכלת בעצם?" before saving, then divides macros accordingly.
   const portionsVisible = Math.max(1, num(p.portions_visible, 1));
   const isShared = p.is_shared_meal === true || p.is_shared_meal === 'true';
-  return {
+
+  const macros = {
     calories: Math.max(0, num(p.calories)),
     protein:  Math.max(0, num(p.protein)),
     carbs:    Math.max(0, num(p.carbs)),
     fat:      Math.max(0, num(p.fat)),
+  };
+  const atwater = atwaterCheck(macros);
+
+  return {
+    ...macros,
+    atwater,
     items:    Array.isArray(p.items) ? p.items : [],
+    foodName: (p.food_name || p.productName || '').trim(),
     detected: p.detected || 'text',
     productName: p.productName || '',
     confidence: p.confidence || 'medium',

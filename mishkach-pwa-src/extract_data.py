@@ -36,6 +36,24 @@ SRC = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(SRC, '..'))
 ESBUILD = os.path.join(SRC, 'node_modules', 'esbuild', 'bin', 'esbuild')
 
+# npm installs `node_modules/esbuild/bin/esbuild` either as a JS shim (run it
+# with node) or, on some platforms, as the native binary itself (run it
+# directly). Sniffing the ELF/Mach-O/PE magic makes the build work on both
+# without the caller caring which one npm produced.
+def esbuild_argv(esbuild_path):
+    try:
+        with open(esbuild_path, 'rb') as _fp:
+            magic = _fp.read(4)
+    except OSError:
+        return ['node', esbuild_path]
+    is_native = (
+        magic[:4] == b'\x7fELF' or                       # Linux
+        magic[:4] in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe') or  # macOS
+        magic[:2] == b'MZ'                               # Windows
+    )
+    return [esbuild_path] if is_native else ['node', esbuild_path]
+
+
 # Browser globals that the JSX files reference at module load time.
 # Stub them to no-op values so Node can evaluate the file without crashing.
 # The data we extract sits in pure consts that don't depend on these — but
@@ -81,7 +99,7 @@ def extract_consts(jsx_filename, const_names, out_filename):
 
         # esbuild: JSX → CJS, with stubs banner so unresolved globals don't crash
         bres = _run([
-            'node', ESBUILD, in_jsx,
+            *esbuild_argv(ESBUILD), in_jsx,
             '--target=node18',
             '--platform=node',
             '--format=cjs',

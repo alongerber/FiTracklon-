@@ -12,13 +12,23 @@ const WEEKLY_CAP_USD = 2.0;
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
-// Pricing per 1M tokens — must match client pricing table
+// Pricing per 1M tokens — verified September 2026.
+// The SERVER is the source of truth for cost: it returns the computed spend
+// in the response so the client does not need its own copy to stay in sync.
 const PRICING = {
+  'claude-opus-5':             { in: 5,  out: 25 },
+  'claude-sonnet-5':           { in: 2,  out: 10 },
   'claude-opus-4-7':           { in: 5,  out: 25 },
   'claude-opus-4-6':           { in: 5,  out: 25 },
   'claude-sonnet-4-6':         { in: 3,  out: 15 },
   'claude-haiku-4-5-20251001': { in: 1,  out: 5  },
 };
+
+// A model missing from the table must never cost zero — that silently turns
+// the weekly cap off. Bill it at the most expensive known rate.
+const MAX_KNOWN_PRICE = Object.values(PRICING).reduce(
+  (m, x) => ({ in: Math.max(m.in, x.in), out: Math.max(m.out, x.out) }),
+  { in: 0, out: 0 });
 
 // ─── ISO week key ───────────────────────────────────────────────────
 function weekKey() {
@@ -214,8 +224,8 @@ async function handleRequest(req) {
 
   // ─── Track cost if successful ────────────────────────────────────
   if (upstream.ok && respData?.usage) {
-    const model = parsedBody.model || 'claude-opus-4-7';
-    const pricing = PRICING[model] || PRICING['claude-opus-4-7'];
+    const model = parsedBody.model || 'claude-opus-5';
+    const pricing = PRICING[model] || MAX_KNOWN_PRICE;
     const cost =
       (respData.usage.input_tokens  * pricing.in  +
        respData.usage.output_tokens * pricing.out) / 1_000_000;

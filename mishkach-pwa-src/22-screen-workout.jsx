@@ -114,7 +114,7 @@ function WorkoutOnboardingScreen({ onClose, onPlanReady }) {
         stats?.current,
         state.apiConfig,
         (usage) => {
-          const cost = estimateCost(usage, state.apiConfig.model);
+          const cost = estimateCost(usage, usage.model || state.apiConfig.model);
           dispatch({
             type: 'TRACK_USAGE',
             inputTokens: usage.input_tokens,
@@ -4173,7 +4173,7 @@ function VoiceInputDialog({ onClose, onResult }) {
     setPhase('parsing');
     try {
       const parsed = await parseWorkoutFromVoice(transcript, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({ type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
           feature: 'workout_voice', costUSD: cost,
@@ -4383,7 +4383,7 @@ function FreeTextInputDialog({ onClose, onResult }) {
     setParsing(true);
     try {
       const parsed = await parseWorkoutFromVoice(text.trim(), state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({ type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
           feature: 'workout_voice', costUSD: cost,

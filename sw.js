@@ -1,10 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-// מִשְׁקַלּוּת Service Worker v3.23.3 — Calculation accuracy patch
+// מִשְׁקַלּוּת Service Worker v3.24.0 — Opus 5 + Israeli nutrition DB
 // ════════════════════════════════════════════════════════════════════
-// /data/*.json (strings/tips/ai-prompts) are cached opportunistically
+// /data/*.json (strings/tips/ai-prompts/il-foods) are cached opportunistically
 // by the same-origin fetch handler on first request.
 
-const CACHE = 'mishkalut-v3233';
+const CACHE = 'mishkalut-v3240';
 const CORE = [
   './',
   './index.html',

@@ -118,7 +118,7 @@ function ReportScreen({ onClose }) {
     setAiError(null);
     try {
       const result = await generateReportInsights(snapshot, recipient, customRecipient, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({ type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
           feature: 'report_insights', costUSD: cost,

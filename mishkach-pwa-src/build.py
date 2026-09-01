@@ -41,6 +41,7 @@ os.makedirs(OUT, exist_ok=True)
 # fetch() at runtime (see 04b-data-loader.jsx). This keeps the giant
 # CREATIVE_TIPS / STRINGS / AI prompt strings out of the boot bundle.
 import extract_data
+from extract_data import esbuild_argv
 data_sizes = extract_data.main()
 
 JSX_FILES = [
@@ -68,6 +69,7 @@ JSX_FILES = [
     '23-screen-report.jsx',    # NEW: AI-powered personal report (PDF + WhatsApp)
     '24-icons.jsx',            # NEW (v3.5): persona icon set + <Icon> alias
     '25-screen-weight-detail.jsx',  # NEW (v3.15): WeightDetailScreen drill-down
+    '26-food-db.jsx',              # NEW (v3.24): Israeli MoH nutrition DB lookup + Atwater
     '11-app.jsx',
 ]
 
@@ -101,7 +103,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         sys.exit(1)
 
     cmd = [
-        'node', esbuild_bin, jsx_path,
+        *esbuild_argv(esbuild_bin), jsx_path,
         '--target=es2020',
         '--jsx-factory=React.createElement',
         '--jsx-fragment=React.Fragment',
@@ -299,6 +301,19 @@ for static in ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png',
     dst = os.path.join(OUT, static)
     if os.path.exists(src):
         shutil.copy(src, dst)
+
+# v3.24: hand-authored data files (not extracted from JSX) — the Israeli
+# National Nutrition Database. Source of truth is data.gov.il; we ship a
+# trimmed copy so lookups work offline.
+static_data_dir = os.path.join(SRC, 'static-data')
+if os.path.isdir(static_data_dir):
+    out_data = os.path.join(OUT, 'data')
+    os.makedirs(out_data, exist_ok=True)
+    for fn in sorted(os.listdir(static_data_dir)):
+        if fn.endswith('.json'):
+            shutil.copy(os.path.join(static_data_dir, fn), os.path.join(out_data, fn))
+            kb = os.path.getsize(os.path.join(static_data_dir, fn)) // 1024
+            print(f'  + data/{fn:24s} {kb:>5d} KB  (static)')
 
 # Copy Vercel edge function to /api/claude.mjs (mjs = guaranteed ESM parsing)
 api_src = os.path.join(SRC, 'api-claude.js')

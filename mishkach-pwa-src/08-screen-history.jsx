@@ -322,7 +322,7 @@ function WeeklyInsightCard() {
       // v3.13: now returns structured object
       // { insight, records, interesting_numbers } or { insufficient_data: true }
       const result = await generateWeeklyInsight(snapshot, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,
@@ -535,7 +535,7 @@ function PlateauCard({ entries }) {
       const snapshot = buildInsightSnapshot(state, stats, 21); // 3 weeks for plateau context
       snapshot.plateau_detected = plateau;
       const text = await generatePlateauAnalysis(snapshot, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,

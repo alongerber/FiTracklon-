@@ -141,7 +141,7 @@ function GoalCalibrationCard() {
     try {
       const snapshot = buildInsightSnapshot(state, stats, 21); // 3 weeks for pace context
       const text = await generateGoalCalibration(snapshot, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,

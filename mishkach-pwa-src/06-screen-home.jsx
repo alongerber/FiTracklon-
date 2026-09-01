@@ -1320,7 +1320,7 @@ function MonthlyRecapDialog({ ym, onClose, onNavigate, canDismiss }) {
     setAiTried(true);
     setAiLoading(true);
     generateMonthlyRecap(monthStats, state.apiConfig, (usage) => {
-      const cost = estimateCost(usage, state.apiConfig.model);
+      const cost = estimateCost(usage, usage.model || state.apiConfig.model);
       dispatch({ type: 'TRACK_USAGE',
         inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
         feature: 'monthly_recap', costUSD: cost,
@@ -1750,7 +1750,7 @@ function CorrelationsCard() {
     setLoading(true);
     try {
       const result = await generateAutoCorrelations(snapshot, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({ type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
           feature: 'auto_correlations', costUSD: cost,
@@ -1905,7 +1905,7 @@ function WhatIfCard() {
     setLoading(true);
     try {
       const r = await generateWhatIf(snapshot, scenarioText, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({ type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
           feature: 'what_if', costUSD: cost,

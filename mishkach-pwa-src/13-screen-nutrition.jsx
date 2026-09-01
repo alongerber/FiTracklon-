@@ -471,6 +471,11 @@ function AddMealDialog({ date, onClose }) {
     else onClose();
   };
 
+  // v3.24: warm the Israeli nutrition DB as soon as the sheet opens, so the
+  // first lookup after a parse is instant. Best-effort — every lookup path
+  // falls back to the model's own estimate if this never resolves.
+  useFoodDB();
+
   return (
     <div style={{
       position: 'fixed', inset: 0, background: T.bg, zIndex: 800,
@@ -848,7 +853,7 @@ function TextParseFlow({ onParsed }) {
     setLoading(true); setError(null);
     try {
       const result = await parseNutritionFromText(text.trim(), state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,
@@ -1116,7 +1121,7 @@ function RefinementScreen({ baseResult, thumbnail, onSkip, onRefined }) {
           value: q.options[answers[i]],
         })),
       }, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,
@@ -1313,7 +1318,7 @@ function PhotoParseFlow({ onParsed }) {
     setLoading(true); setError(null);
     try {
       const result = await parseNutritionFromImage(file, state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,
@@ -1626,7 +1631,7 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
     setReparsing(true);
     try {
       const r = await parseNutritionFromText(desc.trim(), state.apiConfig, (usage) => {
-        const cost = estimateCost(usage, state.apiConfig.model);
+        const cost = estimateCost(usage, usage.model || state.apiConfig.model);
         dispatch({
           type: 'TRACK_USAGE',
           inputTokens: usage.input_tokens,
@@ -1718,6 +1723,31 @@ function ReviewAndSave({ result, thumbnail, source, date, onDone }) {
         }}>
           <div style={{ fontWeight: 700 }}>{confidenceLabels[meta.confidence]}</div>
           {meta.notes && <div style={{ marginTop: 4, opacity: 0.9, lineHeight: 1.5 }}>{meta.notes}</div>}
+        </div>
+      )}
+
+      {/* Atwater inconsistency — the reply contradicts its own macros.
+          Offer the derived figure as a one-tap correction rather than
+          arguing with the user about which number is right. */}
+      {source !== 'manual' && result.atwater && !result.atwater.ok && result.atwater.derived > 0 && (
+        <div role="alert" style={{
+          display: 'flex', gap: 12, padding: '14px 16px', marginBottom: 16,
+          background: `${T.amber}12`, border: `1px solid ${T.amber}55`,
+          borderRight: `3px solid ${T.amber}`, borderRadius: 12,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>המספרים לא מסתדרים</div>
+            <div style={{ fontSize: 13, color: T.inkSub, marginTop: 3, lineHeight: 1.5 }}>
+              לפי החלבון, הפחמימות והשומן שהתקבלו הארוחה יוצאת{' '}
+              <b style={{ color: T.ink }}>{result.atwater.derived} קק״ל</b>, אבל הוחזרו {result.calories}.
+              פער של {Math.round(result.atwater.delta * 100)}%.
+            </div>
+            <button onClick={() => setPerCal(result.atwater.derived)} style={{
+              marginTop: 10, padding: '8px 14px', borderRadius: 999,
+              background: 'transparent', border: `1px solid ${T.amber}`,
+              color: T.amber, fontSize: 13, fontWeight: 700, fontFamily: T.font, cursor: 'pointer',
+            }}>עדכן ל־{result.atwater.derived} קק״ל</button>
+          </div>
         </div>
       )}
 
